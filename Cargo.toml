@@ -1,0 +1,106 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/disk-io",
+    "crates/fs-common",
+    "crates/fs-ntfs",
+    "crates/fs-exfat",
+    "crates/fs-fat32",
+    "crates/diagnostic",
+    "crates/wish-match",
+    "crates/recovery",
+    "crates/quality",
+    "crates/validators",
+    "crates/report",
+    "crates/db",
+    "crates/case-manager",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["DDS Recovery Team"]
+license = "Proprietary"
+publish = false
+
+[workspace.dependencies]
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Binary parsing
+binrw = "0.14"
+nom = "7.1"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# DB
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Parallel processing
+rayon = "1.10"
+
+# Patterns
+aho-corasick = "1.1"
+memchr = "2.7"
+
+# Memory mapping
+memmap2 = "0.9"
+
+# Hashing
+sha2 = "0.10"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1.10", features = ["v4", "serde"] }
+
+# Testing
+proptest = "1.5"
+insta = "1.40"
+
+# Windows API (for disk I/O)
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_Security",
+] }
+
+# Internal crates
+dds-core = { path = "crates/core" }
+dds-disk-io = { path = "crates/disk-io" }
+dds-fs-common = { path = "crates/fs-common" }
+dds-fs-ntfs = { path = "crates/fs-ntfs" }
+dds-fs-exfat = { path = "crates/fs-exfat" }
+dds-fs-fat32 = { path = "crates/fs-fat32" }
+dds-diagnostic = { path = "crates/diagnostic" }
+dds-wish-match = { path = "crates/wish-match" }
+dds-recovery = { path = "crates/recovery" }
+dds-quality = { path = "crates/quality" }
+dds-validators = { path = "crates/validators" }
+dds-report = { path = "crates/report" }
+dds-db = { path = "crates/db" }
+dds-case-manager = { path = "crates/case-manager" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 1  # 単体テストの実行速度を確保

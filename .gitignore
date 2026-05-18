@@ -1,0 +1,57 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code worktrees
+.claude/worktrees/
+
+# Tauri
+src-tauri/target/
+
+# Node (将来のUI実装用)
+node_modules/
+dist/
+build/
+
+# 機密データ（顧客データを絶対にコミットしない）
+**/customer_data/
+**/case_data/
+**/*.case
+*.pii
+*.confidential
+
+# ローカル設定
+.env
+.env.local
+*.local.toml
+
+# ログ
+*.log
+logs/
+
+# テスト出力
+test-output/
+coverage/
+tarpaulin-report.html
+cobertura.xml
+
+# フィクスチャの生成中間ファイル（最終.imgはコミット可）
+fixtures/.tmp/
+fixtures/images/*.raw
+
+# データベース
+*.db
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
