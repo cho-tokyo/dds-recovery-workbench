@@ -6,9 +6,9 @@
 
 ## 累積サマリ
 
-- **完了チャンク数**: 1
-- **総実装行数**: 197（実装+テスト合計、200行上限内）
-- **総テスト数**: 5（全パス）
+- **完了チャンク数**: 2
+- **総実装行数**: 397（実装+テスト合計、各チャンク200行上限内）
+- **総テスト数**: 10（全パス）
 - **平均カバレッジ**: 未計測（モジュール完成時に計測予定）
 - **最終更新日**: 2026-05-19
 
@@ -18,7 +18,7 @@
 
 ```
 M0: 設計確定        [████████] 100% ✅ 完了
-M1: 基盤構築        [█░░░░░░░]  10% 🚧 進行中（Chunk 1/想定10前後 完了）
+M1: 基盤構築        [██░░░░░░]  20% 🚧 進行中（Chunk 1-2/想定10前後 完了）
 M2: NTFSリーダα     [░░░░░░░░]   0% ⏳ 未着手
 M3: 希望突合エンジン  [░░░░░░░░]   0% ⏳ 未着手
 M4: 復旧 + 品質判定  [░░░░░░░░]   0% ⏳ 未着手
@@ -37,6 +37,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | # | クレート | 名前 | 行数 | テスト | カバレッジ | 完了日 |
 |---|---|---|---|---|---|---|
 | 1 | dds-core | 共通エラー型・基本enum定義 | 197 | 5 ✓ | 未計測 | 2026-05-19 |
+| 2 | dds-fs-common | FS共通トレイト・データ型定義 | 200 | 5 ✓ | 未計測 | 2026-05-19 |
 
 ### Chunk 1 詳細
 
@@ -60,6 +61,32 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
   - cargo: 1.95.0 (f2d3ce0bd 2026-03-21)
 - **関連 FR**: 設計基盤（全 FR の前提）。本チャンク単独では特定の FR-XXX 完了マークは付与しない。後続チャンクで本クレートが利用されることで間接的に貢献。
 - **完了判定**: 完全完了（実装/単体テスト3件以上/rustdoc/clippy clean を全て満たす）
+
+### Chunk 2 詳細
+
+- **対象ファイル**: `crates/fs-common/src/lib.rs`、`crates/fs-common/Cargo.toml`
+- **実装内容**:
+  - `FsType` enum（Ntfs / ExFat / Fat32 / Unknown、`Display` 実装、`FromStr`（大文字小文字非依存）、`label_ja(&self) -> &'static str`、Serialize/Deserialize 派生）
+  - `EntryKind` enum（File / Directory / Symlink / Other、`is_directory(&self) -> bool`、`is_regular_file(&self) -> bool`）
+  - `FsTimestamps` struct（`created` / `modified` / `accessed`: `Option<i64>`、`empty()` コンストラクタ、`Default` 派生）
+  - `FsEntry` struct（`record_id` / `parent_record_id` / `name` / `full_path` / `size_bytes` / `kind` / `is_deleted` / `timestamps` / `fs_type`、`is_deleted(&self) -> bool` / `is_directory(&self) -> bool`、`Default` 派生せず明示構築強制）
+  - `FsReader` trait — **read-only 型レベル保証**。公開メソッドは `fs_type()` / `root_record_id()` / `read_entry(record_id) -> CoreResult<Option<FsEntry>>` / `list_all_entries() -> CoreResult<Vec<FsEntry>>` の 4 つのみ。書き込み系 API（write/save/flush/truncate 等）はトレイトに一切定義されていないことを Grep で検証済み。
+  - `Cargo.toml` に `serde.workspace = true` を追加
+- **検証結果（tester 独立検証）**:
+  - `cargo check -p dds-fs-common` … OK
+  - `cargo test --lib -p dds-fs-common` … **5 passed; 0 failed**
+    - `fs_type_display_outputs_correct_labels`
+    - `fs_type_from_str_accepts_case_insensitive`
+    - `entry_kind_helpers`
+    - `fs_entry_default_is_alive_and_anonymous`
+    - `fs_reader_trait_via_stub`
+  - `cargo clippy -p dds-fs-common --all-targets -- -D warnings` … warning 0件
+  - `cargo doc -p dds-fs-common --no-deps` … 生成成功
+  - 書き込み API 不在を Grep で確認 → **read-only 型レベル保証成立**
+- **関連 FR**:
+  - FR-LIVE-01〜07 の **基盤定義**として貢献（型・インタフェース確立）。具象FS実装後にあらためて達成判定するため、本チャンクでは完了マーク付与なし。
+  - NFR-REL-01（書込禁止の型レベル制約）の **設計貢献**（FsReader trait に書き込みAPIが存在しない設計）
+- **完了判定**: 完全完了（実装+テスト 200行ぴったり / 単体テスト 5件全パス / rustdoc 完備 / clippy clean / read-only 制約検証済）
 
 ---
 
@@ -142,16 +169,17 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 
 ## 次の推奨アクション
 
-**Chunk 2**: `dds-fs-common` FS共通トレイト定義
+**Chunk 3**: `dds-disk-io` `ReadOnlyDisk` トレイト定義 + ファイルベース簡易実装
 
-- **対象クレート**: `crates/fs-common/`
-- **目的**: 全 FS リーダ（NTFS / exFAT / FAT32）が共通実装すべき `FsReader` 系トレイトおよび FS 共通データ型（FileEntry, Attributes 等）を定義し、後続の `fs-ntfs` 等が依存できる土台を作る
-- **依存**: Chunk 1（`dds-core` のエラー型・基本 enum）
-- **推定行数**: 約150行（trait 定義中心 + 単体テスト 3件以上）
+- **対象クレート**: `crates/disk-io/`
+- **目的**: ソースデバイス（顧客HDD/SSD）に対する Raw アクセスを抽象化する `ReadOnlyDisk` トレイトを定義し、テスト用に `FileBackedDisk`（ローカルファイルを読み取り専用で開き、セクタ単位アクセスを提供する簡易実装）を実装する。型レベルで書き込みAPIを排除し、設計哲学「読み込み専用」を担保する。
+- **依存**: Chunk 1（`dds-core` のエラー型）
+- **推定行数**: 約150行（trait 定義 + FileBackedDisk 実装 + 単体テスト 3件以上）
 - **着手前の準備**:
-  1. PRD `docs/PRD.md` の FR-LIVE-01〜07 を再確認（読み取り系要件の共通項を抽出）
-  2. `docs/architecture.md` の fs-common 責務記述を確認
-  3. 後続チャンク 4〜10（NTFS実装群）を見据えた抽象化レベルの調整
-- **完了条件**: Chunk 1 と同等（cargo check / test --lib / clippy / doc 全 OK、rustdoc 完備、単体テスト 3件以上）
+  1. PRD `docs/PRD.md` の NFR-REL-01（書込禁止の型レベル制約）および FR-DIAG-01〜02 を再確認
+  2. `docs/architecture.md` の disk-io 責務記述を確認
+  3. 後続の FS リーダ群が `ReadOnlyDisk` を利用してセクタ／クラスタを読む流れを念頭に置く
+  4. Windows 物理デバイス（`\\.\PhysicalDriveN`）対応は別チャンクで分離（本チャンクではファイルベースのみ）
+- **完了条件**: Chunk 1-2 と同等（cargo check / test --lib / clippy / doc 全 OK、rustdoc 完備、単体テスト 3件以上、書き込み API 不在を Grep で検証）
 
-詳細指示は builder 起動時に作成する `docs/chunk_2.md`（または first_chunk.md と同形式の別ファイル）で展開予定。
+詳細指示は builder 起動時に作成する `docs/chunk_3.md` で展開予定。
