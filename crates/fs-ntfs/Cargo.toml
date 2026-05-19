@@ -10,6 +10,7 @@ publish = false
 dds-core.workspace = true
 dds-fs-common.workspace = true
 thiserror.workspace = true
+chrono.workspace = true
 
 [dev-dependencies]
 zstd = "0.13"

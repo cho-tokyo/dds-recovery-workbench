@@ -6,11 +6,12 @@
 
 ## 累積サマリ
 
-- **完了チャンク数**: 6
-- **総実装行数**: 1172（実装+テスト合計、各チャンク200行上限内）
-- **総単体テスト数**: 38（全パス）
-- **総結合テスト数**: 6（全パス、NTFSフィクスチャ実画像での Boot Sector + MFT エントリヘッダ + 属性ヘッダ巡回まで実証）
+- **完了チャンク数**: 7
+- **総実装行数**: 1370（実装+テスト合計、各チャンク200行上限内）
+- **総単体テスト数**: 48（全パス）
+- **総結合テスト数**: 8（全パス、NTFSフィクスチャ実画像での Boot Sector + MFT エントリヘッダ + 属性ヘッダ巡回 + $STANDARD_INFORMATION タイムスタンプ復元まで実証）
 - **平均カバレッジ**: 未計測（モジュール完成時に計測予定）
+- **ハイライト**: **削除済みファイルのタイムスタンプ復元を実画像レベルで実証**（Chunk 7 結合テストで削除エントリ 13 件から $SI 取得成功、created = 2026-05-19T10:19:13Z がフィクスチャ生成時刻と一致）
 - **最終更新日**: 2026-05-19
 
 ---
@@ -20,7 +21,7 @@
 ```
 M0: 設計確定        [████████] 100% ✅ 完了
 M1: 基盤構築        [███░░░░░]  30% 🚧 進行中（Chunk 1-3/想定10前後 完了）
-M2: NTFSリーダα     [███░░░░░]  30% 🚧 進行中（Chunk 4: Boot Sector パーサ + Chunk 5: MFT エントリヘッダ + フィクサップ + Chunk 6: 属性ヘッダパーサ 完了）
+M2: NTFSリーダα     [████░░░░]  40% 🚧 進行中（Chunk 4: Boot Sector パーサ + Chunk 5: MFT エントリヘッダ + フィクサップ + Chunk 6: 属性ヘッダパーサ + Chunk 7: 属性イテレータ + $STANDARD_INFORMATION 完了）
 M3: 希望突合エンジン  [░░░░░░░░]   0% ⏳ 未着手
 M4: 復旧 + 品質判定  [░░░░░░░░]   0% ⏳ 未着手
 M5: NTFS-α リリース [░░░░░░░░]   0% ⏳ 未着手
@@ -43,6 +44,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | 4 | dds-fs-ntfs | NTFS Boot Sector (VBR) パーサ | 197 | 6 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 |
 | 5 | dds-fs-ntfs | NTFS MFT エントリヘッダパーサ + フィクサップ適用 | 199 | 8 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 |
 | 6 | dds-fs-ntfs | NTFS 属性ヘッダパーサ（Resident/NonResident 分岐 + End マーカー） | 198 | 8 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 |
+| 7 | dds-fs-ntfs | NTFS 属性イテレータ + $STANDARD_INFORMATION 属性パーサ | 198 | 10 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 |
 
 ### Chunk 1 詳細
 
@@ -241,6 +243,61 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 - **特記事項**: 前方互換性のため未知の type ID をエラー化せず `Unknown(u32)` で保持する設計を採用。これにより新しい Windows バージョンが追加する属性タイプに遭遇しても巡回が止まらず、未知属性を「無視 or 報告」する選択肢を上位レイヤに委ねられる。`length == 0` を必ず `InvalidLength` で弾くことで属性巡回ループの安全性も担保。
 - **完了判定**: 完全完了（実装+テスト 198行 / 単体テスト 8件全パス / 結合テスト 2件全パス / rustdoc 完備 / clippy clean / unsafe・書き込み API 不在を維持 / Forward compat 設計）
 
+### Chunk 7 詳細
+
+- **対象ファイル**:
+  - `crates/fs-ntfs/src/attributes/mod.rs`（実装+単体テスト 88行、新規）
+  - `crates/fs-ntfs/src/attributes/standard_information.rs`（実装+単体テスト 110行、新規）
+  - `crates/fs-ntfs/src/lib.rs`（`attributes` モジュール re-export 追加）
+  - `crates/fs-ntfs/Cargo.toml`（`chrono.workspace = true` を追加）
+  - `crates/fs-ntfs/tests/standard_information_integration.rs`（結合テスト 80行 / 2件）
+- **実装内容**:
+  - **属性イテレータ系（`attributes/mod.rs`）**:
+    - `AttributeRef<'a>` 構造体（pub フィールド: `header: AttributeHeader` / `raw: &'a [u8]` / `offset_in_entry: usize`）
+    - `AttributeIterator<'a>` — `Iterator<Item = Result<AttributeRef<'a>, AttributeError>>` 実装。End マーカーで終了、`length == 0` や buffer 超過時は `InvalidLength` を yield して停止（無限ループ防止）
+    - `find_attribute(entry_data, first_attribute_offset, target_type) -> Option<AttributeRef>` ヘルパ関数
+  - **$STANDARD_INFORMATION 系（`attributes/standard_information.rs`）**:
+    - `FileTime(u64)` — newtype、`to_datetime() -> Option<DateTime<Utc>>`（1601-01-01 起算 100ns 単位 → Unix epoch 変換、`checked_div` / `checked_sub` / `checked_mul` でオーバーフロー安全、`i64::try_from` で u64→i64 変換も安全）
+    - `FileAttributes(u32)` — newtype + 定数（READ_ONLY / HIDDEN / SYSTEM / ARCHIVE / COMPRESSED / ENCRYPTED / DIRECTORY）+ `is_read_only()` / `is_hidden()` / `is_system()` / `is_archive()` / `is_compressed()` / `is_encrypted()` / `is_directory()` 判定メソッド
+    - `StandardInformation` 構造体（pub フィールド: `created` / `modified` / `mft_modified` / `accessed: FileTime`、`file_attributes: FileAttributes`、`max_versions` / `version_number` / `class_id: u32`、W2K+ 拡張部の `owner_id` / `security_id` / `quota_charged` / `usn` は `Option`）
+    - `SiError::BufferTooSmall`
+    - `parse_standard_information(bytes: &[u8]) -> Result<StandardInformation, SiError>` — NT版（48バイト）と W2K+ 拡張版（72バイト）をバイト長で判別
+- **設計上のポイント**:
+  - **無限ループ防止**: `AttributeIterator` は `length == 0` および buffer 超過を `InvalidLength` で必ず弾き、yield 後は `done` フラグで停止
+  - **オーバーフロー安全**: `FileTime::to_datetime` は `checked_*` 系演算と `i64::try_from` で u64 全域に対して panic しない設計
+  - **バージョン互換**: NT 版（48バイト）と W2K+ 拡張版（72バイト）をバイト長で判別、拡張フィールドは `Option` で表現
+  - **2ファイル分散構成**: 200行制約を満たすため `mod.rs`（88行）と `standard_information.rs`（110行）に分割、合計 198行
+- **検証結果（tester 独立検証）**:
+  - 実装+単体テスト行数: **198行**（200行上限内、2ファイル分散）
+  - `cargo check -p dds-fs-ntfs` … OK
+  - `cargo test --lib -p dds-fs-ntfs` … **32 passed; 0 failed**（Chunk 4: 6件 + Chunk 5: 8件 + Chunk 6: 8件 + Chunk 7: 10件）
+    - `iterator_empty_on_end_marker`
+    - `iterator_yields_single_attribute_then_end`
+    - `iterator_yields_multiple_attributes`
+    - `find_attribute_finds_existing_type`
+    - `find_attribute_returns_none_for_missing_type`
+    - `parses_48_byte_nt_version`
+    - `parses_72_byte_w2k_extended`
+    - `rejects_buffer_smaller_than_48_bytes`
+    - `filetime_to_datetime_known_value`
+    - `file_attributes_bit_checks`
+  - `cargo test -p dds-fs-ntfs` … **40 passed**（単体32 + 結合8）
+    - Chunk 7 結合テスト:
+      - `reads_standard_information_from_healthy_records`（健全イメージから 27 件の $SI 取得成功）
+      - `reads_standard_information_from_deleted_records`（**削除エントリから 13 件の $SI 取得成功、created = 2026-05-19T10:19:13Z = フィクスチャ生成時刻と一致**）
+  - `cargo clippy -p dds-fs-ntfs --all-targets -- -D warnings` … warning 0件
+  - `cargo doc -p dds-fs-ntfs --no-deps` … 生成成功
+  - 安全性検証: `unsafe` 0件、書き込み API 0件、`from_be_bytes` 0件（リトルエンディアン専用を維持）
+- **重要なマイルストーン達成**:
+  - **削除済みファイルのタイムスタンプ復元を実画像レベルで実証**: 結合テスト `reads_standard_information_from_deleted_records` が削除エントリの $SI からタイムスタンプ取得成功。`ntfs_with_5_deletions_small` 削除エントリの created = 2026-05-19T10:19:13Z がフィクスチャ生成時刻と一致
+  - これは「お客様希望リスト × 復旧候補」の突合に必要な日時情報（FR-WISH-01「日付範囲指定」の基盤）
+- **関連 FR**:
+  - **FR-LIVE-01（NTFS 読み取り）**: **部分着手継続**（Boot Sector + MFT エントリヘッダ + 属性ヘッダ + 属性イテレータ + $SI 完了。$FILE_NAME と $DATA、$INDEX_ROOT/ALLOCATION、ディレクトリツリー構築は Chunk 8 以降で実装予定）
+  - **FR-LIVE-06（メタデータ表示）**: **タイムスタンプ取得完了**（4種のタイムスタンプ created / modified / mft_modified / accessed + DOS ファイル属性フラグを抽出可能。残作業: $FILE_NAME のファイル名・親参照、$DATA のサイズ・データラン、上位レイヤでのメタデータ集約 API）
+  - **FR-WISH-01（日付範囲指定）**: **基盤確立**（タイムスタンプデータ供給可能。希望リスト × 復旧候補の日付突合に必要なデータが NTFS 側から取れる状態）
+- **特記事項**: $SI は NTFS におけるタイムスタンプの一次情報源。本チャンクの完了により、後続の $FILE_NAME パース（Chunk 8）と合わせれば「いつ削除されたか・どのファイル名だったか」のペアが復元可能になり、Phase 1 のプロダクト価値（希望リスト駆動型復旧）の中核データが揃う。
+- **完了判定**: 完全完了（実装+テスト 198行 / 単体テスト 10件全パス / 結合テスト 2件全パス / rustdoc 完備 / clippy clean / unsafe・書き込み API 不在を維持 / オーバーフロー安全な FILETIME 変換）
+
 ---
 
 ## FR要件達成マトリクス
@@ -262,11 +319,12 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 - [ ] FR-DIAG-07: 診断レポート生成
 
 ### ライブモード (FR-LIVE)
-- [~] **FR-LIVE-01: NTFS読み取り** 🚧 **部分着手**（Chunk 4-6 / dds-fs-ntfs）
+- [~] **FR-LIVE-01: NTFS読み取り** 🚧 **部分着手**（Chunk 4-7 / dds-fs-ntfs）
   - Boot Sector (VBR) パーサ完了。OEM ID/シグネチャ検証、主要パラメータ抽出、MFT 開始オフセット算出が利用可能
   - MFT エントリヘッダパーサ + フィクサップ適用完了。`FILE`/`BAAD` 判定、USA 検証、フラグ抽出（in-use/directory）、レコード番号/シーケンス番号取得が利用可能
   - 属性ヘッダパーサ完了。共通ヘッダ抽出、Resident/NonResident 排他分岐、End マーカー検出、未知 type ID の前方互換受け入れ、0長拒否による安全な巡回基盤が利用可能。実フィクスチャで $STANDARD_INFORMATION / $FILE_NAME / $DATA / $BITMAP / End の昇順巡回を実証
-  - 残作業: $STANDARD_INFORMATION（Chunk 7）、$FILE_NAME、$DATA、$INDEX_ROOT/ALLOCATION、ディレクトリツリー構築
+  - **属性イテレータ + $STANDARD_INFORMATION 完了**。`AttributeIterator` で End まで安全に列挙、`find_attribute` ヘルパ、$SI から 4 種タイムスタンプ（created/modified/mft_modified/accessed）+ DOS 属性フラグ抽出、NT(48B)/W2K+(72B) 両版対応
+  - 残作業: $FILE_NAME（Chunk 8）、$DATA、$INDEX_ROOT/ALLOCATION、ディレクトリツリー構築
   - 完了マークは `FsReader` trait の NTFS 実装が全要素を返せるようになった時点で付与
 - [ ] FR-LIVE-02: exFAT読み取り
 - [ ] FR-LIVE-03: FAT32読み取り
@@ -275,14 +333,19 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
   - MFT エントリ単位の削除判定 `is_deleted()` を提供（flags の in-use ビット非立で判定）
   - 結合テスト `counts_deleted_entries_in_deletions_fixture` で実 NTFS フィクスチャから削除エントリ ≥5 件検出を実証
   - 残作業: ディレクトリツリー上の削除エントリ列挙、UI 上の色分け表示・一覧化、削除済みファイル名の復元（$FILE_NAME 属性パース依存）
-- [~] **FR-LIVE-06: メタデータ表示** 🚧 **基盤着手**（Chunk 6 / dds-fs-ntfs）
-  - 属性ヘッダ巡回 API（`parse_attribute_header`）と Resident/NonResident 情報構造体が確立。後続の具象属性パーサ（$STANDARD_INFORMATION のタイムスタンプ、$FILE_NAME のファイル名、$DATA のサイズ・データラン等）が本ヘッダを起点にメタデータを抽出できる状態
-  - 残作業: $STANDARD_INFORMATION（タイムスタンプ・アクセス権）、$FILE_NAME（ファイル名・親参照）、$DATA（実体サイズ・データラン）の具象属性パーサと、上位レイヤでのメタデータ集約・表示
+- [~] **FR-LIVE-06: メタデータ表示** 🚧 **タイムスタンプ取得完了**（Chunk 6-7 / dds-fs-ntfs）
+  - 属性ヘッダ巡回 API（`parse_attribute_header` / `AttributeIterator` / `find_attribute`）が確立し、$MFT エントリから安全に End マーカーまで属性を列挙可能
+  - **$STANDARD_INFORMATION パース完了**: 4 種タイムスタンプ（created / modified / mft_modified / accessed、Windows FILETIME → `DateTime<Utc>` 変換 / オーバーフロー安全）、DOS ファイル属性フラグ（READ_ONLY / HIDDEN / SYSTEM / ARCHIVE / COMPRESSED / ENCRYPTED / DIRECTORY）の抽出が可能。NT(48B)/W2K+(72B) 両版対応
+  - **削除エントリ含めて実フィクスチャでタイムスタンプ復元を実証**（健全 27 件 + 削除 13 件）
+  - 残作業: $FILE_NAME（ファイル名・親参照）、$DATA（実体サイズ・データラン）の具象属性パーサと、上位レイヤでのメタデータ集約・表示
   - 完了マークはメタデータ集約 API が `FsEntry` に必要なフィールドを全て返せるようになった時点で付与
 - [ ] FR-LIVE-07: バックアップメタ活用
 
 ### 希望リスト・突合 (FR-WISH)
-- [ ] FR-WISH-01: 希望項目の入力フォーム
+- [~] **FR-WISH-01: 希望項目の入力フォーム** 🚧 **データ基盤確立**（Chunk 7 / dds-fs-ntfs）
+  - 「日付範囲指定」による希望リスト × 復旧候補の突合に必要なタイムスタンプデータが NTFS 側から取得可能になった（$STANDARD_INFORMATION から created / modified / mft_modified / accessed の 4 種を抽出）
+  - 削除エントリのタイムスタンプも実画像レベルで取得実証済（フィクスチャ生成時刻と一致）
+  - 残作業: 希望項目入力フォーム本体（UI）、希望条件のデータ型定義、突合ロジック（FR-WISH-04/05）
 - [ ] FR-WISH-02: 優先度設定
 - [ ] FR-WISH-03: 一括インポート
 - [ ] FR-WISH-04: 突合実行
@@ -343,24 +406,28 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 
 ## 次の推奨アクション
 
-**Chunk 7**: `dds-fs-ntfs` NTFS `$STANDARD_INFORMATION` 属性パーサ + 属性イテレータ
+**Chunk 8**: `dds-fs-ntfs` NTFS `$FILE_NAME` 属性パーサ（ファイル名取得 — プロダクト価値の見える化マイルストーン）
 
 - **対象クレート**: `crates/fs-ntfs/`
 - **対象ファイル（予定）**:
-  - `crates/fs-ntfs/src/std_info.rs`（新規、$STANDARD_INFORMATION の具象パース）
-  - `crates/fs-ntfs/src/attribute.rs`（既存に属性巡回ヘルパ `AttributeIterator` を追加検討、ただし 200 行制約を見て別ファイル分割も可）
-- **目的**: Chunk 6 で確立した属性ヘッダ巡回基盤の上に、最初の具象属性パーサを実装する。$STANDARD_INFORMATION（type ID 0x10、常駐属性、固定長 48〜72バイト）からタイムスタンプ4種（created / modified / mft_modified / accessed、Windows FILETIME 形式の 100ns 単位 u64）、ファイル属性フラグ（read-only / hidden / system / archive など）、最大バージョン番号、バージョン番号、クラス ID、所有者 ID、セキュリティ ID、クォータ充当、Update Sequence Number を抽出。あわせて属性巡回ヘルパ `AttributeIterator`（または `iterate_attributes`）を整備し、`MftEntry.data` から `first_attribute_offset` を起点に End マーカーまで安全に列挙できる API を提供する。
+  - `crates/fs-ntfs/src/attributes/file_name.rs`（新規、$FILE_NAME の具象パース）
+  - `crates/fs-ntfs/src/attributes/mod.rs`（既存、re-export 追加）
+  - `crates/fs-ntfs/src/lib.rs`（公開 API の re-export 追加）
+  - `crates/fs-ntfs/tests/file_name_integration.rs`（新規、結合テスト）
+- **目的**: Chunk 7 で確立した属性イテレータの上に、最重要の具象属性 $FILE_NAME（type ID 0x30、常駐属性）を実装する。ファイル名本体（UTF-16 LE エンコード）、親ディレクトリへの MFT 参照（48ビット record number + 16ビット sequence number）、ファイル名種別（POSIX / Win32 / DOS / Win32&DOS）、$SI 同等の 4 種タイムスタンプ（$FILE_NAME 内にも別途格納されている）、論理サイズ / 物理サイズ、ファイル属性フラグを抽出。これにより「いつ削除されたか・どのファイル名だったか」の中核ペアが揃い、Phase 1 のプロダクト価値（希望リスト駆動型復旧）の見える化に到達。
 - **依存**:
   - Chunk 1（`dds-core` のエラー型基盤）
-  - Chunk 5（`MftEntry.data` / `MftEntryHeader.first_attribute_offset` / `MftEntryHeader.used_size`）
-  - Chunk 6（`AttributeHeader` / `AttributeType::StandardInformation` / `ResidentInfo` / `parse_attribute_header`）
-- **推定行数**: 約 100〜150行（実装 ~60〜90 + テスト ~40〜60）
+  - Chunk 5（`MftEntry` / `MftEntryHeader`）
+  - Chunk 6（`AttributeHeader` / `AttributeType::FileName` / `ResidentInfo`）
+  - Chunk 7（`AttributeIterator` / `find_attribute` / `FileTime` / `FileAttributes`）
+- **推定行数**: 約 150〜180行（実装 ~80〜110 + テスト ~50〜70）
 - **着手前の準備**:
-  1. `docs/specs/ntfs-references/` の $STANDARD_INFORMATION 仕様（48バイト版 / 72バイト版の差、NTFS 3.0+ 拡張フィールド）を再確認
-  2. Windows FILETIME → Unix epoch 変換ロジック（100ns 単位 since 1601-01-01 UTC → `Option<i64>` Unix 秒）の方針整理。`dds-fs-common::FsTimestamps` への接続を想定
-  3. 属性巡回ヘルパの API 形（`Iterator` 実装 or 単純な `next_attribute` 関数）を決定し、200行制約に収まるか試算
-  4. テスト: 手組み 48バイト版 / 72バイト版の $STANDARD_INFORMATION で各タイムスタンプ・フラグの抽出、巡回 API で複数属性を End まで列挙、長さ不足/不正フラグの拒否をカバー
-  5. 結合テスト: 実 NTFS フィクスチャの $MFT エントリ0の $STANDARD_INFORMATION からタイムスタンプを抽出し、ground truth JSON と照合
-- **完了条件**: Chunk 1-6 と同等（cargo check / test --lib / clippy `-D warnings` / doc 全 OK、rustdoc 完備、単体テスト 3件以上、不正値拒否テスト含む、unsafe・書き込み API 不在を維持）
+  1. `docs/specs/ntfs-references/` の $FILE_NAME 仕様を再確認（固定部 66バイト + 可変長ファイル名 UTF-16 LE、parent reference のエンコード、name type 列挙値）
+  2. UTF-16 LE → String 変換の方針整理（不正サロゲートペアのハンドリング、`String::from_utf16` / `from_utf16_lossy` の選択）
+  3. 親ディレクトリ参照（u64 のうち下位 48bit が record number、上位 16bit が sequence number）の分解ロジック
+  4. ファイル名種別 enum 定義（POSIX=0 / Win32=1 / DOS=2 / Win32AndDos=3）
+  5. テスト: 手組みデータで ASCII / UTF-16（日本語含む）/ 4 種 name type / 不正長拒否 / parent reference 分解 / 結合テスト（実フィクスチャから $FILE_NAME 取得、ground truth JSON のファイル名と照合）
+- **完了条件**: Chunk 1-7 と同等（cargo check / test --lib / clippy `-D warnings` / doc 全 OK、rustdoc 完備、単体テスト 3件以上、不正値拒否テスト含む、unsafe・書き込み API 不在を維持）
+- **マイルストーン意義**: 本チャンク完了時点で「削除エントリの created タイムスタンプ + ファイル名」のペアが取得可能になり、FR-WISH-01「日付範囲指定」とファイル名検索の両軸での突合データが揃う。M2 NTFSリーダα の見える化マイルストーン。
 
-詳細指示は builder 起動時に作成する `docs/chunk_7.md` で展開予定。
+詳細指示は builder 起動時に作成する `docs/chunk_8.md` で展開予定。
