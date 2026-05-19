@@ -6,10 +6,10 @@
 
 ## 累積サマリ
 
-- **完了チャンク数**: 5
-- **総実装行数**: 974（実装+テスト合計、各チャンク200行上限内）
-- **総単体テスト数**: 30（全パス）
-- **総結合テスト数**: 4（全パス、NTFSフィクスチャ実画像での Boot Sector + MFT エントリヘッダ パース）
+- **完了チャンク数**: 6
+- **総実装行数**: 1172（実装+テスト合計、各チャンク200行上限内）
+- **総単体テスト数**: 38（全パス）
+- **総結合テスト数**: 6（全パス、NTFSフィクスチャ実画像での Boot Sector + MFT エントリヘッダ + 属性ヘッダ巡回まで実証）
 - **平均カバレッジ**: 未計測（モジュール完成時に計測予定）
 - **最終更新日**: 2026-05-19
 
@@ -20,7 +20,7 @@
 ```
 M0: 設計確定        [████████] 100% ✅ 完了
 M1: 基盤構築        [███░░░░░]  30% 🚧 進行中（Chunk 1-3/想定10前後 完了）
-M2: NTFSリーダα     [██░░░░░░]  20% 🚧 進行中（Chunk 4: Boot Sector パーサ + Chunk 5: MFT エントリヘッダパーサ + フィクサップ適用 完了）
+M2: NTFSリーダα     [███░░░░░]  30% 🚧 進行中（Chunk 4: Boot Sector パーサ + Chunk 5: MFT エントリヘッダ + フィクサップ + Chunk 6: 属性ヘッダパーサ 完了）
 M3: 希望突合エンジン  [░░░░░░░░]   0% ⏳ 未着手
 M4: 復旧 + 品質判定  [░░░░░░░░]   0% ⏳ 未着手
 M5: NTFS-α リリース [░░░░░░░░]   0% ⏳ 未着手
@@ -42,6 +42,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | 3 | dds-disk-io | ReadOnlyDisk trait + FileBackedDisk 実装 | 181 | 6 ✓ | 未計測 | 2026-05-19 |
 | 4 | dds-fs-ntfs | NTFS Boot Sector (VBR) パーサ | 197 | 6 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 |
 | 5 | dds-fs-ntfs | NTFS MFT エントリヘッダパーサ + フィクサップ適用 | 199 | 8 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 |
+| 6 | dds-fs-ntfs | NTFS 属性ヘッダパーサ（Resident/NonResident 分岐 + End マーカー） | 198 | 8 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 |
 
 ### Chunk 1 詳細
 
@@ -196,6 +197,50 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 - **特記事項**: フィクサップ（Update Sequence）処理を Chunk 5 内で完結させたことで、後続の属性パースが破損検知済みのバイト列を直接扱える基盤を整備。`BAAD` シグネチャを `BadEntry` として明示的に区別し、ファイルシステム破損エントリの可視化に対応可能。
 - **完了判定**: 完全完了（実装+テスト 199行 / 単体テスト 8件全パス / 結合テスト 2件全パス / rustdoc 完備 / clippy clean / unsafe・書き込み API 不在を維持 / フィクサップによる破損検知も実装）
 
+### Chunk 6 詳細
+
+- **対象ファイル**:
+  - `crates/fs-ntfs/src/attribute.rs`（実装+単体テスト 198行、新規）
+  - `crates/fs-ntfs/src/lib.rs`（`AttributeType` / `AttributeCommonHeader` / `ResidentInfo` / `NonResidentInfo` / `AttributeHeader` / `AttributeError` / `parse_attribute_header` の re-export 追加）
+  - `crates/fs-ntfs/tests/attribute_integration.rs`（結合テスト 66行 / 2件）
+- **実装内容**:
+  - `AttributeType` enum（17バリアント: `StandardInformation` / `AttributeList` / `FileName` / `ObjectId` / `SecurityDescriptor` / `VolumeName` / `VolumeInformation` / `Data` / `IndexRoot` / `IndexAllocation` / `Bitmap` / `ReparsePoint` / `EaInformation` / `Ea` / `LoggedUtilityStream` / `Unknown(u32)` / `End`、`from_raw(u32) -> Self` / `to_raw(&self) -> u32`）
+  - `AttributeCommonHeader` 構造体（pub フィールド: `attribute_type` / `length` / `non_resident` / `name_length` / `name_offset` / `flags` / `attribute_id`）
+  - `ResidentInfo` 構造体（pub フィールド: `content_size` / `content_offset` / `indexed`）
+  - `NonResidentInfo` 構造体（pub フィールド: `starting_vcn` / `last_vcn` / `runlist_offset` / `compression_unit_size` / `allocated_size` / `real_size` / `initialized_size`）
+  - `AttributeHeader` enum（`Resident { common, resident }` / `NonResident { common, non_resident }` / `End`）+ メソッド `common()` / `length()` / `attribute_type()` / `is_end()`
+  - `AttributeError` enum — バリアント: `BufferTooSmall` / `InvalidLength` / `InvalidNonResidentFlag`
+  - `parse_attribute_header(bytes: &[u8]) -> Result<AttributeHeader, AttributeError>` — 先頭4バイトが `0xFFFFFFFF`（End マーカー）なら 16バイト未満でも即時 `End` を返却、共通ヘッダ16バイトを読み出した上で `non_resident` フラグにより排他的に Resident/NonResident をパース
+- **設計上のポイント**:
+  - **Forward compatibility**: 未知の type ID は `Unknown(value)` で受け入れエラー化せず、将来の Windows バージョン追加属性へ前方互換
+  - **無限ループ防止**: `length == 0` を `InvalidLength` で必ず弾く（属性巡回時の進行不能を回避）
+  - **End マーカー即時返却**: 先頭4バイトが 0xFFFFFFFF の場合、16バイト未満のバッファでも `End` を返す
+  - **常駐/非常駐分岐**: `non_resident` フラグ（0 or 1 以外は `InvalidNonResidentFlag`）で `ResidentInfo` または `NonResidentInfo` を排他的にパース
+- **検証結果（tester 独立検証）**:
+  - 実装+単体テスト行数: **198行**（200行上限内）
+  - `cargo check -p dds-fs-ntfs` … OK
+  - `cargo test --lib -p dds-fs-ntfs` … **22 passed; 0 failed**（Chunk 4: 6件 + Chunk 5: 8件 + Chunk 6: 8件）
+    - `attribute_type_from_raw_roundtrip_main_types`
+    - `attribute_type_unknown_and_end`
+    - `parses_resident_header_all_fields`
+    - `parses_nonresident_header_all_fields`
+    - `end_marker_returned_immediately`
+    - `buffer_too_small_rejected`
+    - `invalid_non_resident_flag_rejected`
+    - `zero_length_rejected_prevents_infinite_loop`
+  - `cargo test -p dds-fs-ntfs` … **28 passed**（単体22 + 結合6）
+    - Chunk 6 結合テスト:
+      - `iterates_attributes_of_mft_record_zero`（実 NTFS フィクスチャの $MFT エントリ0で $STANDARD_INFORMATION / $FILE_NAME / $DATA を含み End で終わることを実証。実検出シーケンス: `[StandardInformation (0x10), FileName (0x30), Data (0x80), Bitmap (0xB0), End (0xFFFFFFFF)]`）
+      - `attributes_are_in_ascending_type_id_order`（NTFS 仕様の昇順制約を実フィクスチャで検証）
+  - `cargo clippy -p dds-fs-ntfs --all-targets -- -D warnings` … warning 0件
+  - `cargo doc -p dds-fs-ntfs --no-deps` … 生成成功
+  - 安全性検証: `unsafe` 0件、書き込み API 0件、`from_be_bytes` 0件（リトルエンディアン専用を維持）
+- **関連 FR**:
+  - **FR-LIVE-01（NTFS 読み取り）**: **部分着手継続**（Boot Sector + MFT エントリヘッダ + 属性ヘッダ巡回まで完了。$STANDARD_INFORMATION / $FILE_NAME / $DATA / $INDEX_ROOT/ALLOCATION の具象属性パース、ディレクトリツリー構築は Chunk 7 以降で実装予定）
+  - **FR-LIVE-06（メタデータ表示）**: **基盤着手**（属性巡回 API が確立し、後続の具象属性パーサが本ヘッダを起点にタイムスタンプ・アクセス権・ファイル名等を抽出できる状態。メタデータ抽出本体は Chunk 7 以降の具象属性パース完了時に達成判定）
+- **特記事項**: 前方互換性のため未知の type ID をエラー化せず `Unknown(u32)` で保持する設計を採用。これにより新しい Windows バージョンが追加する属性タイプに遭遇しても巡回が止まらず、未知属性を「無視 or 報告」する選択肢を上位レイヤに委ねられる。`length == 0` を必ず `InvalidLength` で弾くことで属性巡回ループの安全性も担保。
+- **完了判定**: 完全完了（実装+テスト 198行 / 単体テスト 8件全パス / 結合テスト 2件全パス / rustdoc 完備 / clippy clean / unsafe・書き込み API 不在を維持 / Forward compat 設計）
+
 ---
 
 ## FR要件達成マトリクス
@@ -217,10 +262,11 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 - [ ] FR-DIAG-07: 診断レポート生成
 
 ### ライブモード (FR-LIVE)
-- [~] **FR-LIVE-01: NTFS読み取り** 🚧 **部分着手**（Chunk 4-5 / dds-fs-ntfs）
+- [~] **FR-LIVE-01: NTFS読み取り** 🚧 **部分着手**（Chunk 4-6 / dds-fs-ntfs）
   - Boot Sector (VBR) パーサ完了。OEM ID/シグネチャ検証、主要パラメータ抽出、MFT 開始オフセット算出が利用可能
   - MFT エントリヘッダパーサ + フィクサップ適用完了。`FILE`/`BAAD` 判定、USA 検証、フラグ抽出（in-use/directory）、レコード番号/シーケンス番号取得が利用可能
-  - 残作業: 属性ヘッダパーサ（Chunk 6）、$STANDARD_INFORMATION、$FILE_NAME、$DATA、$INDEX_ROOT/ALLOCATION、ディレクトリツリー構築
+  - 属性ヘッダパーサ完了。共通ヘッダ抽出、Resident/NonResident 排他分岐、End マーカー検出、未知 type ID の前方互換受け入れ、0長拒否による安全な巡回基盤が利用可能。実フィクスチャで $STANDARD_INFORMATION / $FILE_NAME / $DATA / $BITMAP / End の昇順巡回を実証
+  - 残作業: $STANDARD_INFORMATION（Chunk 7）、$FILE_NAME、$DATA、$INDEX_ROOT/ALLOCATION、ディレクトリツリー構築
   - 完了マークは `FsReader` trait の NTFS 実装が全要素を返せるようになった時点で付与
 - [ ] FR-LIVE-02: exFAT読み取り
 - [ ] FR-LIVE-03: FAT32読み取り
@@ -229,7 +275,10 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
   - MFT エントリ単位の削除判定 `is_deleted()` を提供（flags の in-use ビット非立で判定）
   - 結合テスト `counts_deleted_entries_in_deletions_fixture` で実 NTFS フィクスチャから削除エントリ ≥5 件検出を実証
   - 残作業: ディレクトリツリー上の削除エントリ列挙、UI 上の色分け表示・一覧化、削除済みファイル名の復元（$FILE_NAME 属性パース依存）
-- [ ] FR-LIVE-06: メタデータ表示
+- [~] **FR-LIVE-06: メタデータ表示** 🚧 **基盤着手**（Chunk 6 / dds-fs-ntfs）
+  - 属性ヘッダ巡回 API（`parse_attribute_header`）と Resident/NonResident 情報構造体が確立。後続の具象属性パーサ（$STANDARD_INFORMATION のタイムスタンプ、$FILE_NAME のファイル名、$DATA のサイズ・データラン等）が本ヘッダを起点にメタデータを抽出できる状態
+  - 残作業: $STANDARD_INFORMATION（タイムスタンプ・アクセス権）、$FILE_NAME（ファイル名・親参照）、$DATA（実体サイズ・データラン）の具象属性パーサと、上位レイヤでのメタデータ集約・表示
+  - 完了マークはメタデータ集約 API が `FsEntry` に必要なフィールドを全て返せるようになった時点で付与
 - [ ] FR-LIVE-07: バックアップメタ活用
 
 ### 希望リスト・突合 (FR-WISH)
@@ -294,21 +343,24 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 
 ## 次の推奨アクション
 
-**Chunk 6**: `dds-fs-ntfs` NTFS 属性ヘッダパーサ
+**Chunk 7**: `dds-fs-ntfs` NTFS `$STANDARD_INFORMATION` 属性パーサ + 属性イテレータ
 
 - **対象クレート**: `crates/fs-ntfs/`
-- **対象ファイル（予定）**: `crates/fs-ntfs/src/attribute.rs`
-- **目的**: フィクサップ適用済み MFT エントリ（Chunk 5 の `MftEntry.data`）内に並ぶ属性レコードの共通ヘッダを解析し、後続の具象属性パース（$STANDARD_INFORMATION / $FILE_NAME / $DATA など）の前提を確立する。属性タイプ ID（0x10=$STANDARD_INFORMATION / 0x30=$FILE_NAME / 0x80=$DATA など）、属性レコード長、レジデント/非レジデント判定、名前長/名前オフセット、属性 ID、レジデント時のコンテンツオフセット/サイズ、非レジデント時の VCN レンジ・データラン開始オフセットを抽出。終端マーカー（0xFFFFFFFF）の検出も含む。
+- **対象ファイル（予定）**:
+  - `crates/fs-ntfs/src/std_info.rs`（新規、$STANDARD_INFORMATION の具象パース）
+  - `crates/fs-ntfs/src/attribute.rs`（既存に属性巡回ヘルパ `AttributeIterator` を追加検討、ただし 200 行制約を見て別ファイル分割も可）
+- **目的**: Chunk 6 で確立した属性ヘッダ巡回基盤の上に、最初の具象属性パーサを実装する。$STANDARD_INFORMATION（type ID 0x10、常駐属性、固定長 48〜72バイト）からタイムスタンプ4種（created / modified / mft_modified / accessed、Windows FILETIME 形式の 100ns 単位 u64）、ファイル属性フラグ（read-only / hidden / system / archive など）、最大バージョン番号、バージョン番号、クラス ID、所有者 ID、セキュリティ ID、クォータ充当、Update Sequence Number を抽出。あわせて属性巡回ヘルパ `AttributeIterator`（または `iterate_attributes`）を整備し、`MftEntry.data` から `first_attribute_offset` を起点に End マーカーまで安全に列挙できる API を提供する。
 - **依存**:
   - Chunk 1（`dds-core` のエラー型基盤）
   - Chunk 5（`MftEntry.data` / `MftEntryHeader.first_attribute_offset` / `MftEntryHeader.used_size`）
-- **推定行数**: 約 150行（実装 ~90 + テスト ~60）
+  - Chunk 6（`AttributeHeader` / `AttributeType::StandardInformation` / `ResidentInfo` / `parse_attribute_header`）
+- **推定行数**: 約 100〜150行（実装 ~60〜90 + テスト ~40〜60）
 - **着手前の準備**:
-  1. `docs/specs/ntfs-references/` の属性ヘッダ仕様（Common Header + Resident/Non-Resident 分岐）を再確認
-  2. レジデント属性の `content_offset` / `content_length` と、非レジデント属性の `starting_vcn` / `last_vcn` / `data_runs_offset` / `allocated_size` / `real_size` / `initialized_size` の差を整理
-  3. 属性ヘッダの妥当性チェック方針（`used_size` 範囲内、長さ整合、終端マーカー検出）を整理
-  4. 具象属性パースは Chunk 7 以降に分離し、Chunk 6 ではヘッダ列挙とイテレーション API までに留める（200行制限考慮）
-  5. テスト: 手組み MFT エントリで複数属性（$STANDARD_INFORMATION + $FILE_NAME + $DATA + 終端）の列挙、不正属性長拒否、レジデント/非レジデント分岐をカバー
-- **完了条件**: Chunk 1-5 と同等（cargo check / test --lib / clippy `-D warnings` / doc 全 OK、rustdoc 完備、単体テスト 3件以上、不正値拒否テスト含む、unsafe・書き込み API 不在を維持）
+  1. `docs/specs/ntfs-references/` の $STANDARD_INFORMATION 仕様（48バイト版 / 72バイト版の差、NTFS 3.0+ 拡張フィールド）を再確認
+  2. Windows FILETIME → Unix epoch 変換ロジック（100ns 単位 since 1601-01-01 UTC → `Option<i64>` Unix 秒）の方針整理。`dds-fs-common::FsTimestamps` への接続を想定
+  3. 属性巡回ヘルパの API 形（`Iterator` 実装 or 単純な `next_attribute` 関数）を決定し、200行制約に収まるか試算
+  4. テスト: 手組み 48バイト版 / 72バイト版の $STANDARD_INFORMATION で各タイムスタンプ・フラグの抽出、巡回 API で複数属性を End まで列挙、長さ不足/不正フラグの拒否をカバー
+  5. 結合テスト: 実 NTFS フィクスチャの $MFT エントリ0の $STANDARD_INFORMATION からタイムスタンプを抽出し、ground truth JSON と照合
+- **完了条件**: Chunk 1-6 と同等（cargo check / test --lib / clippy `-D warnings` / doc 全 OK、rustdoc 完備、単体テスト 3件以上、不正値拒否テスト含む、unsafe・書き込み API 不在を維持）
 
-詳細指示は builder 起動時に作成する `docs/chunk_6.md` で展開予定。
+詳細指示は builder 起動時に作成する `docs/chunk_7.md` で展開予定。
