@@ -1,0 +1,11 @@
+{
+  "fixture_name": "ntfs_healthy_small",
+  "fs_type": "NTFS",
+  "image_size_bytes": 20971520,
+  "creation_date": "2026-05-19",
+  "scenario": "30 healthy files",
+  "expected_total_entries": 30,
+  "expected_deleted_count": 0,
+  "expected_live_count": 30,
+  "files": []
+}

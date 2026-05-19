@@ -1,0 +1,232 @@
+{
+  "fixture_name": "ntfs_with_5_deletions_small",
+  "fs_type": "NTFS",
+  "image_size_bytes": 20971520,
+  "creation_date": "2026-05-19",
+  "scenario": "30 files created, 5 deleted",
+  "expected_total_entries": 30,
+  "expected_deleted_count": 5,
+  "expected_live_count": 25,
+  "files": [
+    {
+      "path": "file_000.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "b1585d672a2790d1abc5a94981f03bf627e79b594776b4ea1320f6f87992a793",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.338356Z"
+    },
+    {
+      "path": "file_001.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "d82f2b21454ea4720dce9636976ffeb1955a0e3c76b12a32bd900d6938d36276",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.338915Z"
+    },
+    {
+      "path": "file_002.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "b7fd58fa7ea1cbac76cbdd6f91c3f5755fd814adab19fe8c8b818d6ed43d2207",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.339506Z"
+    },
+    {
+      "path": "file_003.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "ebfd49fbf290ab73aa33b0bb899a4d7376e8469e02568698b881f3a4539ee9ab",
+      "is_deleted": true,
+      "created_at": "2026-05-19T10:19:13.340012Z",
+      "deletion_method": "unlink",
+      "deleted_at": "2026-05-19T10:19:13.412898Z"
+    },
+    {
+      "path": "file_004.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "39bc402ff324790afc3f83dd7f420d1fdd7f8e2516039321afe8678c07a9137c",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.340541Z"
+    },
+    {
+      "path": "file_005.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "cd8ef7e523522f8c99db087a3f129b7aec5326417a4dfd94b4f5127a065d0a74",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.341123Z"
+    },
+    {
+      "path": "file_006.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "f7a7f81daee017eea87365d757f3d9e85e9fd2fdbac0c052af553704b20db428",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.341647Z"
+    },
+    {
+      "path": "file_007.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "ef489d0e53fe7c69e694e4867a1c2401f194740fc0e4ed47741e53079e57da13",
+      "is_deleted": true,
+      "created_at": "2026-05-19T10:19:13.342154Z",
+      "deletion_method": "unlink",
+      "deleted_at": "2026-05-19T10:19:13.413705Z"
+    },
+    {
+      "path": "file_008.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "df06a5d673f782ed8973e6a31dd32e02f5d472d257b33f527d291e2c10bd7614",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.342661Z"
+    },
+    {
+      "path": "file_009.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "44ad2a9f7f49d340b61e17b3de59f76499d5a1107a626b76204771be17e7ca25",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.343158Z"
+    },
+    {
+      "path": "file_010.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "ceda51ca2fd3e7961d9c7b83bf6695956f41ded980856f90a0826757f9b40e05",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.343656Z"
+    },
+    {
+      "path": "file_011.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "7ab1c61833f5d2eaf6a5f08b973c56e3947aac74740d896543553667446d371d",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.344152Z"
+    },
+    {
+      "path": "file_012.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "9cdd59ce0f88f941f652a8745ec18eb5becb5b5997d9e7ecdb52b9fa30f46a65",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.344658Z"
+    },
+    {
+      "path": "file_013.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "0d9c9a390a2f58041e4365f9da6c3a23fd24d4bc5870ece5afc8d8cffd9d94f2",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.345247Z"
+    },
+    {
+      "path": "file_014.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "96f0482eb36be5ffa57a6cad89f3256dae214263575172a8f35039681e47797a",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.345761Z"
+    },
+    {
+      "path": "file_015.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "ba961428bb0e8c689bc265cfd9643c224095200ae5d69416c5bdf2c5c4d82e89",
+      "is_deleted": true,
+      "created_at": "2026-05-19T10:19:13.346303Z",
+      "deletion_method": "unlink",
+      "deleted_at": "2026-05-19T10:19:13.414170Z"
+    },
+    {
+      "path": "file_016.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "f8b6d177792ad06c8230eee6bc841a34f25cb2bc49d6c11f51025158d046b5fb",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.346860Z"
+    },
+    {
+      "path": "file_017.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "274b93d43c0ab8c1d98f70743e3aff4d01df1b657912dfad741d7ae2ae99fed2",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.347377Z"
+    },
+    {
+      "path": "file_018.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "da56615e3bd61ed369f4679a056aa55a2e849974ba50b63d9347b70e9f65a140",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.347890Z"
+    },
+    {
+      "path": "file_019.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "65c298323b953e9d0efbe8e52336617b31622e8479a1fa83baa7b3bd6514c6bf",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.348420Z"
+    },
+    {
+      "path": "file_020.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "3558a0f5b8b9f148da509428e8d85f39fec33613fa29c5bae8d5035185ab801c",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.348962Z"
+    },
+    {
+      "path": "file_021.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "3e48d82fe1b1dc8bf22cc212b87ecf793ebc6ba5fb876e98794c5f0ce3f108dc",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.349527Z"
+    },
+    {
+      "path": "file_022.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "e9b565c0ea54fac4bcbff5f7bf285281a525b9b27155537149f89903078b6e55",
+      "is_deleted": true,
+      "created_at": "2026-05-19T10:19:13.350037Z",
+      "deletion_method": "unlink",
+      "deleted_at": "2026-05-19T10:19:13.414618Z"
+    },
+    {
+      "path": "file_023.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "97cd6cde8438b3cf9fc90ceb695331ba8311e1faac17aeb23e9d703bba68a5f7",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.350592Z"
+    },
+    {
+      "path": "file_024.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "580f2473a57c907b5f6bff3d7f31ccfd8102fecca287758d6a6c47fe0e5f53fe",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.351149Z"
+    },
+    {
+      "path": "file_025.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "c44d6fe9d7d5920e9d933313d7d3eeef73ebf6ac8e96ec3fbbffdde13695e70c",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.351755Z"
+    },
+    {
+      "path": "file_026.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "c5e0cc25d463a8551b528094c1a0835a56c8e3ed94557529509b14ba6a6516df",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.352264Z"
+    },
+    {
+      "path": "file_027.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "073034e62ad57de0aef53bead72bd39d1260efa6097a4b57bd2eae6f538364d5",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.352774Z"
+    },
+    {
+      "path": "file_028.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "e14cd1ec3ebd1465a724469a75e0bdbb6d2ec26dc0cd01fa356c8cb146e1e95d",
+      "is_deleted": true,
+      "created_at": "2026-05-19T10:19:13.353415Z",
+      "deletion_method": "unlink",
+      "deleted_at": "2026-05-19T10:19:13.415037Z"
+    },
+    {
+      "path": "file_029.txt",
+      "size_bytes": 86,
+      "content_hash_sha256": "b6069bd92d4e9de6178923865bff822285e2ad4aad4ba66ac3e784d7108f7ff5",
+      "is_deleted": false,
+      "created_at": "2026-05-19T10:19:13.353916Z"
+    }
+  ]
+}

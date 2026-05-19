@@ -6,9 +6,10 @@
 
 ## 累積サマリ
 
-- **完了チャンク数**: 3
-- **総実装行数**: 578（実装+テスト合計、各チャンク200行上限内）
-- **総テスト数**: 16（全パス）
+- **完了チャンク数**: 4
+- **総実装行数**: 775（実装+テスト合計、各チャンク200行上限内）
+- **総単体テスト数**: 22（全パス）
+- **総結合テスト数**: 2（全パス、NTFSフィクスチャ実画像での Boot Sector パース）
 - **平均カバレッジ**: 未計測（モジュール完成時に計測予定）
 - **最終更新日**: 2026-05-19
 
@@ -19,7 +20,7 @@
 ```
 M0: 設計確定        [████████] 100% ✅ 完了
 M1: 基盤構築        [███░░░░░]  30% 🚧 進行中（Chunk 1-3/想定10前後 完了）
-M2: NTFSリーダα     [░░░░░░░░]   0% ⏳ 未着手
+M2: NTFSリーダα     [█░░░░░░░]  10% 🚧 進行中（Chunk 4: Boot Sector パーサ完了）
 M3: 希望突合エンジン  [░░░░░░░░]   0% ⏳ 未着手
 M4: 復旧 + 品質判定  [░░░░░░░░]   0% ⏳ 未着手
 M5: NTFS-α リリース [░░░░░░░░]   0% ⏳ 未着手
@@ -39,6 +40,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | 1 | dds-core | 共通エラー型・基本enum定義 | 197 | 5 ✓ | 未計測 | 2026-05-19 |
 | 2 | dds-fs-common | FS共通トレイト・データ型定義 | 200 | 5 ✓ | 未計測 | 2026-05-19 |
 | 3 | dds-disk-io | ReadOnlyDisk trait + FileBackedDisk 実装 | 181 | 6 ✓ | 未計測 | 2026-05-19 |
+| 4 | dds-fs-ntfs | NTFS Boot Sector (VBR) パーサ | 197 | 6 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 |
 
 ### Chunk 1 詳細
 
@@ -119,6 +121,42 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 - **特記事項**: 当初 worktree 経由で builder が実装したコードが一度失われたため、main ブランチ直接で再構築。tester による独立 worktree 検証はスキップし、インライン検証で代替（テスト全件パス・clippy clean・doc 生成・書き込み API 不在 Grep を確認）。
 - **完了判定**: 完全完了（実装+テスト 181行 / 単体テスト 6件全パス / rustdoc 完備 / clippy clean / read-only 制約を型レベル+実装レベル両方で検証済）
 
+### Chunk 4 詳細
+
+- **対象ファイル**:
+  - `crates/fs-ntfs/src/boot_sector.rs`（実装+単体テスト 197行）
+  - `crates/fs-ntfs/src/lib.rs`（`BootSector` / `BootSectorError` / `parse_boot_sector` の re-export）
+  - `crates/fs-ntfs/tests/boot_sector_integration.rs`（結合テスト 29行 / 2件）
+  - `crates/fs-ntfs/tests/common/mod.rs`（フィクスチャヘルパ 27行、zstd 解凍 + ground truth JSON ロード）
+  - `crates/fs-ntfs/Cargo.toml`（`dds-fs-common.workspace = true` 追加、`[dev-dependencies]` に `zstd = "0.13"` と `serde_json` を追加）
+- **実装内容**:
+  - `BootSector` 構造体 — フィールド: `bytes_per_sector` / `sectors_per_cluster` / `media_descriptor` / `total_sectors` / `mft_lcn` / `mft_mirror_lcn` / `clusters_per_mft_record` / `clusters_per_index_record` / `volume_serial`
+  - `BootSectorError` enum — バリアント: `BufferTooSmall` / `InvalidOemId` / `InvalidSignature` / `InvalidBytesPerSector` / `InvalidSectorsPerCluster`
+  - `parse_boot_sector(bytes: &[u8]) -> Result<BootSector, BootSectorError>` — リトルエンディアン専用、OEM ID（`"NTFS    "`）/ 終端シグネチャ（`0x55 0xAA`）/ bytes-per-sector 非ゼロ / sectors-per-cluster 非ゼロを検証
+  - `BootSector::cluster_size_bytes()` — クラスタサイズ（バイト単位）算出
+  - `BootSector::mft_record_size_bytes()` — `clusters_per_mft_record` の符号付きエンコード対応（正値→クラスタ数、負値 N→2^|N|バイト）
+  - `BootSector::mft_byte_offset()` — MFT 開始バイトオフセット算出
+- **検証結果（tester 独立検証）**:
+  - 実装+単体テスト行数: **197行**（200行上限内）
+  - `cargo check -p dds-fs-ntfs` … OK
+  - `cargo test --lib -p dds-fs-ntfs` … **6 passed; 0 failed**
+    - `parses_valid_boot_sector_all_fields`
+    - `rejects_short_buffer`
+    - `rejects_invalid_oem_id_and_signature`
+    - `rejects_zero_bps_and_zero_spc`
+    - `mft_record_size_negative_and_positive_encodings`
+    - `cluster_size_various_combinations`
+  - `cargo test -p dds-fs-ntfs` … **8 passed**（単体6 + 結合2）
+    - 結合: `parses_healthy_small_fixture_boot_sector` / `cluster_size_within_typical_range_for_fixtures`
+    - フィクスチャ（`ntfs_healthy_small.img.zst`、`ntfs_with_5_deletions_small.img.zst`）を実際に zstd 解凍してパース成功
+  - `cargo clippy -p dds-fs-ntfs --all-targets -- -D warnings` … warning 0件
+  - `cargo doc -p dds-fs-ntfs --no-deps` … 生成成功
+  - 安全性検証: `unsafe` 0件、書き込み API 0件、`from_be_bytes` 0件（リトルエンディアン専用を担保）
+- **関連 FR**:
+  - **FR-LIVE-01（NTFS 読み取り）**: **部分着手**（Boot Sector 段階完了。$MFT 解析・属性パース・ディレクトリツリー構築は Chunk 5〜10 で実装予定）
+  - FR-DIAG-04（FS 識別）への基盤貢献（OEM ID/シグネチャ検証ロジック）
+- **完了判定**: 完全完了（実装+テスト 197行 / 単体テスト 6件全パス / 結合テスト 2件全パス / rustdoc 完備 / clippy clean / unsafe・書き込み API 不在を Grep で検証済）
+
 ---
 
 ## FR要件達成マトリクス
@@ -140,7 +178,10 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 - [ ] FR-DIAG-07: 診断レポート生成
 
 ### ライブモード (FR-LIVE)
-- [ ] FR-LIVE-01: NTFS読み取り
+- [~] **FR-LIVE-01: NTFS読み取り** 🚧 **部分着手**（Chunk 4 / dds-fs-ntfs）
+  - Boot Sector (VBR) パーサ完了。OEM ID/シグネチャ検証、主要パラメータ抽出、MFT 開始オフセット算出が利用可能
+  - 残作業: MFT エントリヘッダ（Chunk 5）、属性ヘッダ、$STANDARD_INFORMATION、$FILE_NAME、$DATA、$INDEX_ROOT/ALLOCATION、ディレクトリツリー構築、削除エントリ検出
+  - 完了マークは `FsReader` trait の NTFS 実装が全要素を返せるようになった時点で付与
 - [ ] FR-LIVE-02: exFAT読み取り
 - [ ] FR-LIVE-03: FAT32読み取り
 - [ ] FR-LIVE-04: ファイルツリー構築
@@ -210,22 +251,20 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 
 ## 次の推奨アクション
 
-**Chunk 4**: `dds-fs-ntfs` NTFS ブートセクタ（`$Boot`）パーサ
+**Chunk 5**: `dds-fs-ntfs` NTFS MFT エントリヘッダパーサ
 
 - **対象クレート**: `crates/fs-ntfs/`
-- **対象ファイル（予定）**: `crates/fs-ntfs/src/boot_sector.rs`
-- **目的**: NTFS ボリュームの先頭セクタ（`$Boot`）を `ReadOnlyDisk` 経由で読み出し、主要フィールド（OEM ID / bytes-per-sector / sectors-per-cluster / total sectors / MFT 開始 LCN / MFT mirror LCN / clusters-per-MFT-record / clusters-per-index-record / volume serial number 等）を構造体に展開する。後続の MFT 解析の前提となる基本パラメータを確立する。
+- **対象ファイル（予定）**: `crates/fs-ntfs/src/mft.rs`
+- **目的**: $MFT 内の固定長 MFT レコード（FILE レコード）の先頭ヘッダをパースし、後続の属性パース処理の前提を確立する。`FILE` シグネチャ確認、Update Sequence Number/Array によるセクタ補正、レコード使用中/未使用フラグ、ディレクトリ/ファイル種別フラグ、レコード番号、シーケンス番号、属性開始オフセット、使用サイズ/割当サイズ等を抽出。
 - **依存**:
   - Chunk 1（`dds-core` のエラー型 `CoreError`）
-  - Chunk 2（`dds-fs-common` の `FsType::Ntfs`）
-  - Chunk 3（`dds-disk-io` の `ReadOnlyDisk` trait → セクタ読み出しの入口）
-- **推定行数**: 約 150行（実装 ~90 + テスト ~60）
+  - Chunk 4（`dds-fs-ntfs::BootSector` の `mft_record_size_bytes()` によるレコードサイズ決定）
+- **推定行数**: 約 100行（実装 ~60 + テスト ~40）
 - **着手前の準備**:
-  1. PRD `docs/PRD.md` の FR-LIVE-01（NTFS 読み取り）および FR-DIAG-04（FS 識別）を再確認
-  2. `docs/specs/ntfs-references/` 配下の NTFS ブートセクタ仕様（OEM ID `"NTFS    "`、$Boot レイアウト）を確認
-  3. binrw クレートでバイナリレイアウトを宣言的にパースする方針を採用（リトルエンディアン / 固定オフセット）
-  4. signed `clusters_per_mft_record` / `clusters_per_index_record`（負値は 2^(-N) バイトを意味）の符号処理に注意
-  5. テストフィクスチャ: 実 NTFS イメージは使わず、テスト内で 512B のバイト配列を組み立てて読ませる（`FileBackedDisk` 利用 or `ReadOnlyDisk` の最小スタブ）
-- **完了条件**: Chunk 1-3 と同等（cargo check / test --lib / clippy `-D warnings` / doc 全 OK、rustdoc 完備、単体テスト 3件以上、不正シグネチャ拒否のテスト含む）
+  1. `docs/specs/ntfs-references/` の MFT FILE レコードヘッダ仕様を再確認
+  2. Update Sequence (Fixup) の処理仕様（各セクタ末尾2バイトを USA 配列で置換）に注意。Chunk 5 ではヘッダパースまでに留め、Fixup 適用は別チャンクで分離してもよい（200行制限を考慮し判断）
+  3. レコードフラグ（0x01=in-use / 0x02=directory）の意味と削除レコード検出の関係を整理
+  4. テスト: 手組みの 1024B バッファで正常/異常（不正シグネチャ / バッファ短すぎ / フラグ各種）をカバー
+- **完了条件**: Chunk 1-4 と同等（cargo check / test --lib / clippy `-D warnings` / doc 全 OK、rustdoc 完備、単体テスト 3件以上、不正シグネチャ拒否のテスト含む）
 
-詳細指示は builder 起動時に作成する `docs/chunk_4.md` で展開予定。
+詳細指示は builder 起動時に作成する `docs/chunk_5.md` で展開予定。

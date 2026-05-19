@@ -8,4 +8,9 @@ publish = false
 
 [dependencies]
 dds-core.workspace = true
+dds-fs-common.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+zstd = "0.13"
+serde_json = { workspace = true }
