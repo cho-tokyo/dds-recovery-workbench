@@ -55,3 +55,8 @@ fixtures/images/*.raw
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
+
+# 著作権物（コミット禁止）
+**/_private/
+docs/specs/ntfs-references/_private/
+*.pdf  # 念のため全PDF除外も検討

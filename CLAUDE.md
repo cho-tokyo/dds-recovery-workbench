@@ -201,3 +201,29 @@ crates/
 - お客様データを扱う処理の安全性に疑問がある場合
 - 複数の実装方針が考えられる場合
 - 200行を超える可能性のあるチャンク分割の判断
+
+## Git運用ルール
+
+### ブランチ戦略
+- `main`: テスト全合格状態のみ
+- `chunk/NN-<short-name>`: 各チャンクの作業ブランチ
+- builderエージェントは worktree 経由でブランチを切る
+
+### コミットメッセージ
+- 形式: `<type>: <description>`
+- type: `feat` / `fix` / `test` / `docs` / `refactor` / `chore`
+- 例: `feat(fs-ntfs): add boot sector parser (Chunk 4)`
+
+### チャンク完了時のフロー
+1. builder: feature ブランチでチャンク実装
+2. tester: テスト実行（合格時のみ次へ）
+3. progress-tracker: progress.md 更新
+4. main へマージ（自動 or 手動レビュー後）
+
+### コミット禁止物
+- 顧客データ（PII含む）
+- 著作権物（書籍PDF、ライセンス付きOSS）
+- 大容量バイナリ（実HDDイメージ等）
+- 認証情報（APIキー、パスワード、証明書）
+
+.gitignoreで一次的に防御済み。git status で確認してからコミット。
