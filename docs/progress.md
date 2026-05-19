@@ -6,10 +6,11 @@
 
 ## 累積サマリ
 
-- **完了チャンク数**: 0
-- **総実装行数**: 0
-- **総テスト数**: 0
-- **平均カバレッジ**: -
+- **完了チャンク数**: 1
+- **総実装行数**: 197（実装+テスト合計、200行上限内）
+- **総テスト数**: 5（全パス）
+- **平均カバレッジ**: 未計測（モジュール完成時に計測予定）
+- **最終更新日**: 2026-05-19
 
 ---
 
@@ -17,7 +18,7 @@
 
 ```
 M0: 設計確定        [████████] 100% ✅ 完了
-M1: 基盤構築        [░░░░░░░░]   0% 🚧 進行中
+M1: 基盤構築        [█░░░░░░░]  10% 🚧 進行中（Chunk 1/想定10前後 完了）
 M2: NTFSリーダα     [░░░░░░░░]   0% ⏳ 未着手
 M3: 希望突合エンジン  [░░░░░░░░]   0% ⏳ 未着手
 M4: 復旧 + 品質判定  [░░░░░░░░]   0% ⏳ 未着手
@@ -35,7 +36,30 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 
 | # | クレート | 名前 | 行数 | テスト | カバレッジ | 完了日 |
 |---|---|---|---|---|---|---|
-| - | - | （まだ完了したチャンクはありません） | - | - | - | - |
+| 1 | dds-core | 共通エラー型・基本enum定義 | 197 | 5 ✓ | 未計測 | 2026-05-19 |
+
+### Chunk 1 詳細
+
+- **対象ファイル**: `crates/core/src/lib.rs`
+- **実装内容**:
+  - `CoreError` enum（thiserror 派生、6バリアント: `Io` / `Parse{context,reason}` / `InvalidArgument` / `OutOfRange{what,value,max}` / `Unsupported` / `Internal`）
+  - `CoreResult<T>` 型エイリアス
+  - `DamageLevel` enum（L1_DeletionOnly 〜 L6_SevereDamage + PhysicalIssue、`Display` 実装、`display_ja(&self) -> &'static str`、Serialize/Deserialize 派生）
+  - `RecoveryMethod` enum（L1_MetadataIntact / L2_PartitionReconstructed / L3_FsMetadataReconstructed、`Display` + Serialize/Deserialize）
+  - `QualityRating` enum（Green / Yellow / Orange / Red、`is_acceptable(&self) -> bool`、Serialize/Deserialize）
+- **検証結果（tester 独立検証）**:
+  - `cargo check -p dds-core` … OK
+  - `cargo test --lib -p dds-core` … **5 passed; 0 failed**
+    - `core_error_io_display_contains_inner_message`
+    - `core_error_out_of_range_includes_value_and_max`
+    - `damage_level_display_ja_all_variants`
+    - `quality_rating_is_acceptable_truth_table`
+    - `recovery_method_display_outputs_japanese_label`
+  - `cargo clippy -p dds-core -- -D warnings` … warning 0件
+  - `cargo doc -p dds-core --no-deps` … 生成成功
+  - cargo: 1.95.0 (f2d3ce0bd 2026-03-21)
+- **関連 FR**: 設計基盤（全 FR の前提）。本チャンク単独では特定の FR-XXX 完了マークは付与しない。後続チャンクで本クレートが利用されることで間接的に貢献。
+- **完了判定**: 完全完了（実装/単体テスト3件以上/rustdoc/clippy clean を全て満たす）
 
 ---
 
@@ -118,5 +142,16 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 
 ## 次の推奨アクション
 
-**Chunk 1**: `dds-core` 共通エラー型定義  
-詳細: `docs/first_chunk.md` を参照
+**Chunk 2**: `dds-fs-common` FS共通トレイト定義
+
+- **対象クレート**: `crates/fs-common/`
+- **目的**: 全 FS リーダ（NTFS / exFAT / FAT32）が共通実装すべき `FsReader` 系トレイトおよび FS 共通データ型（FileEntry, Attributes 等）を定義し、後続の `fs-ntfs` 等が依存できる土台を作る
+- **依存**: Chunk 1（`dds-core` のエラー型・基本 enum）
+- **推定行数**: 約150行（trait 定義中心 + 単体テスト 3件以上）
+- **着手前の準備**:
+  1. PRD `docs/PRD.md` の FR-LIVE-01〜07 を再確認（読み取り系要件の共通項を抽出）
+  2. `docs/architecture.md` の fs-common 責務記述を確認
+  3. 後続チャンク 4〜10（NTFS実装群）を見据えた抽象化レベルの調整
+- **完了条件**: Chunk 1 と同等（cargo check / test --lib / clippy / doc 全 OK、rustdoc 完備、単体テスト 3件以上）
+
+詳細指示は builder 起動時に作成する `docs/chunk_2.md`（または first_chunk.md と同形式の別ファイル）で展開予定。
