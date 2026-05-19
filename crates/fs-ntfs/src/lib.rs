@@ -8,4 +8,6 @@
 #![warn(rust_2018_idioms)]
 
 pub mod boot_sector;
+pub mod mft;
 pub use boot_sector::{parse_boot_sector, BootSector, BootSectorError};
+pub use mft::{parse_mft_entry, MftEntry, MftEntryHeader, MftError};

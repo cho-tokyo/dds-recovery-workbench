@@ -6,10 +6,10 @@
 
 ## 累積サマリ
 
-- **完了チャンク数**: 4
-- **総実装行数**: 775（実装+テスト合計、各チャンク200行上限内）
-- **総単体テスト数**: 22（全パス）
-- **総結合テスト数**: 2（全パス、NTFSフィクスチャ実画像での Boot Sector パース）
+- **完了チャンク数**: 5
+- **総実装行数**: 974（実装+テスト合計、各チャンク200行上限内）
+- **総単体テスト数**: 30（全パス）
+- **総結合テスト数**: 4（全パス、NTFSフィクスチャ実画像での Boot Sector + MFT エントリヘッダ パース）
 - **平均カバレッジ**: 未計測（モジュール完成時に計測予定）
 - **最終更新日**: 2026-05-19
 
@@ -20,7 +20,7 @@
 ```
 M0: 設計確定        [████████] 100% ✅ 完了
 M1: 基盤構築        [███░░░░░]  30% 🚧 進行中（Chunk 1-3/想定10前後 完了）
-M2: NTFSリーダα     [█░░░░░░░]  10% 🚧 進行中（Chunk 4: Boot Sector パーサ完了）
+M2: NTFSリーダα     [██░░░░░░]  20% 🚧 進行中（Chunk 4: Boot Sector パーサ + Chunk 5: MFT エントリヘッダパーサ + フィクサップ適用 完了）
 M3: 希望突合エンジン  [░░░░░░░░]   0% ⏳ 未着手
 M4: 復旧 + 品質判定  [░░░░░░░░]   0% ⏳ 未着手
 M5: NTFS-α リリース [░░░░░░░░]   0% ⏳ 未着手
@@ -41,6 +41,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | 2 | dds-fs-common | FS共通トレイト・データ型定義 | 200 | 5 ✓ | 未計測 | 2026-05-19 |
 | 3 | dds-disk-io | ReadOnlyDisk trait + FileBackedDisk 実装 | 181 | 6 ✓ | 未計測 | 2026-05-19 |
 | 4 | dds-fs-ntfs | NTFS Boot Sector (VBR) パーサ | 197 | 6 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 |
+| 5 | dds-fs-ntfs | NTFS MFT エントリヘッダパーサ + フィクサップ適用 | 199 | 8 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 |
 
 ### Chunk 1 詳細
 
@@ -157,6 +158,44 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
   - FR-DIAG-04（FS 識別）への基盤貢献（OEM ID/シグネチャ検証ロジック）
 - **完了判定**: 完全完了（実装+テスト 197行 / 単体テスト 6件全パス / 結合テスト 2件全パス / rustdoc 完備 / clippy clean / unsafe・書き込み API 不在を Grep で検証済）
 
+### Chunk 5 詳細
+
+- **対象ファイル**:
+  - `crates/fs-ntfs/src/mft.rs`（実装+単体テスト 199行、新規）
+  - `crates/fs-ntfs/src/lib.rs`（`MftEntry` / `MftEntryHeader` / `MftError` / `parse_mft_entry` の re-export 追加）
+  - `crates/fs-ntfs/tests/mft_integration.rs`（結合テスト 47行 / 2件）
+- **実装内容**:
+  - `MftEntryHeader` 構造体（12 pub フィールド: `usa_offset` / `usa_size` / `lsn` / `sequence_number` / `hard_link_count` / `first_attribute_offset` / `flags` / `used_size` / `allocated_size` / `base_record_reference` / `next_attribute_id` / `mft_record_number`）
+  - `MftEntry` 構造体（`header: MftEntryHeader` + フィクサップ適用済み `data: Vec<u8>`）
+  - `MftError` enum — バリアント: `BufferTooSmall` / `InvalidMagic` / `BadEntry` / `InvalidUsaOffset` / `InvalidUsaSize` / `FixupMismatch` / `UsedExceedsAllocated`
+  - `parse_mft_entry(bytes: &[u8]) -> Result<MftEntry, MftError>` — `FILE` シグネチャ検証、`BAAD` の早期検出、USA バリデーション、フィクサップ適用、`used_size <= allocated_size` 検証
+  - 状態判定メソッド: `is_in_use()` / `is_deleted()` / `is_directory()` / `is_base_record()`
+  - 内部関数 `apply_fixup()` — NTFS Update Sequence Array によるセクタ末尾2バイトの復元処理、不一致時は `FixupMismatch` 返却。`parse_mft_entry` 内で USA バリデーション後に必ず呼び出し
+- **検証結果（tester 独立検証）**:
+  - 実装+単体テスト行数: **199行**（200行上限内）
+  - `cargo check -p dds-fs-ntfs` … OK
+  - `cargo test --lib -p dds-fs-ntfs` … **14 passed; 0 failed**（Chunk 4: 6件 + Chunk 5: 8件）
+    - `parses_valid_header_fields`
+    - `baad_signature_is_bad_entry`
+    - `invalid_magic_rejected`
+    - `flags_in_use_deleted_directory`
+    - `fixup_applied_restores_sector_tails`
+    - `fixup_mismatch_detected`
+    - `used_exceeds_allocated_rejected`
+    - `buffer_too_small_rejected`
+  - `cargo test -p dds-fs-ntfs` … **18 passed**（単体14 + 結合4）
+    - Chunk 5 結合テスト:
+      - `parses_first_mft_record_from_healthy_image`（$MFT エントリ0が `is_in_use=true`、非ディレクトリであることを実フィクスチャで実証）
+      - `counts_deleted_entries_in_deletions_fixture`（`ntfs_with_5_deletions_small.img.zst` で削除エントリ ≥5 件を検出）
+  - `cargo clippy -p dds-fs-ntfs --all-targets -- -D warnings` … warning 0件
+  - `cargo doc -p dds-fs-ntfs --no-deps` … 生成成功
+  - 安全性検証: `unsafe` 0件、書き込み API 0件、`from_be_bytes` 0件（リトルエンディアン専用を維持）
+- **関連 FR**:
+  - **FR-LIVE-01（NTFS 読み取り）**: **部分着手継続**（Boot Sector + MFT エントリヘッダ + フィクサップ適用が完了。属性パース・$STANDARD_INFORMATION・$FILE_NAME・$DATA・$INDEX_ROOT/ALLOCATION・ディレクトリツリー構築は Chunk 6 以降で実装予定）
+  - **FR-LIVE-05（削除エントリ可視化）**: **部分着手**（削除判定 `is_deleted()` を MFT エントリ単位で提供。実フィクスチャ `ntfs_with_5_deletions_small.img.zst` で削除エントリ ≥5 件検出を結合テストで実証。UI 上の色分け表示・一覧化は別レイヤで未実装）
+- **特記事項**: フィクサップ（Update Sequence）処理を Chunk 5 内で完結させたことで、後続の属性パースが破損検知済みのバイト列を直接扱える基盤を整備。`BAAD` シグネチャを `BadEntry` として明示的に区別し、ファイルシステム破損エントリの可視化に対応可能。
+- **完了判定**: 完全完了（実装+テスト 199行 / 単体テスト 8件全パス / 結合テスト 2件全パス / rustdoc 完備 / clippy clean / unsafe・書き込み API 不在を維持 / フィクサップによる破損検知も実装）
+
 ---
 
 ## FR要件達成マトリクス
@@ -178,14 +217,18 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 - [ ] FR-DIAG-07: 診断レポート生成
 
 ### ライブモード (FR-LIVE)
-- [~] **FR-LIVE-01: NTFS読み取り** 🚧 **部分着手**（Chunk 4 / dds-fs-ntfs）
+- [~] **FR-LIVE-01: NTFS読み取り** 🚧 **部分着手**（Chunk 4-5 / dds-fs-ntfs）
   - Boot Sector (VBR) パーサ完了。OEM ID/シグネチャ検証、主要パラメータ抽出、MFT 開始オフセット算出が利用可能
-  - 残作業: MFT エントリヘッダ（Chunk 5）、属性ヘッダ、$STANDARD_INFORMATION、$FILE_NAME、$DATA、$INDEX_ROOT/ALLOCATION、ディレクトリツリー構築、削除エントリ検出
+  - MFT エントリヘッダパーサ + フィクサップ適用完了。`FILE`/`BAAD` 判定、USA 検証、フラグ抽出（in-use/directory）、レコード番号/シーケンス番号取得が利用可能
+  - 残作業: 属性ヘッダパーサ（Chunk 6）、$STANDARD_INFORMATION、$FILE_NAME、$DATA、$INDEX_ROOT/ALLOCATION、ディレクトリツリー構築
   - 完了マークは `FsReader` trait の NTFS 実装が全要素を返せるようになった時点で付与
 - [ ] FR-LIVE-02: exFAT読み取り
 - [ ] FR-LIVE-03: FAT32読み取り
 - [ ] FR-LIVE-04: ファイルツリー構築
-- [ ] FR-LIVE-05: 削除エントリ可視化
+- [~] **FR-LIVE-05: 削除エントリ可視化** 🚧 **部分着手**（Chunk 5 / dds-fs-ntfs）
+  - MFT エントリ単位の削除判定 `is_deleted()` を提供（flags の in-use ビット非立で判定）
+  - 結合テスト `counts_deleted_entries_in_deletions_fixture` で実 NTFS フィクスチャから削除エントリ ≥5 件検出を実証
+  - 残作業: ディレクトリツリー上の削除エントリ列挙、UI 上の色分け表示・一覧化、削除済みファイル名の復元（$FILE_NAME 属性パース依存）
 - [ ] FR-LIVE-06: メタデータ表示
 - [ ] FR-LIVE-07: バックアップメタ活用
 
@@ -251,20 +294,21 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 
 ## 次の推奨アクション
 
-**Chunk 5**: `dds-fs-ntfs` NTFS MFT エントリヘッダパーサ
+**Chunk 6**: `dds-fs-ntfs` NTFS 属性ヘッダパーサ
 
 - **対象クレート**: `crates/fs-ntfs/`
-- **対象ファイル（予定）**: `crates/fs-ntfs/src/mft.rs`
-- **目的**: $MFT 内の固定長 MFT レコード（FILE レコード）の先頭ヘッダをパースし、後続の属性パース処理の前提を確立する。`FILE` シグネチャ確認、Update Sequence Number/Array によるセクタ補正、レコード使用中/未使用フラグ、ディレクトリ/ファイル種別フラグ、レコード番号、シーケンス番号、属性開始オフセット、使用サイズ/割当サイズ等を抽出。
+- **対象ファイル（予定）**: `crates/fs-ntfs/src/attribute.rs`
+- **目的**: フィクサップ適用済み MFT エントリ（Chunk 5 の `MftEntry.data`）内に並ぶ属性レコードの共通ヘッダを解析し、後続の具象属性パース（$STANDARD_INFORMATION / $FILE_NAME / $DATA など）の前提を確立する。属性タイプ ID（0x10=$STANDARD_INFORMATION / 0x30=$FILE_NAME / 0x80=$DATA など）、属性レコード長、レジデント/非レジデント判定、名前長/名前オフセット、属性 ID、レジデント時のコンテンツオフセット/サイズ、非レジデント時の VCN レンジ・データラン開始オフセットを抽出。終端マーカー（0xFFFFFFFF）の検出も含む。
 - **依存**:
-  - Chunk 1（`dds-core` のエラー型 `CoreError`）
-  - Chunk 4（`dds-fs-ntfs::BootSector` の `mft_record_size_bytes()` によるレコードサイズ決定）
-- **推定行数**: 約 100行（実装 ~60 + テスト ~40）
+  - Chunk 1（`dds-core` のエラー型基盤）
+  - Chunk 5（`MftEntry.data` / `MftEntryHeader.first_attribute_offset` / `MftEntryHeader.used_size`）
+- **推定行数**: 約 150行（実装 ~90 + テスト ~60）
 - **着手前の準備**:
-  1. `docs/specs/ntfs-references/` の MFT FILE レコードヘッダ仕様を再確認
-  2. Update Sequence (Fixup) の処理仕様（各セクタ末尾2バイトを USA 配列で置換）に注意。Chunk 5 ではヘッダパースまでに留め、Fixup 適用は別チャンクで分離してもよい（200行制限を考慮し判断）
-  3. レコードフラグ（0x01=in-use / 0x02=directory）の意味と削除レコード検出の関係を整理
-  4. テスト: 手組みの 1024B バッファで正常/異常（不正シグネチャ / バッファ短すぎ / フラグ各種）をカバー
-- **完了条件**: Chunk 1-4 と同等（cargo check / test --lib / clippy `-D warnings` / doc 全 OK、rustdoc 完備、単体テスト 3件以上、不正シグネチャ拒否のテスト含む）
+  1. `docs/specs/ntfs-references/` の属性ヘッダ仕様（Common Header + Resident/Non-Resident 分岐）を再確認
+  2. レジデント属性の `content_offset` / `content_length` と、非レジデント属性の `starting_vcn` / `last_vcn` / `data_runs_offset` / `allocated_size` / `real_size` / `initialized_size` の差を整理
+  3. 属性ヘッダの妥当性チェック方針（`used_size` 範囲内、長さ整合、終端マーカー検出）を整理
+  4. 具象属性パースは Chunk 7 以降に分離し、Chunk 6 ではヘッダ列挙とイテレーション API までに留める（200行制限考慮）
+  5. テスト: 手組み MFT エントリで複数属性（$STANDARD_INFORMATION + $FILE_NAME + $DATA + 終端）の列挙、不正属性長拒否、レジデント/非レジデント分岐をカバー
+- **完了条件**: Chunk 1-5 と同等（cargo check / test --lib / clippy `-D warnings` / doc 全 OK、rustdoc 完備、単体テスト 3件以上、不正値拒否テスト含む、unsafe・書き込み API 不在を維持）
 
-詳細指示は builder 起動時に作成する `docs/chunk_5.md` で展開予定。
+詳細指示は builder 起動時に作成する `docs/chunk_6.md` で展開予定。
