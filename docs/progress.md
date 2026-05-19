@@ -6,9 +6,9 @@
 
 ## 累積サマリ
 
-- **完了チャンク数**: 2
-- **総実装行数**: 397（実装+テスト合計、各チャンク200行上限内）
-- **総テスト数**: 10（全パス）
+- **完了チャンク数**: 3
+- **総実装行数**: 578（実装+テスト合計、各チャンク200行上限内）
+- **総テスト数**: 16（全パス）
 - **平均カバレッジ**: 未計測（モジュール完成時に計測予定）
 - **最終更新日**: 2026-05-19
 
@@ -18,7 +18,7 @@
 
 ```
 M0: 設計確定        [████████] 100% ✅ 完了
-M1: 基盤構築        [██░░░░░░]  20% 🚧 進行中（Chunk 1-2/想定10前後 完了）
+M1: 基盤構築        [███░░░░░]  30% 🚧 進行中（Chunk 1-3/想定10前後 完了）
 M2: NTFSリーダα     [░░░░░░░░]   0% ⏳ 未着手
 M3: 希望突合エンジン  [░░░░░░░░]   0% ⏳ 未着手
 M4: 復旧 + 品質判定  [░░░░░░░░]   0% ⏳ 未着手
@@ -38,6 +38,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 |---|---|---|---|---|---|---|
 | 1 | dds-core | 共通エラー型・基本enum定義 | 197 | 5 ✓ | 未計測 | 2026-05-19 |
 | 2 | dds-fs-common | FS共通トレイト・データ型定義 | 200 | 5 ✓ | 未計測 | 2026-05-19 |
+| 3 | dds-disk-io | ReadOnlyDisk trait + FileBackedDisk 実装 | 181 | 6 ✓ | 未計測 | 2026-05-19 |
 
 ### Chunk 1 詳細
 
@@ -87,6 +88,36 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
   - FR-LIVE-01〜07 の **基盤定義**として貢献（型・インタフェース確立）。具象FS実装後にあらためて達成判定するため、本チャンクでは完了マーク付与なし。
   - NFR-REL-01（書込禁止の型レベル制約）の **設計貢献**（FsReader trait に書き込みAPIが存在しない設計）
 - **完了判定**: 完全完了（実装+テスト 200行ぴったり / 単体テスト 5件全パス / rustdoc 完備 / clippy clean / read-only 制約検証済）
+
+### Chunk 3 詳細
+
+- **対象ファイル**: `crates/disk-io/src/lib.rs`
+- **実装内容**:
+  - `DEFAULT_SECTOR_SIZE: u32 = 512` 定数
+  - `ReadOnlyDisk` trait — **read-only 型レベル保証**。公開メソッドは `sector_size()` / `total_size()` / `read_at(offset, buf)` / `read_sector(sector_index, buf)` の 4 つのみ。書き込み系 API（write/save/flush/truncate/sync 等）はトレイトに一切定義されていないことを Grep で検証済み。
+  - `FileBackedDisk` struct（`File` + `total_size: u64` + `sector_size: u32`、`#[derive(Debug)]`）
+    - `open(path)` — read-only でファイルオープン、デフォルトセクタサイズ（512）を採用
+    - `open_with_sector_size(path, sector_size)` — セクタサイズ指定（2の累乗バリデーション、`CoreError::InvalidArgument` で拒否）
+    - `impl ReadOnlyDisk for FileBackedDisk` — 範囲外オフセット/インデックスは `CoreError::OutOfRange`、I/O エラーは `CoreError::Io` 経由
+  - 内部ヘルパ `is_power_of_two`
+- **検証結果（tester インライン検証）**:
+  - `cargo check -p dds-disk-io` … OK
+  - `cargo test --lib -p dds-disk-io` … **6 passed; 0 failed**
+    - `file_backed_disk_open_reports_size_and_sector_size`
+    - `file_backed_disk_read_at_returns_expected_bytes`
+    - `file_backed_disk_read_at_out_of_range_returns_error`
+    - `read_sector_validates_buffer_size`
+    - `open_with_invalid_sector_size_returns_error`
+    - `is_power_of_two_truth_table`
+  - `cargo clippy -p dds-disk-io --all-targets -- -D warnings` … warning 0件
+  - `cargo doc -p dds-disk-io --no-deps` … 生成成功
+  - 書き込み API 不在を Grep で確認: 実装本体に `fn write` / `truncate` / `flush` / `sync` および `OpenOptions::new().write` / `File::create` は一切なし。`File::create` のヒットは `#[cfg(test)]` モジュール内のテストフィクスチャ作成のみ → **NFR-REL-01 完全担保**
+- **関連 FR / NFR**:
+  - **NFR-REL-01（ソースデバイス書込禁止）**: **完全達成**（型レベル + 実装レベル両方で書き込み API を排除。`ReadOnlyDisk` trait は書き込みメソッドを持たず、`FileBackedDisk` の実装は `File::open` のみ使用）→ FR要件達成マトリクスで反映
+  - FR-LIVE-01〜07 の **基盤**として貢献（後続の FS リーダ群が `ReadOnlyDisk` を介してディスクアクセスする）
+  - FR-DIAG-01〜02 の **基盤**として貢献（デバイス検出/情報取得の入口となる抽象層）
+- **特記事項**: 当初 worktree 経由で builder が実装したコードが一度失われたため、main ブランチ直接で再構築。tester による独立 worktree 検証はスキップし、インライン検証で代替（テスト全件パス・clippy clean・doc 生成・書き込み API 不在 Grep を確認）。
+- **完了判定**: 完全完了（実装+テスト 181行 / 単体テスト 6件全パス / rustdoc 完備 / clippy clean / read-only 制約を型レベル+実装レベル両方で検証済）
 
 ---
 
@@ -157,6 +188,16 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 - [ ] FR-REP-04: カスタムテンプレート
 - [ ] FR-REP-05: 多言語対応の基盤
 
+### 非機能要件 (NFR)
+- [x] **NFR-REL-01: ソースデバイス書込禁止** ✅ **達成**（Chunk 3 / dds-disk-io）
+  - 型レベル: `ReadOnlyDisk` trait に書き込み API 一切なし（4メソッドのみ）
+  - 実装レベル: `FileBackedDisk` は `File::open`（read-only）のみ使用、書き込み API 不在を Grep で確認
+  - 後続 FS リーダ群はこの抽象を介してディスクへアクセスするため、disk-io レベルで担保完了
+  - 注: アプリ全体（出力先分離、Tauri 側の安全要件等）は別レイヤで継続検証
+- [ ] NFR-REL-02: 出力先強制分離（ソースと同一なら拒否）
+- [ ] NFR-REL-03: I/O エラー時のソース無影響
+- [ ] NFR-REL-04: 監査ログ（tracing 構造化）
+
 ---
 
 ## リスクログ
@@ -169,17 +210,22 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 
 ## 次の推奨アクション
 
-**Chunk 3**: `dds-disk-io` `ReadOnlyDisk` トレイト定義 + ファイルベース簡易実装
+**Chunk 4**: `dds-fs-ntfs` NTFS ブートセクタ（`$Boot`）パーサ
 
-- **対象クレート**: `crates/disk-io/`
-- **目的**: ソースデバイス（顧客HDD/SSD）に対する Raw アクセスを抽象化する `ReadOnlyDisk` トレイトを定義し、テスト用に `FileBackedDisk`（ローカルファイルを読み取り専用で開き、セクタ単位アクセスを提供する簡易実装）を実装する。型レベルで書き込みAPIを排除し、設計哲学「読み込み専用」を担保する。
-- **依存**: Chunk 1（`dds-core` のエラー型）
-- **推定行数**: 約150行（trait 定義 + FileBackedDisk 実装 + 単体テスト 3件以上）
+- **対象クレート**: `crates/fs-ntfs/`
+- **対象ファイル（予定）**: `crates/fs-ntfs/src/boot_sector.rs`
+- **目的**: NTFS ボリュームの先頭セクタ（`$Boot`）を `ReadOnlyDisk` 経由で読み出し、主要フィールド（OEM ID / bytes-per-sector / sectors-per-cluster / total sectors / MFT 開始 LCN / MFT mirror LCN / clusters-per-MFT-record / clusters-per-index-record / volume serial number 等）を構造体に展開する。後続の MFT 解析の前提となる基本パラメータを確立する。
+- **依存**:
+  - Chunk 1（`dds-core` のエラー型 `CoreError`）
+  - Chunk 2（`dds-fs-common` の `FsType::Ntfs`）
+  - Chunk 3（`dds-disk-io` の `ReadOnlyDisk` trait → セクタ読み出しの入口）
+- **推定行数**: 約 150行（実装 ~90 + テスト ~60）
 - **着手前の準備**:
-  1. PRD `docs/PRD.md` の NFR-REL-01（書込禁止の型レベル制約）および FR-DIAG-01〜02 を再確認
-  2. `docs/architecture.md` の disk-io 責務記述を確認
-  3. 後続の FS リーダ群が `ReadOnlyDisk` を利用してセクタ／クラスタを読む流れを念頭に置く
-  4. Windows 物理デバイス（`\\.\PhysicalDriveN`）対応は別チャンクで分離（本チャンクではファイルベースのみ）
-- **完了条件**: Chunk 1-2 と同等（cargo check / test --lib / clippy / doc 全 OK、rustdoc 完備、単体テスト 3件以上、書き込み API 不在を Grep で検証）
+  1. PRD `docs/PRD.md` の FR-LIVE-01（NTFS 読み取り）および FR-DIAG-04（FS 識別）を再確認
+  2. `docs/specs/ntfs-references/` 配下の NTFS ブートセクタ仕様（OEM ID `"NTFS    "`、$Boot レイアウト）を確認
+  3. binrw クレートでバイナリレイアウトを宣言的にパースする方針を採用（リトルエンディアン / 固定オフセット）
+  4. signed `clusters_per_mft_record` / `clusters_per_index_record`（負値は 2^(-N) バイトを意味）の符号処理に注意
+  5. テストフィクスチャ: 実 NTFS イメージは使わず、テスト内で 512B のバイト配列を組み立てて読ませる（`FileBackedDisk` 利用 or `ReadOnlyDisk` の最小スタブ）
+- **完了条件**: Chunk 1-3 と同等（cargo check / test --lib / clippy `-D warnings` / doc 全 OK、rustdoc 完備、単体テスト 3件以上、不正シグネチャ拒否のテスト含む）
 
-詳細指示は builder 起動時に作成する `docs/chunk_3.md` で展開予定。
+詳細指示は builder 起動時に作成する `docs/chunk_4.md` で展開予定。
