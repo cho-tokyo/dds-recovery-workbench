@@ -197,4 +197,30 @@ mod tests {
         let mut c = ch(0, 0x18, 0, 0x20, false); c.attribute_type = AttributeType::FileName;
         let h = AttributeHeader::Resident { common: c, resident:
             ResidentInfo { content_size: 0, content_offset: 0x18, indexed: false } };
-        assert!(parse_data_stream(&[0u8; 0x20], &h).is_err()); } }
+        assert!(parse_data_stream(&[0u8; 0x20], &h).is_err()); }
+    // 書籍 318 ページが触れる現実例: Windows がインターネット由来ファイルに付与する
+    // "Zone.Identifier" ADS。無名 $DATA + 名前付き ADS の典型ペアを再現する。
+    #[test] fn zone_identifier_ads_name_decoded() {
+        let (a, _) = br("", b"content", 0);
+        let (z, _) = br("Zone.Identifier", b"[ZoneTransfer]\r\nZoneId=3", 0);
+        let e = cat(&[&a, &z]); let all = extract_all_data_streams(&e, 0);
+        assert_eq!(all.len(), 2);
+        assert_eq!(all.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+            vec!["", "Zone.Identifier"]);
+        let m = extract_main_data_stream(&e, 0).unwrap(); assert!(m.name.is_empty());
+        if let DataContent::Resident { bytes, .. } = m.content {
+            assert_eq!(bytes, b"content"); } else { panic!("expected resident") }
+        let ads = all.iter().find(|s| s.name == "Zone.Identifier").unwrap();
+        if let DataContent::Resident { bytes, .. } = ads.content {
+            assert_eq!(bytes, b"[ZoneTransfer]\r\nZoneId=3");
+        } else { panic!("expected resident") } }
+    // 書籍 319 ページ Figure 12.4 簡略再現: 無名 + ADS "ADS" 両方暗号化フラグあり。
+    #[test] fn book_figure_12_4_dual_encrypted_data_streams() {
+        let (u, _) = br("", b"plain-bytes", FLAG_ENCRYPTED);
+        let (n, _) = br("ADS", b"ads-bytes", FLAG_ENCRYPTED);
+        let e = cat(&[&u, &n]); let all = extract_all_data_streams(&e, 0);
+        assert_eq!(all.len(), 2); assert!(all.iter().all(|s| s.is_encrypted));
+        assert!(all.iter().any(|s| s.name.is_empty()));
+        assert!(all.iter().any(|s| s.name == "ADS"));
+        let m = extract_main_data_stream(&e, 0).unwrap();
+        assert!(m.name.is_empty() && m.is_encrypted); } }
