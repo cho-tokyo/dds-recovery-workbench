@@ -20,8 +20,8 @@ pub use attribute::{
     AttributeType, NonResidentInfo, ResidentInfo,
 };
 pub use attributes::{
-    extract_all_data_streams, extract_main_data_stream, find_attribute, find_best_file_name,
-    parse_data_stream, parse_file_name, parse_standard_information,
+    extract_all_data_streams, extract_main_data_stream, find_all_file_names, find_attribute,
+    find_best_file_name, parse_data_stream, parse_file_name, parse_standard_information,
     AttributeIterator, AttributeRef, DataContent, DataError, DataStream,
     FileAttributes, FileName, FileNameError, FileNameNamespace, FileTime, MftReference,
     SiError, StandardInformation,

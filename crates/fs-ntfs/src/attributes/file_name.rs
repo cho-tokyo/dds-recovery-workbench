@@ -1,7 +1,7 @@
 //! `$FILE_NAME` 属性（タイプ 0x30）のコンテンツパーサ。UTF-16LE ファイル名、親ディレクトリ
-//! MFT 参照、名前空間、タイムスタンプを取得する。関連 FR: FR-LIVE-01（NTFS 読み取り）、
-//! FR-LIVE-05（削除エントリ可視化）、FR-LIVE-06（メタデータ表示）。
-//! 仕様: <https://flatcap.github.io/linux-ntfs/ntfs/attributes/file_name.html>
+//! MFT 参照、名前空間、タイムスタンプ、Reparse Value を取得する。関連 FR: FR-LIVE-01,
+//! FR-LIVE-05, FR-LIVE-06。仕様: <https://flatcap.github.io/linux-ntfs/ntfs/attributes/file_name.html>
+//! 書籍『File System Forensic Analysis』Ch.13 Table 13.7/13.8 準拠（`docs/specs/ntfs-references/notes.md` §9）。
 use crate::attribute::{AttributeHeader, AttributeType};
 use crate::attributes::standard_information::{FileAttributes, FileTime};
 use crate::attributes::AttributeIterator;
@@ -48,7 +48,8 @@ impl MftReference {
 }
 
 /// `$FILE_NAME` のコンテンツ。`allocated_size` / `real_size` は作成時スナップショットなので
-/// 実サイズは `$DATA` を参照すべき。関連 FR: FR-LIVE-01, FR-LIVE-05, FR-LIVE-06。
+/// 実サイズは `$DATA` を参照すべき。`reparse_value` は Reparse Point の場合のみ意味を持つ
+/// 32bit タグ（書籍 Table 13.7 offset 60-63）。関連 FR: FR-LIVE-01, FR-LIVE-05, FR-LIVE-06。
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct FileName {
@@ -57,6 +58,7 @@ pub struct FileName {
     pub mft_modified: FileTime, pub accessed: FileTime,
     pub allocated_size: u64, pub real_size: u64,
     pub file_attributes: FileAttributes,
+    pub reparse_value: u32,
     pub namespace: FileNameNamespace, pub filename: String,
 }
 
@@ -75,7 +77,8 @@ pub enum FileNameError {
 }
 
 /// `$FILE_NAME` 属性のコンテンツ部（ヘッダ除外）をパース。UTF-16LE → Rust `String` 変換は
-/// サロゲートペア（絵文字等）も自動処理。関連 FR: FR-LIVE-01, FR-LIVE-05, FR-LIVE-06。
+/// サロゲートペア（絵文字等）も自動処理。Reparse Value は offset 0x3C-0x3F から読む。
+/// 関連 FR: FR-LIVE-01, FR-LIVE-05, FR-LIVE-06。
 pub fn parse_file_name(bytes: &[u8]) -> Result<FileName, FileNameError> {
     if bytes.len() < MIN_SIZE {
         return Err(FileNameError::BufferTooSmall { got: bytes.len() });
@@ -101,27 +104,33 @@ pub fn parse_file_name(bytes: &[u8]) -> Result<FileName, FileNameError> {
         created: FileTime(u64le(0x08)), modified: FileTime(u64le(0x10)),
         mft_modified: FileTime(u64le(0x18)), accessed: FileTime(u64le(0x20)),
         allocated_size: u64le(0x28), real_size: u64le(0x30),
-        file_attributes: FileAttributes(u32le(0x38)), namespace, filename,
+        file_attributes: FileAttributes(u32le(0x38)),
+        reparse_value: u32le(0x3C),
+        namespace, filename,
     })
 }
 
-/// MFT エントリ内の全 `$FILE_NAME` から表示に最適なものを選ぶ。優先順位:
-/// Win32 / Win32AndDos → Posix → Dos。常駐属性のみ対象。関連 FR: FR-LIVE-05, FR-LIVE-06。
-pub fn find_best_file_name(entry_data: &[u8], first_attribute_offset: usize) -> Option<FileName> {
-    let candidates: Vec<FileName> = AttributeIterator::new(entry_data, first_attribute_offset)
+/// MFT エントリ内の全 `$FILE_NAME` 常駐属性をパースして列挙。ハードリンクを持つファイルは
+/// 1 エントリに複数の `$FILE_NAME` が並ぶ（書籍 Ch.12 / `notes.md` §9）。パース失敗はスキップ。
+/// 関連 FR: FR-LIVE-01, FR-LIVE-06。
+pub fn find_all_file_names(entry_data: &[u8], first_attribute_offset: usize) -> Vec<FileName> {
+    AttributeIterator::new(entry_data, first_attribute_offset)
         .filter_map(Result::ok)
         .filter(|a| a.header.attribute_type() == AttributeType::FileName)
         .filter_map(|a| {
             if let AttributeHeader::Resident { resident, .. } = &a.header {
                 let co = resident.content_offset as usize;
                 let ce = co.checked_add(resident.content_size as usize)?;
-                if ce <= a.raw.len() {
-                    return parse_file_name(&a.raw[co..ce]).ok();
-                }
+                if ce <= a.raw.len() { return parse_file_name(&a.raw[co..ce]).ok(); }
             }
             None
-        })
-        .collect();
+        }).collect()
+}
+
+/// MFT エントリ内の全 `$FILE_NAME` から表示に最適なものを選ぶ。優先順位:
+/// Win32 / Win32AndDos → Posix → Dos。常駐属性のみ対象。関連 FR: FR-LIVE-05, FR-LIVE-06。
+pub fn find_best_file_name(entry_data: &[u8], first_attribute_offset: usize) -> Option<FileName> {
+    let candidates = find_all_file_names(entry_data, first_attribute_offset);
     candidates.iter()
         .find(|f| matches!(f.namespace, FileNameNamespace::Win32 | FileNameNamespace::Win32AndDos))
         .or_else(|| candidates.iter().find(|f| f.namespace == FileNameNamespace::Posix))
@@ -136,12 +145,26 @@ mod tests {
         let utf16: Vec<u16> = name.encode_utf16().collect();
         let mut b = vec![0u8; NAME_OFFSET + utf16.len() * 2];
         b[0x00..0x08].copy_from_slice(&parent_ref_raw.to_le_bytes());
-        b[0x40] = utf16.len() as u8;
-        b[0x41] = namespace;
+        b[0x40] = utf16.len() as u8; b[0x41] = namespace;
         for (i, u) in utf16.iter().enumerate() {
             b[NAME_OFFSET + i * 2..NAME_OFFSET + i * 2 + 2].copy_from_slice(&u.to_le_bytes());
-        }
-        b
+        } b
+    }
+    /// 常駐 $FILE_NAME 属性 1 件（ヘッダ + コンテンツ、8 バイト整列）。`length=hs+cs` を切上げ。
+    fn build_resident_fn_attr(name: &str, namespace: u8, parent: u64) -> Vec<u8> {
+        let content = build_file_name_bytes(name, namespace, parent);
+        let (cs, hs) = (content.len() as u32, 0x18u32);
+        let length = (hs + cs).div_ceil(8) * 8;
+        let mut b = vec![0u8; length as usize];
+        b[0..4].copy_from_slice(&0x30u32.to_le_bytes()); b[4..8].copy_from_slice(&length.to_le_bytes());
+        b[0x0A..0x0C].copy_from_slice(&0x18u16.to_le_bytes());
+        b[0x10..0x14].copy_from_slice(&cs.to_le_bytes());
+        b[0x14..0x16].copy_from_slice(&(hs as u16).to_le_bytes());
+        b[hs as usize..hs as usize + content.len()].copy_from_slice(&content); b
+    }
+    fn build_entry(attrs: &[Vec<u8>]) -> Vec<u8> {
+        let mut d: Vec<u8> = attrs.iter().flatten().copied().collect();
+        d.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes()); d.resize(d.len() + 16, 0); d
     }
     #[test]
     fn parses_ascii_filename() {
@@ -163,20 +186,16 @@ mod tests {
     }
     #[test]
     fn namespace_win32_dos_win32dos_posix() {
-        assert_eq!(parse_file_name(&build_file_name_bytes("a", 1, 0)).unwrap().namespace,
-            FileNameNamespace::Win32);
-        let dos = parse_file_name(&build_file_name_bytes("A~1.TXT", 2, 0)).unwrap();
-        assert_eq!(dos.namespace, FileNameNamespace::Dos);
-        assert!(!dos.namespace.is_preferred_for_display());
-        let wd = parse_file_name(&build_file_name_bytes("X.TXT", 3, 0)).unwrap();
-        assert_eq!(wd.namespace, FileNameNamespace::Win32AndDos);
-        let px = parse_file_name(&build_file_name_bytes("p", 0, 0)).unwrap();
-        assert_eq!(px.namespace, FileNameNamespace::Posix);
+        let parse_ns = |ns: u8| parse_file_name(&build_file_name_bytes("a", ns, 0)).unwrap().namespace;
+        assert_eq!(parse_ns(1), FileNameNamespace::Win32);
+        assert_eq!(parse_ns(2), FileNameNamespace::Dos);
+        assert_eq!(parse_ns(3), FileNameNamespace::Win32AndDos);
+        assert_eq!(parse_ns(0), FileNameNamespace::Posix);
+        assert!(!FileNameNamespace::Dos.is_preferred_for_display());
     }
     #[test]
     fn invalid_namespace_rejected() {
-        let mut b = build_file_name_bytes("x", 0, 0);
-        b[0x41] = 4;
+        let mut b = build_file_name_bytes("x", 0, 0); b[0x41] = 4;
         assert!(matches!(parse_file_name(&b).unwrap_err(),
             FileNameError::InvalidNamespace { got: 4 }));
     }
@@ -187,8 +206,7 @@ mod tests {
     }
     #[test]
     fn filename_buffer_too_small_rejected() {
-        let mut b = build_file_name_bytes("abcd", 1, 0);
-        b[0x40] = 10;
+        let mut b = build_file_name_bytes("abcd", 1, 0); b[0x40] = 10;
         assert!(matches!(parse_file_name(&b).unwrap_err(),
             FileNameError::FilenameBufferTooSmall { declared: 10, .. }));
     }
@@ -201,9 +219,61 @@ mod tests {
     }
     #[test]
     fn is_preferred_for_display_truth_table() {
-        assert!(FileNameNamespace::Posix.is_preferred_for_display());
-        assert!(FileNameNamespace::Win32.is_preferred_for_display());
-        assert!(!FileNameNamespace::Dos.is_preferred_for_display());
-        assert!(FileNameNamespace::Win32AndDos.is_preferred_for_display());
+        use FileNameNamespace::*;
+        assert!(Posix.is_preferred_for_display() && Win32.is_preferred_for_display());
+        assert!(Win32AndDos.is_preferred_for_display() && !Dos.is_preferred_for_display());
+    }
+    /// 書籍 Chapter 13 例題: $MFT 自身の $FILE_NAME 属性を再現。
+    /// parent=entry 5/seq 5、allocated=real=0x4000、namespace=Win32&DOS、name="$MFT"。
+    #[test]
+    fn book_example_mft_self_file_name() {
+        let mut b = build_file_name_bytes("$MFT", 3, 0x0005_0000_0000_0005);
+        b[0x28..0x30].copy_from_slice(&0x4000u64.to_le_bytes());
+        b[0x30..0x38].copy_from_slice(&0x4000u64.to_le_bytes());
+        let f = parse_file_name(&b).unwrap();
+        assert!(f.parent_directory.is_root_directory());
+        assert_eq!((f.parent_directory.sequence_number, f.filename.as_str(), f.namespace),
+            (5, "$MFT", FileNameNamespace::Win32AndDos));
+        assert_eq!((f.allocated_size, f.real_size), (0x4000, 0x4000));
+    }
+    /// 書籍 Chapter 13 例題: Win32 と DOS の二重登録（短縮名併記）パターン。
+    /// `find_all_file_names` が 2 件返し、`find_best_file_name` が Win32 を選ぶことを検証。
+    #[test]
+    fn book_example_dual_filename_win32_and_dos() {
+        let entry = build_entry(&[
+            build_resident_fn_attr("57398408d01", 1, 0x0001_0000_0000_0005),
+            build_resident_fn_attr("573984~1", 2, 0x0001_0000_0000_0005),
+        ]);
+        let all = find_all_file_names(&entry, 0);
+        assert_eq!(all.len(), 2);
+        let names: Vec<&str> = all.iter().map(|f| f.filename.as_str()).collect();
+        assert!(names.contains(&"57398408d01") && names.contains(&"573984~1"));
+        let best = find_best_file_name(&entry, 0).expect("best");
+        assert_eq!((best.filename.as_str(), best.namespace),
+            ("57398408d01", FileNameNamespace::Win32));
+    }
+    /// ハードリンクで同一ベースに複数 $FILE_NAME を持つエントリを模擬し、3 件取得を確認。
+    #[test]
+    fn find_all_file_names_returns_multiple_hardlinks() {
+        let entry = build_entry(&[
+            build_resident_fn_attr("primary.txt", 1, 0x0001_0000_0000_0005),
+            build_resident_fn_attr("alias_one.txt", 1, 0x0001_0000_0000_0005),
+            build_resident_fn_attr("alias_two.txt", 1, 0x0001_0000_0000_0006),
+        ]);
+        let all = find_all_file_names(&entry, 0);
+        let names: Vec<&str> = all.iter().map(|f| f.filename.as_str()).collect();
+        assert_eq!(all.len(), 3);
+        for n in ["primary.txt", "alias_one.txt", "alias_two.txt"] {
+            assert!(names.contains(&n), "missing: {n}");
+        }
+    }
+    /// 書籍 Table 13.7 offset 60-63（Reparse Value）。Mount Point タグ 0xA0000003 と
+    /// 通常ファイルの 0 をそれぞれ確認。
+    #[test]
+    fn reparse_value_field_is_parsed() {
+        let mut b = build_file_name_bytes("mount_point", 1, 0);
+        b[0x3C..0x40].copy_from_slice(&0xA000_0003u32.to_le_bytes());
+        assert_eq!(parse_file_name(&b).unwrap().reparse_value, 0xA000_0003);
+        assert_eq!(parse_file_name(&build_file_name_bytes("p.txt", 1, 0)).unwrap().reparse_value, 0);
     }
 }

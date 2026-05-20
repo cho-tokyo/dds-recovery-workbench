@@ -279,9 +279,116 @@ NTFS では非推奨だが、解析時に観測される可能性がある）を
 
 ---
 
-## 9. 参考リソース
+## 9. $FILE_NAME 属性とハードリンク
 
-- 書籍 9780321374752 第 13 章（NTFS Data Structures）— 本メモの主参照源。
+書籍 第 13 章「$FILE_NAME Attribute」セクション Table 13.7／Table 13.8、
+および 第 12 章「Links to Files and Directories」ハードリンク節を
+読み込み、実装観点で必要な要点を**自前の言葉で再構成**したもの。
+書籍本文の逐語コピーはなし。原典への言及（章番号・Table 番号・
+ページ番号）は事実情報として記載。
+
+### 9.1 フィールド表（Table 13.7 対応の自前再構成）
+
+`$FILE_NAME`（属性タイプ 0x30）のコンテンツ部はヘッダ込み 66 バイト固定の
+プリアンブル + 可変長 UTF-16LE 名前で構成される。常駐属性として格納され、
+ファイル名・親ディレクトリ参照・作成時スナップショットのサイズと
+タイムスタンプを保持する。
+
+| オフセット | サイズ | フィールド名 | 実装での扱い |
+|---|---|---|---|
+| 0x00 | 8B | Parent directory reference (MFT ref) | `MftReference::from_raw` で 48bit+16bit に分解 |
+| 0x08 | 8B | File creation time | `FileTime`（FILETIME 100ns since 1601） |
+| 0x10 | 8B | File modification time | 同上 |
+| 0x18 | 8B | MFT entry modification time | 同上 |
+| 0x20 | 8B | File access time | 同上 |
+| 0x28 | 8B | Allocated size of file | 作成時スナップショット。実値は `$DATA` 参照 |
+| 0x30 | 8B | Real size of file | 同上 |
+| 0x38 | 4B | Flags（ファイル属性ビット） | `FileAttributes(u32)` で生値保持 |
+| 0x3C | 4B | Reparse value | Reparse Point タグ（通常 0、Mount Point は 0xA0000003 等） |
+| 0x40 | 1B | Length of name | UTF-16 コードユニット数（バイトでなく u16 単位） |
+| 0x41 | 1B | Namespace | 0〜3 のいずれか。後述 9.2 |
+| 0x42〜 | 2N B | Name（UTF-16LE） | サロゲートペア含む可。`String::from_utf16` で変換 |
+
+名前長は 1 バイトのため最大 255 コードユニット（UTF-16）が上限。実装では
+`name_length: u8` の型自体が物理的にこれを保証する。
+
+### 9.2 名前空間（Table 13.8 対応の自前再構成）
+
+NTFS のファイル名は 4 種類の名前空間のうちのいずれかに属する。1 つの
+MFT エントリが Win32 名 + DOS 名のように複数の `$FILE_NAME` を持つことが
+普通にあるため、表示時はどれを選ぶかの優先順位が必要になる。
+
+| 値 | 名前空間 | 意味 |
+|---|---|---|
+| 0 | POSIX | 大文字小文字を区別、ほぼ全ての文字を許容（区切りと NUL 除く） |
+| 1 | Win32 | 大文字小文字は保持するが比較は非区別、Windows 規則の禁則文字あり |
+| 2 | DOS | 8.3 短縮名（全大文字 ASCII）。表示には通常使わない |
+| 3 | Win32 & DOS | Win32 名と DOS 名が同一文字列にできた場合の 1 件統合 |
+
+実装での表示優先順位は次の順:
+
+1. Win32 または Win32&DOS（ロング名としてユーザ向け）
+2. POSIX（次点）
+3. DOS（最終フォールバック。短縮名なので非推奨）
+
+`find_best_file_name` はこの優先順位で 1 件選ぶ。
+
+### 9.3 ハードリンクの考え方
+
+書籍 第 12 章「Links to Files and Directories」のハードリンク節を要約:
+
+- NTFS では同一ファイルを別ディレクトリエントリから複数の名前で参照できる。
+  これがハードリンク。
+- ハードリンクされたファイルは MFT エントリを 1 つだけ持ち、その中に
+  ハードリンク件数分の `$FILE_NAME` 属性が並列に格納される。
+- MFT エントリヘッダの `hard_link_count`（5.2 節）はリンクが増えるたびに +1。
+- 1 件のファイルに対する全ハードリンク名を列挙するには、エントリ内の
+  `$FILE_NAME` 属性を全て取り出す必要がある。先頭 1 件だけを見ると
+  表示用の名前は取れるが、ハードリンク全体像は失う。
+
+実装上の対応:
+
+- `find_all_file_names`: 常駐 `$FILE_NAME` を全て列挙し `Vec<FileName>` を返す。
+  ハードリンク対応 API。パース失敗は黙ってスキップ（解析停止はしない）。
+- `find_best_file_name`: 上記から表示用の 1 件を選ぶ（既存 API、現状互換）。
+
+### 9.4 Win32 と DOS の二重登録パターン
+
+書籍が触れる典型例:
+
+- ロング名が DOS 8.3 規則に収まらない場合、Windows は自動で
+  ロング名（namespace=1: Win32）と短縮名（namespace=2: DOS）の
+  2 つの `$FILE_NAME` を作成する。
+- 例: ロング名 `57398408d01.tmp`（11 文字＋拡張子 3 文字、DOS の 8.3
+  には収まらない長さや文字を含むケース）に対し、DOS 名 `573984~1.TMP`
+  のような ~1 サフィックス形式の短縮名が追加される。
+- ロング名が偶然 8.3 規則にぴったり合致する場合は 1 件にまとまり、
+  namespace=3（Win32 & DOS）として格納される。
+
+表示・希望リスト突合・レポート生成では Win32 名を主とし、DOS 名は補助
+情報として保持する。`find_best_file_name` がこのポリシーを実装。
+
+### 9.5 Reparse Value（offset 0x3C-0x3F）
+
+`$FILE_NAME` の reparse value フィールドはファイルが Reparse Point
+（シンボリックリンク、ジャンクション、マウントポイント等）の場合に
+タグ値を保持する。通常ファイルでは 0。実装では `reparse_value: u32` として
+生値で保持し、解釈は呼び出し側（`$REPARSE_POINT` 属性パーサや表示層）に
+委ねる。
+
+代表的タグ値（Windows ドキュメントより、書籍に列挙はないが
+Reparse Point の理解に有用なので参考）:
+
+| タグ値 | 意味 |
+|---|---|
+| 0xA0000003 | IO_REPARSE_TAG_MOUNT_POINT（ボリュームマウントポイント） |
+| 0xA000000C | IO_REPARSE_TAG_SYMLINK（シンボリックリンク） |
+
+---
+
+## 10. 参考リソース
+
+- 書籍 9780321374752 第 12 章（リンク）/ 第 13 章（NTFS Data Structures）— 本メモの主参照源。
 - Linux NTFS Documentation Project（公開ウェブ資料）
 - libfsntfs ドキュメント（公開）
 

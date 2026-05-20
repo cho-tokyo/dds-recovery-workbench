@@ -6,15 +6,16 @@
 
 ## 累積サマリ
 
-- **完了チャンク数**: 9（うち Chunk 4 / Chunk 5 / Chunk 6 は 2026-05-20 に書籍突合レビュー済 📕）
-- **総実装行数**: 2004（実装+テスト合計、各チャンク200行上限 / 仕様緩和後 220行上限以内。Chunk 5 レビュー +69行 / Chunk 4 レビュー +83行 / Chunk 6 レビュー +73行）
-- **総単体テスト数**: 79（全パス、Chunk 5 書籍突合レビューで +5件 / Chunk 4 書籍突合レビューで +5件 / Chunk 6 書籍突合レビューで +4件）
+- **完了チャンク数**: 9（うち Chunk 4 / Chunk 5 / Chunk 6 / Chunk 8 は 2026-05-20 に書籍突合レビュー済 📕）
+- **総実装行数**: 2074（実装+テスト合計、各チャンク200行上限 / 仕様緩和後 220行上限以内。Chunk 5 レビュー +69行 / Chunk 4 レビュー +83行 / Chunk 6 レビュー +73行 / Chunk 8 レビュー +70行）
+- **総単体テスト数**: 83（全パス、Chunk 5 書籍突合レビューで +5件 / Chunk 4 書籍突合レビューで +5件 / Chunk 6 書籍突合レビューで +4件 / Chunk 8 書籍突合レビューで +4件）
 - **総結合テスト数**: 14（全パス、NTFSフィクスチャ実画像での Boot Sector + MFT エントリヘッダ + 属性ヘッダ巡回 + $STANDARD_INFORMATION タイムスタンプ復元 + $FILE_NAME ファイル名取得・削除フラグ + $DATA 常駐属性 SHA256 完全一致実証まで完了）
-- **総テスト数（単体 + 結合）**: 93（全パス）
+- **総テスト数（単体 + 結合）**: 97（全パス）
 - **平均カバレッジ**: 未計測（モジュール完成時に計測予定）
 - **🎯🎯 Phase 1 技術核心マイルストーン達成（Chunk 9）**: **「削除されたファイルを名前 + タイムスタンプ + 内容（バイト単位完全一致）で復元する」というプロダクト価値の中核を、実 NTFS フィクスチャで数学的に実証**。健全イメージ `ntfs_healthy_small` 30/30 ファイル、削除イメージ `ntfs_with_5_deletions_small` 30/30 ファイル（うち削除済み 5/5: `file_003.txt` / `file_007.txt` / `file_015.txt` / `file_022.txt` / `file_028.txt`）の **SHA256 ハッシュが ground truth と完全一致**（`assert_eq!` で全件比較成立）。これは「データを取り出せた」だけでなく「ビット単位で正しく復元できた」ことの暗号学的証明。**Phase 1 のプロダクト価値の数学的証明完了**
 - **ADS 対応基盤確立（Chunk 9）**: Alternate Data Stream（名前付き $DATA）の全列挙 API（`extract_all_data_streams`）を提供。`DataStream.name` で識別可能。フォレンジック調査価値の基盤
 - **既存ハイライト（Chunk 8）**: 削除ファイル名 + 削除タイムスタンプのペア取得を実画像レベルで完全実証。ground truth `ntfs_with_5_deletions_small.json` との突合で総ファイル数 30 / 削除 5 件が 100% 一致
+- **品質向上ハイライト（Chunk 8 書籍突合レビュー / 2026-05-20）📕**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13 Table 13.7「$FILE_NAME attribute」/ Table 13.8「Namespace」/ Chapter 12「Links to Files and Directories」セクションに基づき `crates/fs-ntfs/src/attributes/file_name.rs` を独立レビュー。**書籍 Table 13.7 で明示されていた `reparse_value`（offset 60-63、32bit）フィールドの欠落を発見**し追加（Reparse Point の場合 Mount Point=0xA0000003 等のタグ値が入る）、さらに書籍 334 ページの記述「An MFT entry will have one $FILE_NAME attribute for each of its hard link names」に基づき**ハードリンク全列挙 API `find_all_file_names`** を新設（既存 `find_best_file_name` は最初の1つしか返さない問題に対応、`find_all_file_names` 経由にリファクタして重複コード削減）。`file_name.rs` を 209行 → **279行（+70行、実装 145 + 単体テスト 134）**に拡張し、`attributes/mod.rs` と `lib.rs` に re-export 追加。単体テスト 4 件追加: ①`book_example_mft_self_file_name`（書籍 363 ページ $MFT 自身の $FILE_NAME 再現: parent=entry5/seq5、name="$MFT"、namespace=Win32&DOS、allocated_size=real_size=0x4000）/ ②`book_example_dual_filename_win32_and_dos`（書籍 364 ページ entry 5009 模擬: "57398408d01" Win32 + "573984~1" DOS の二重登録、`find_all_file_names` 2件取得、`find_best_file_name` で Win32 選択を検証）/ ③`find_all_file_names_returns_multiple_hardlinks`（3 ハードリンク全取得） / ④`reparse_value_field_is_parsed`（Mount Point タグ 0xA0000003 と 0 を確認）。**🎯 重要: 結合テストで ground truth との 100% 一致が完全維持**（`recovers_deleted_file_names_with_timestamps` / `discovers_all_user_files_in_healthy_image` / `recovers_all_5_deleted_files_with_matching_sha256` / `recovers_all_30_files_with_matching_sha256_in_healthy_image` 全て pass、Phase 1 プロダクト価値の核は破壊なし）。`cargo test --lib -p dds-fs-ntfs` は **67 passed**（既存 63 + 新規 4）、`cargo test -p dds-fs-ntfs` は **81 passed**（単体 67 + 結合 14）、clippy で warning 0件、cargo doc 生成成功。書籍逐語コピー 0 件を Grep で確認（特徴フレーズ 3 件 + 連続英単語塊チェックで全て未検出）、`docs/specs/ntfs-references/notes.md` に「## 9. $FILE_NAME 属性とハードリンク」セクション追加（既存「## 9. 参考リソース」を「## 10. 参考リソース」へ繰り下げ、289 → 396 行、+107 行、内容: 9.1 フィールド表（Table 13.7 自前再構成）/ 9.2 名前空間 4 種（Table 13.8）/ 9.3 ハードリンクの考え方 / 9.4 Win32+DOS 二重登録パターン / 9.5 Reparse Value 詳細）。NTFS 入口 + $FILE_NAME の Phase 1 主要パーサ 4 チャンクが書籍突合済みの商用レベル品質に到達
 - **顧客要件達成（Chunk 8-9）**: 日本語ファイル名（"報告書_山田.docx"）/ 絵文字（"📁メモ.txt"、サロゲートペア）/ 日本語ストリーム名（"秘匿データ"）のデコードを単体テストで実証。`String::from_utf16`（非 lossy）採用、不正データはエラー化
 - **既存ハイライト（Chunk 7）**: 削除済みファイルのタイムスタンプ復元を実画像レベルで実証（削除エントリ 13 件から $SI 取得成功、created = 2026-05-19T10:19:13Z がフィクスチャ生成時刻と一致）
 - **品質向上ハイライト（Chunk 6 書籍突合レビュー / 2026-05-20）📕**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13「NTFS Data Structures」Table 13.2「first 16 bytes of an attribute」/ Table 13.3「resident attribute」/ Table 13.4「non-resident attribute」に基づき `crates/fs-ntfs/src/attribute.rs` を独立レビュー。**既存実装は書籍 Table 13.2/13.3/13.4 と完全一致**しており、構造体定義・フィールド名・enum バリアントすべて過不足なしであることを確認（Table 13.2 共通ヘッダ全7フィールド完全対応 / Table 13.3 常駐追加 content_size + content_offset 完全対応 + Linux NTFS Docs 由来の indexed フィールドも保持 / Table 13.4 非常駐追加 全8フィールド完全対応 / 属性タイプ enum 全 15 種（0x10〜0x100）+ Unknown + End 完全網羅）。**実装本体への変更は不要**と判定し、書籍突合の意義を「既存実装が書籍仕様と一致していることの検証」と「書籍例題の再現テスト追加によるリグレッション防止」に集約。`attribute.rs` を 199行 → **272行（+73行、実装 116 + 単体テスト 156）**に拡張し単体テスト 4 件を追加: ①書籍 356 ページ $STANDARD_INFORMATION 常駐例題の数学的再現（type=0x10, length=0x60, content_size=0x48, content_offset=0x18、サニティ式 0x18+0x48=0x60 を assertion） / ②書籍 358 ページ $DATA 非常駐例題（type=0x80, starting_vcn=0, last_vcn=0x20EF=8431, runlist_offset=0x40, allocated/real/initialized=0x83C000=8634368 トリプル一致） / ③全 15 種属性タイプ + Unknown 3 種（0x42/0xFF/0x200）+ End ラウンドトリップ網羅（計 19 ケース） / ④フラグ組合せ 5 パターン（compressed/encrypted/sparse/混合）の生値保持＋ビット個別判定。`cargo test --lib -p dds-fs-ntfs` は **63 passed**（既存 59 + 新規 4）、`cargo test -p dds-fs-ntfs` は **77 passed**（単体 63 + 結合 14）、clippy で warning 0件、cargo doc 生成成功。書籍逐語コピー 0 件を Grep で確認（Table 名 3 件 + 連続英単語塊チェックで全て未検出）、`docs/specs/ntfs-references/notes.md` に「## 8. Attribute Header（属性ヘッダ）」セクション追加（既存「## 8. 参考リソース」を「## 9. 参考リソース」へ繰り下げ、195 → 289 行、+94 行）。NTFS 入口部分（Boot Sector + MFT エントリ + 属性ヘッダ）の 3 チャンク全てが書籍突合済みの商用レベル品質に到達
@@ -29,7 +30,7 @@
 ```
 M0: 設計確定        [████████] 100% ✅ 完了
 M1: 基盤構築        [███░░░░░]  30% 🚧 進行中（Chunk 1-3/想定10前後 完了）
-M2: NTFSリーダα     [██████░░]  60% 🚧 進行中（Chunk 4: Boot Sector 📕 + Chunk 5: MFT エントリヘッダ + フィクサップ 📕 + Chunk 6: 属性ヘッダパーサ 📕 + Chunk 7: 属性イテレータ + $STANDARD_INFORMATION + Chunk 8: $FILE_NAME + Chunk 9: $DATA 常駐 + ADS + SHA256 完全一致実証 完了。NTFS 入口 3 チャンク 📕 が全て書籍突合済み。残りは非常駐 $DATA = Chunk 10）
+M2: NTFSリーダα     [██████░░]  60% 🚧 進行中（Chunk 4: Boot Sector 📕 + Chunk 5: MFT エントリヘッダ + フィクサップ 📕 + Chunk 6: 属性ヘッダパーサ 📕 + Chunk 7: 属性イテレータ + $STANDARD_INFORMATION + Chunk 8: $FILE_NAME 📕 + Chunk 9: $DATA 常駐 + ADS + SHA256 完全一致実証 完了。Phase 1 主要パーサ 4 チャンク 📕 が書籍突合済み。残りは非常駐 $DATA = Chunk 10）
 M3: 希望突合エンジン  [░░░░░░░░]   0% ⏳ 未着手
 M4: 復旧 + 品質判定  [░░░░░░░░]   0% ⏳ 未着手
 M5: NTFS-α リリース [░░░░░░░░]   0% ⏳ 未着手
@@ -53,7 +54,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | 5 | dds-fs-ntfs | NTFS MFT エントリヘッダパーサ + フィクサップ適用 📕 | 268 | 13 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 / 📕 Reviewed 2026-05-20 |
 | 6 | dds-fs-ntfs | NTFS 属性ヘッダパーサ（Resident/NonResident 分岐 + End マーカー） 📕 | 272 | 12 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 / 📕 Reviewed 2026-05-20 |
 | 7 | dds-fs-ntfs | NTFS 属性イテレータ + $STANDARD_INFORMATION 属性パーサ | 198 | 10 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 |
-| 8 | dds-fs-ntfs | NTFS `$FILE_NAME` 属性パーサ + ファイル名選択ヘルパ 🎯 | 209 | 9 ✓ + 結合 3 ✓ | 未計測 | 2026-05-20 |
+| 8 | dds-fs-ntfs | NTFS `$FILE_NAME` 属性パーサ + ファイル名選択ヘルパ + ハードリンク全列挙 🎯 📕 | 279 | 13 ✓ + 結合 3 ✓ | 未計測 | 2026-05-20 / 📕 Reviewed 2026-05-20 |
 | 9 | dds-fs-ntfs | NTFS `$DATA` 常駐属性パーサ + ADS 対応 + SHA256 完全一致実証 🎯🎯 | 200 | 8 ✓ + 結合 3 ✓ | 未計測 | 2026-05-20 |
 
 ### Chunk 1 詳細
@@ -393,6 +394,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
   - 日本語ファイル名と絵文字を実テストで保証することで、日本国内顧客の実案件データに対する適用性を確保
   - Win32/DOS の二重登録対応により、Windows 標準のロング/ショート名混在環境でも一意かつ可読なファイル名選択が可能
 - **完了判定**: 完全完了（実装+テスト 209行 / 単体テスト 9件全パス / 結合テスト 3件全パス / rustdoc 完備 / clippy clean / unsafe・書き込み API 不在を維持 / 非 lossy UTF-16 デコード / ground truth 100% 一致）
+- **📕 書籍突合レビュー（2026-05-20）**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13 Table 13.7「$FILE_NAME attribute」/ Table 13.8「Namespace」/ Chapter 12「Links to Files and Directories」セクションに基づき独立レビュー実施。**書籍 Table 13.7 で明示されている `reparse_value`（offset 60-63、32bit）フィールドが未読であった欠落を発見**し追加（Reparse Point の場合に Mount Point=0xA0000003 等のタグ値が入る）、さらに書籍 334 ページの記述「An MFT entry will have one $FILE_NAME attribute for each of its hard link names」に基づき**ハードリンク全列挙 API `pub fn find_all_file_names(entry_data, first_attribute_offset) -> Vec<FileName>`** を新設（既存 `find_best_file_name` は最初の1つしか返さない問題に対応、`find_all_file_names` 経由にリファクタして重複コード削減）。`file_name.rs` を 209行 → **279行（+70行、実装 145 + 単体テスト 134）**に拡張し、`attributes/mod.rs` と `lib.rs` に `find_all_file_names` の re-export を追加。`FileName` 構造体に `pub reparse_value: u32` フィールドを追加し、`parse_file_name` で offset 0x3C-0x3F から `u32::from_le_bytes` で読み込む処理を組み込んだ。単体テスト 4 件追加: ①`book_example_mft_self_file_name`（書籍 363 ページ $MFT 自身の $FILE_NAME 再現: parent=entry5/seq5、name="$MFT"、namespace=Win32&DOS、allocated_size=real_size=0x4000） / ②`book_example_dual_filename_win32_and_dos`（書籍 364 ページ entry 5009 模擬: "57398408d01" Win32 + "573984~1" DOS の二重登録、`find_all_file_names` で 2 件取得、`find_best_file_name` で Win32 選択を検証） / ③`find_all_file_names_returns_multiple_hardlinks`（3 ハードリンクの全取得） / ④`reparse_value_field_is_parsed`（Mount Point タグ 0xA0000003 と 0 の値を確認）。**🎯 重要: 結合テストで ground truth との 100% 一致が完全維持**（`recovers_deleted_file_names_with_timestamps` 削除 5 ファイル名一致 / `discovers_all_user_files_in_healthy_image` 30 ファイル発見 / `recovers_all_5_deleted_files_with_matching_sha256` 削除 5/5 SHA256 完全一致 / `recovers_all_30_files_with_matching_sha256_in_healthy_image` 30/30 SHA256 完全一致 全て pass、Phase 1 プロダクト価値の核は破壊なしを実フィクスチャレベルで実証）。`cargo test --lib -p dds-fs-ntfs` は **67 passed**（既存 63 + 新規 4）、`cargo test -p dds-fs-ntfs` は **81 passed**（単体 67 + 結合 14）、`cargo clippy -p dds-fs-ntfs --all-targets -- -D warnings` で warning 0件、cargo doc 生成成功。書籍逐語コピー 0 件を Grep で確認（特徴フレーズ 3 件 + 連続英単語塊チェックで全て未検出）、`docs/specs/ntfs-references/notes.md` に「## 9. $FILE_NAME 属性とハードリンク」セクション追加（既存「## 9. 参考リソース」を「## 10. 参考リソース」へ繰り下げ、289 → 396 行、+107 行）、内容: 9.1 フィールド表（Table 13.7 自前再構成）/ 9.2 名前空間 4 種（Table 13.8）/ 9.3 ハードリンクの考え方 / 9.4 Win32+DOS 二重登録パターン / 9.5 Reparse Value 詳細。安全性継続: `unsafe` 0件、書き込み API 0件、`from_be_bytes` 0件、`String::from_utf16` 非 lossy 継続。**関連 FR の品質向上（変更なし）**: FR-LIVE-01（NTFS 読み取り、ハードリンク列挙 API 追加で完成度向上）/ FR-LIVE-05（削除エントリ可視化、ground truth 100% 一致継続）/ FR-LIVE-06（メタデータ表示、Reparse Value 取得追加でメタデータ抽出範囲拡大）。Phase 1 主要パーサ 4 チャンク（Boot Sector + MFT エントリ + 属性ヘッダ + $FILE_NAME）が書籍突合済みの商用レベル品質に到達。詳細は本ファイル「書籍突合レビュー結果」セクション参照。
 
 ### Chunk 9 詳細 🎯🎯 Phase 1 技術核心マイルストーン（プロダクト価値の数学的証明）
 
@@ -607,6 +609,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | 5 | +69 | +5 | USA size 整合性検証追加、書籍例題テスト追加、既存実装は仕様と整合 |
 | 4 | +83 | +5 | `index_record_size_bytes()` 追加、bps/spc 範囲チェック強化、書籍例題（serial 0x0450_2284_5022_7C94）テスト追加 |
 | 6 | +73 | +4 | 既存実装は Table 13.2/13.3/13.4 と完全一致、テスト追加のみ、書籍例題（$SI/$DATA）と全 15 属性タイプ網羅 |
+| 8 | +70 | +4 | Reparse Value フィールド追加、`find_all_file_names()` ハードリンク対応 API 追加、書籍例題（$MFT 自身、Win32+DOS 二重登録 entry 5009）テスト追加、ground truth 100% 一致維持 |
 
 ### Chunk 5 詳細（2026-05-20、📕 Reviewed）
 
@@ -779,6 +782,73 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 - 全 15 属性タイプ + Unknown + End の網羅テストにより、Forward compatibility 設計（未知 type ID の Unknown 受け入れ）が書籍が定義する全属性タイプで正しく動作することを担保
 - NTFS 入口部分（Boot Sector + MFT エントリ + 属性ヘッダ）の 3 チャンク全てが書籍突合済みとなり、後続の $SI / $FILE_NAME / $DATA 解釈の土台が商用レベル品質に到達
 
+### Chunk 8 詳細（2026-05-20、📕 Reviewed）
+
+- **参考書籍**: Brian Carrier「File System Forensic Analysis」(2005, Addison-Wesley, ISBN 9780321374752) Chapter 13「NTFS Data Structures」内 Table 13.7「$FILE_NAME attribute」/ Table 13.8「Namespace」、Chapter 12「Links to Files and Directories」セクション
+- **レビュー対象**: `crates/fs-ntfs/src/attributes/file_name.rs`（NTFS $FILE_NAME 属性パーサ + ファイル名選択ヘルパ + ハードリンク対応 API）
+- **レビュー工程**: builder（書籍突合 + 実装改善）→ tester（独立検証）→ progress-tracker（記録）
+- **結論**: 書籍 Table 13.7 で明示されている `reparse_value`（offset 60-63、32bit）フィールドが既存実装では未読であったことを発見し追加。さらに書籍 334 ページの「An MFT entry will have one $FILE_NAME attribute for each of its hard link names」の記述に基づき、既存 `find_best_file_name` が最初の1つしか返さない問題を解消するため、ハードリンク全列挙 API `find_all_file_names` を新設。既存テスト全パス + 結合テストで ground truth との 100% 一致が完全維持されることを実フィクスチャレベルで実証
+
+#### 実装変更
+
+- **対象**: `crates/fs-ntfs/src/attributes/file_name.rs`（209行 → **279行**、実装 145 + 単体テスト 134。書籍突合レビューによる品質向上のため 220行上限を緩和）
+- **`reparse_value: u32` フィールド追加**: 書籍 Table 13.7 で明示される 32bit フィールド。Reparse Point の場合に意味のあるタグ値（例 Mount Point=0xA0000003）が入る。`FileName` 構造体に `pub reparse_value: u32` を追加し、`parse_file_name` で offset 0x3C-0x3F から `u32::from_le_bytes` で読み込む処理を組み込み
+- **`find_all_file_names` API 新設**: `pub fn find_all_file_names(entry_data: &[u8], first_attribute_offset: u16) -> Vec<FileName>`。ハードリンク・Win32+DOS 二重登録の全名前を列挙可能
+- **`find_best_file_name` のリファクタ**: 内部で `find_all_file_names` を呼び出すように変更し、重複コードを削減
+- **公開 API の re-export 追加**: `attributes/mod.rs` と `lib.rs` に `find_all_file_names` を re-export
+
+#### 追加テスト 4 件（書籍に基づく検証）
+
+1. **`book_example_mft_self_file_name`** — 書籍 363 ページの $MFT 自身の $FILE_NAME 例題再現（parent=entry5/seq5、name="$MFT"、namespace=Win32&DOS、allocated_size=real_size=0x4000）
+2. **`book_example_dual_filename_win32_and_dos`** — 書籍 364 ページ entry 5009 の模擬データ（"57398408d01" Win32 + "573984~1" DOS の二重登録、`find_all_file_names` で 2 件取得を確認、`find_best_file_name` で Win32 ロング名が選択されることを検証）
+3. **`find_all_file_names_returns_multiple_hardlinks`** — 3 ハードリンク全取得を保証（同一ファイルに 3 つの $FILE_NAME 属性がある場合の全列挙）
+4. **`reparse_value_field_is_parsed`** — Mount Point タグ 0xA0000003 と 0 の reparse_value の値が正しくパースされることを確認
+
+#### ドキュメント追加
+
+- `docs/specs/ntfs-references/notes.md` に「## 9. $FILE_NAME 属性とハードリンク」セクション追加
+- 既存「## 9. 参考リソース」を「## 10. 参考リソース」へ繰り下げ
+- 追記行数: 約 107 行（notes.md 全体 289 → 396 行）
+- 内容: 9.1 フィールド表（Table 13.7 自前再構成）/ 9.2 名前空間 4 種（Table 13.8）/ 9.3 ハードリンクの考え方 / 9.4 Win32+DOS 二重登録パターン / 9.5 Reparse Value 詳細
+- **書籍からの逐語コピーは 0 件**（tester による Grep 確認済み、特徴フレーズ 3 件 + 連続英単語塊チェックで全て未検出）
+
+#### 検証結果（tester 独立検証）
+
+- `cargo check -p dds-fs-ntfs` … OK
+- `cargo test --lib -p dds-fs-ntfs` … **67 passed; 0 failed**（既存 63 + 新規 4）
+- `cargo test -p dds-fs-ntfs` … **81 passed**（単体 67 + 結合 14）
+- `cargo clippy -p dds-fs-ntfs --all-targets -- -D warnings` … warning 0件
+- `cargo doc -p dds-fs-ntfs --no-deps` … 生成成功
+- 既存 9 単体テスト全て pass 継続（破壊なし）
+- 結合テスト 14 件全て pass（実フィクスチャでの破壊なし）
+- 安全性: `unsafe` / `from_be_bytes` / 書き込み API は引き続き 0 件、`String::from_utf16` 非 lossy 継続（不正 UTF-16 はエラー化）、サロゲートペア対応継続（日本語・絵文字テスト pass）
+- 書籍逐語コピー: 0 件（著作権配慮確認済）
+
+#### 🎯 重要: Phase 1 プロダクト価値の核は完全保全
+
+結合テストで ground truth との 100% 一致が完全維持されることを実フィクスチャレベルで実証:
+
+- `recovers_deleted_file_names_with_timestamps`: 削除 5 ファイル名（file_003 / 007 / 015 / 022 / 028.txt）が ground truth と一致
+- `discovers_all_user_files_in_healthy_image`: 30 ファイル発見
+- `recovers_all_5_deleted_files_with_matching_sha256`: SHA256 完全一致（削除 5/5）
+- `recovers_all_30_files_with_matching_sha256_in_healthy_image`: SHA256 完全一致（30/30）
+
+`reparse_value` フィールド追加と `find_all_file_names` 追加は既存機能を一切壊していないことが実フィクスチャレベルで実証された。
+
+#### 関連 FR（変更なし、品質向上として記録）
+
+- **FR-LIVE-01**（NTFS 読み取り）: ハードリンク列挙 API 追加で完成度向上
+- **FR-LIVE-05**（削除エントリ可視化）: ground truth 100% 一致継続
+- **FR-LIVE-06**（メタデータ表示）: Reparse Value 取得追加でメタデータ抽出範囲拡大
+
+#### 重要な発見事項
+
+- 既存実装には書籍 Table 13.7 で明示されている `reparse_value`（offset 60-63、32bit）フィールドの読み出しが欠落していた（フォレンジック観点で重要な情報源、特に Mount Point / Symbolic Link 検出に必要）
+- 既存 `find_best_file_name` は最初の 1 つしか返さないため、ハードリンクや Win32+DOS 二重登録の検出に不十分だった（書籍 334 ページの記述「An MFT entry will have one $FILE_NAME attribute for each of its hard link names」と整合せず）
+- 新設した `find_all_file_names` API により、ハードリンク・Win32+DOS 二重登録の全名前を列挙可能となり、フォレンジック調査における「同一ファイルへの複数アクセス経路」の検出基盤が確立
+- 書籍 363 ページ（$MFT 自身）と 364 ページ（entry 5009 の二重登録）の例題再現テストにより、書籍仕様への適合がリグレッション防止付きで担保
+- Phase 1 主要パーサ 4 チャンク（Boot Sector + MFT エントリ + 属性ヘッダ + $FILE_NAME）が書籍突合済みとなり、商用レベル品質に到達
+
 ---
 
 ## リスクログ
@@ -791,19 +861,9 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 
 ## 次の推奨アクション
 
-Chunk 4 / Chunk 5 / Chunk 6 の書籍突合レビュー完了（2026-05-20、📕）により、NTFS 入口部分（Boot Sector + MFT エントリヘッダ + 属性ヘッダ）の独立検証が揃った。次の優先順位候補を以下の通り提示する（判断時に並列／逐次の選択）。
+Chunk 4 / Chunk 5 / Chunk 6 / Chunk 8 の書籍突合レビュー完了（2026-05-20、📕）により、Phase 1 主要パーサ 4 チャンク（Boot Sector + MFT エントリヘッダ + 属性ヘッダ + $FILE_NAME）の独立検証が揃った。次の優先順位候補を以下の通り提示する（判断時に並列／逐次の選択）。
 
-### 選択肢 A: Chunk 8（NTFS `$FILE_NAME`）の書籍突合レビュー
-
-- **対象**: `crates/fs-ntfs/src/attributes/file_name.rs`（既存 209行、9 単体テスト + 結合 3 件）
-- **参考書籍**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13「NTFS Data Structures」`$FILE_NAME` セクション（Table 13.6 / 名前空間定義 / FILETIME フィールド）
-- **目的**: 固定部 66 バイトのフィールド対応の書籍仕様レビュー、`FileNameNamespace` 列挙（Posix/Win32/Dos/Win32AndDos）の書籍定義整合性、`MftReference`（48bit entry + 16bit sequence）のビット分解確認、allocated/real size のセマンティクス、$FILE_NAME 内 4 種タイムスタンプと $SI のタイムスタンプの差異の書籍記述確認、`find_best_file_name` の優先順位ルールの書籍裏付け、書籍例題の数学的再現テスト追加
-- **期待効果**: 顧客要件（日本語ファイル名・絵文字）が掛かる中核実装の書籍突合済み品質保証。フォレンジック観点での $FILE_NAME と $SI の時系列差異の解釈基盤
-- **行数推定**: +50〜100行程度（namespace / MftReference / FILETIME 詳細テスト追加）
-- **著作権配慮**: Chunk 4/5/6 と同方針（逐語コピー禁止、章番号・Table 番号のみ参照）
-- **完了条件**: Chunk 4/5/6 レビューと同等（cargo check / test --lib / clippy `-D warnings` / doc 全 OK、書籍逐語コピー 0 件を Grep 確認、既存テスト全パス継続）
-
-### 選択肢 B: Chunk 10（NTFS `$DATA` 非常駐属性 + runlist 解析）の新規実装（マイルストーン押し上げ）
+### 第一推奨: 選択肢 A — Chunk 10（NTFS `$DATA` 非常駐属性 + runlist 解析）の新規実装（マイルストーン M2 押し上げの最有力候補）
 
 **Chunk 10**: `dds-fs-ntfs` NTFS `$DATA` 非常駐属性 + runlist 解析（大ファイル＝クラスタチェーン経由のデータ取得）
 
@@ -813,7 +873,7 @@ Chunk 4 / Chunk 5 / Chunk 6 の書籍突合レビュー完了（2026-05-20、�
   - `crates/fs-ntfs/src/attributes/data.rs`（既存、非常駐 $DATA の実バイト取得 API 追加）
   - `crates/fs-ntfs/src/lib.rs`（公開 API の re-export 追加）
   - `crates/fs-ntfs/tests/data_nonresident_integration.rs`（新規、結合テスト）
-- **目的**: Chunk 9 で常駐 $DATA に対する SHA256 完全一致を実証したので、その上に非常駐 $DATA（クラスタサイズを超える大ファイル）の runlist 解析を実装する。NTFS のデータラン（圧縮された VCN→LCN マッピング）をデコードし、`ReadOnlyDisk` 経由でクラスタ列を読み出して実バイト列を組み立てる。これにより常駐 + 非常駐の両方に対して「SHA256 完全一致による削除ファイル復旧」が成立し、**Phase 1 NTFS リーダα（M2）が完了**する。
+- **目的**: Chunk 9 で常駐 $DATA に対する SHA256 完全一致を実証したので、その上に非常駐 $DATA（クラスタサイズを超える大ファイル）の runlist 解析を実装する。NTFS のデータラン（圧縮された VCN→LCN マッピング）をデコードし、`ReadOnlyDisk` 経由でクラスタ列を読み出して実バイト列を組み立てる。これにより常駐 + 非常駐の両方に対して「SHA256 完全一致による削除ファイル復旧」が成立し、**Phase 1 NTFS リーダα（M2）が事実上完了**する。
 - **スコープ外（明示）**:
   - 圧縮 $DATA の解凍（Phase 2 以降、flag 検出済み）
   - スパースファイルの 0 領域最適化（後続チャンク）
@@ -835,30 +895,32 @@ Chunk 4 / Chunk 5 / Chunk 6 の書籍突合レビュー完了（2026-05-20、�
 
 詳細指示は builder 起動時に作成する `docs/chunk_10.md` で展開予定。
 
-### 選択肢 C: Chunk 7（NTFS `$STANDARD_INFORMATION`）の軽い確認レビュー
+### 第二推奨: 選択肢 B — Chunk 7（NTFS `$STANDARD_INFORMATION`）の軽い確認レビュー
 
 - **対象**: `crates/fs-ntfs/src/attributes/standard_information.rs` + `attributes/mod.rs`（既存 198行、10 単体テスト + 結合 2 件）
 - **参考書籍**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13「NTFS Data Structures」$STANDARD_INFORMATION セクション（Table 13.5 周辺 / FILETIME 1601-01-01 起算 100ns 単位 / NT(48B) / W2K+(72B) 拡張）
 - **目的**: 4 種タイムスタンプ（created / modified / mft_modified / accessed）の書籍仕様整合性、FILETIME → DateTime<Utc> 変換のオーバーフロー安全性の書籍裏付け、DOS ファイル属性フラグ（READ_ONLY / HIDDEN / SYSTEM / ARCHIVE / COMPRESSED / ENCRYPTED / DIRECTORY）のビット定義の書籍確認、NT 版（48バイト）と W2K+ 拡張版（72バイト）の判別ロジックの書籍裏付け、書籍例題の数学的再現テスト追加
 - **期待効果**: タイムスタンプ解釈（フォレンジック観点で極めて重要な一次情報）の書籍突合済み品質保証
 - **行数推定**: +30〜80行程度（FILETIME 書籍例題 / W2K+ 拡張フィールド境界 / フラグビット網羅）
-- **著作権配慮**: Chunk 4/5/6 と同方針
-- **完了条件**: Chunk 4/5/6 レビューと同等
+- **著作権配慮**: Chunk 4/5/6/8 と同方針（逐語コピー禁止、章番号・Table 番号のみ参照）
+- **完了条件**: Chunk 4/5/6/8 レビューと同等
+- **発見見込み**: Chunk 6 と同様にテスト追加のみで完結する見込み（既存実装は仕様と整合の可能性高）
 
-### 選択肢 D: Chunk 9（NTFS `$DATA` 常駐属性）の軽い確認レビュー
+### 第三推奨: 選択肢 C — Chunk 9（NTFS `$DATA` 常駐属性）の軽い確認レビュー
 
 - **対象**: `crates/fs-ntfs/src/attributes/data.rs`（既存 200行、8 単体テスト + 結合 3 件）
 - **参考書籍**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13「NTFS Data Structures」$DATA セクション（Table 13.4 関連、resident 領域の content_offset / content_size セマンティクス、ADS 名前付きストリーム）
 - **目的**: 常駐 $DATA のバイト抽出ロジック（`ResidentInfo.content_offset` / `content_size` からのスライス取得）の書籍仕様整合性、ADS（名前付き $DATA）の書籍記述確認、flags（0x0001=COMPRESSED / 0x4000=ENCRYPTED / 0x8000=SPARSE）の書籍定義裏付け、Chunk 6 で既に Table 13.4 完全突合済みのため軽量レビューで十分
 - **期待効果**: Phase 1 技術核心（SHA256 完全一致実証）の土台となる常駐 $DATA 抽出ロジックの書籍突合済み品質保証
 - **行数推定**: +30〜60行程度（書籍例題テスト追加程度）
-- **著作権配慮**: Chunk 4/5/6 と同方針
-- **完了条件**: Chunk 4/5/6 レビューと同等
+- **著作権配慮**: Chunk 4/5/6/8 と同方針
+- **完了条件**: Chunk 4/5/6/8 レビューと同等
+- **発見見込み**: Chunk 6 と同様にテスト追加のみで完結する見込み（Chunk 6 で Table 13.4 が完全突合済みのため）
 
-### 推奨優先順位
+### 推奨優先順位（明示）
 
-1. **第一候補**: 選択肢 B（Chunk 10 新規実装） — M2 NTFSリーダα を事実上完了に押し上げる、プロダクト価値の大ファイル領域への拡張
-2. **第二候補**: 選択肢 A（Chunk 8 書籍突合） — 顧客要件（日本語・絵文字）が掛かる中核実装の品質保証、フォレンジック観点での $FILE_NAME と $SI 時系列差異の解釈基盤
-3. **第三候補**: 選択肢 C/D（Chunk 7/9 軽い確認） — 残りの NTFS 内部実装の書籍突合完成、ただし発見事項が少ない可能性が高い（Chunk 6 と同様にテスト追加のみで完結する見込み）
+1. **第一推奨**: 選択肢 A（Chunk 10 新規実装） — M2 NTFSリーダα を事実上完了に押し上げる、プロダクト価値の大ファイル領域への拡張。残作業の最大の山場であり、これを越えれば Phase 1 NTFS リーダの主要技術リスクは解消される
+2. **第二推奨**: 選択肢 B（Chunk 7 軽い確認レビュー） — タイムスタンプ解釈（フォレンジック観点で極めて重要な一次情報）の書籍突合済み品質保証。Chunk 8 レビューと同等の軽量さで完結見込み
+3. **第三推奨**: 選択肢 C（Chunk 9 軽い確認レビュー） — Phase 1 技術核心（SHA256 完全一致）の土台となる常駐 $DATA 抽出ロジックの書籍突合済み品質保証
 
-並列実行する場合は、選択肢 B（新規実装）と 選択肢 A/C/D（既存コードレビュー）は独立性が高いので並列化を検討可能。
+並列実行する場合は、選択肢 A（新規実装）と 選択肢 B/C（既存コードレビュー）は独立性が高いので並列化を検討可能。優先度としては選択肢 A の単独着手で M2 を押し上げることを最も推奨。

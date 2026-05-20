@@ -8,8 +8,8 @@ pub use data::{
     DataContent, DataError, DataStream,
 };
 pub use file_name::{
-    find_best_file_name, parse_file_name, FileName, FileNameError, FileNameNamespace,
-    MftReference,
+    find_all_file_names, find_best_file_name, parse_file_name, FileName, FileNameError,
+    FileNameNamespace, MftReference,
 };
 pub use standard_information::{
     parse_standard_information, FileAttributes, FileTime, SiError, StandardInformation,
