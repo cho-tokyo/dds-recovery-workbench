@@ -1,7 +1,12 @@
 //! 属性巡回モジュール: MFT エントリ内の属性を順次取り出すイテレータと検索ヘルパ。
 //! 関連 FR: FR-LIVE-01（NTFS 読み取り）、FR-LIVE-05（削除エントリ可視化）、FR-LIVE-06（メタデータ表示）。
+pub mod data;
 pub mod file_name;
 pub mod standard_information;
+pub use data::{
+    extract_all_data_streams, extract_main_data_stream, parse_data_stream,
+    DataContent, DataError, DataStream,
+};
 pub use file_name::{
     find_best_file_name, parse_file_name, FileName, FileNameError, FileNameNamespace,
     MftReference,
