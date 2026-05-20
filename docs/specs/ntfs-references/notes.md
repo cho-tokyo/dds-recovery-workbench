@@ -185,7 +185,101 @@ Phase 1 では**緩い検証**（OEM ID / signature / bps / spc のみ厳格に�
 
 ---
 
-## 8. 参考リソース
+## 8. Attribute Header（属性ヘッダ）
+
+書籍 第 13 章「Attributes」セクション Table 13.2/13.3/13.4 を読み込み、
+実装で必要なフィールドを**自前の言葉で再構成**した。属性は MFT エントリ
+の本体を構成する単位で、すべて共通の 16 バイトヘッダで始まり、その後に
+常駐／非常駐の区別に応じた追加ヘッダが続く。
+
+### 8.1 共通ヘッダ（Table 13.2 対応、先頭 16 バイト）
+
+| オフセット | サイズ | フィールド | 実装での扱い |
+|---|---|---|---|
+| 0x00 | 4B | Attribute type identifier | `AttributeType::from_raw` で enum 化 |
+| 0x04 | 4B | Length of attribute | 次属性までの相対オフセット。0 は不正 |
+| 0x08 | 1B | Non-resident flag | 0=resident / 1=non-resident、それ以外はエラー |
+| 0x09 | 1B | Length of name | 名前の Unicode 文字数（バイトでなく code units） |
+| 0x0A | 2B | Offset to name | 属性先頭からの相対オフセット |
+| 0x0C | 2B | Flags | bit0=compressed, bit14=encrypted, bit15=sparse |
+| 0x0E | 2B | Attribute identifier | エントリ内一意の連番 |
+
+### 8.2 常駐属性追加ヘッダ（Table 13.3 対応、offset 0x10〜）
+
+| オフセット | サイズ | フィールド | 実装での扱い |
+|---|---|---|---|
+| 0x10 | 4B | Content size | コンテンツ本体のバイト数 |
+| 0x14 | 2B | Content offset | 属性先頭からのコンテンツ開始位置 |
+| 0x16 | 1B | Indexed flag | Linux NTFS Docs 由来。0/1 で保持 |
+| 0x17 | 1B | Padding | 検査せず |
+
+サニティ条件: `content_offset + content_size == length`（書籍 356 ページの
+$STANDARD_INFORMATION 例では 0x18 + 0x48 == 0x60）。
+
+### 8.3 非常駐属性追加ヘッダ（Table 13.4 対応、offset 0x10〜0x40）
+
+| オフセット | サイズ | フィールド | 実装での扱い |
+|---|---|---|---|
+| 0x10 | 8B | Starting VCN | データ範囲の先頭仮想クラスタ番号 |
+| 0x18 | 8B | Ending VCN | データ範囲の末尾仮想クラスタ番号 |
+| 0x20 | 2B | Offset to runlist | 属性先頭からの runlist 開始位置 |
+| 0x22 | 2B | Compression unit size | 2 の累乗で表現（0 なら非圧縮） |
+| 0x24 | 4B | Padding | 検査せず |
+| 0x28 | 8B | Allocated size of content | クラスタ単位に切り上げた割当バイト数 |
+| 0x30 | 8B | Actual size of content | 実バイト数（real_size） |
+| 0x38 | 8B | Initialized size of content | ゼロ埋め境界まで初期化されたバイト数 |
+
+書籍 358 ページの $DATA 例: starting_vcn=0, ending_vcn=0x20EF (8431),
+runlist_offset=0x40, allocated=actual=initialized=0x83C000 (8634368)。
+
+### 8.4 属性タイプ ID 一覧（Chapter 13 で言及される 15 種）
+
+| ID | 名称 | 概要 |
+|---|---|---|
+| 0x10 | $STANDARD_INFORMATION | タイムスタンプ・ファイル属性ビット |
+| 0x20 | $ATTRIBUTE_LIST | エントリ溢れ時の他レコード参照リスト |
+| 0x30 | $FILE_NAME | 名前・親ディレクトリ参照・名前空間 |
+| 0x40 | $OBJECT_ID | NTFS オブジェクト識別 GUID |
+| 0x50 | $SECURITY_DESCRIPTOR | アクセス制御情報（旧形式・通常は $Secure に集約） |
+| 0x60 | $VOLUME_NAME | ボリュームラベル（$Volume のみ） |
+| 0x70 | $VOLUME_INFORMATION | NTFS バージョン・フラグ（$Volume のみ） |
+| 0x80 | $DATA | ファイル本体データ |
+| 0x90 | $INDEX_ROOT | B-tree ルートノード（ディレクトリ等） |
+| 0xA0 | $INDEX_ALLOCATION | B-tree 非ルートノード本体 |
+| 0xB0 | $BITMAP | $INDEX_ALLOCATION 用クラスタアロケーションビット |
+| 0xC0 | $REPARSE_POINT | シンボリックリンク・ジャンクション等 |
+| 0xD0 | $EA_INFORMATION | OS/2 拡張属性メタデータ |
+| 0xE0 | $EA | OS/2 拡張属性本体 |
+| 0x100 | $LOGGED_UTILITY_STREAM | EFS 等の暗号化メタストリーム |
+
+未知の type ID は `AttributeType::Unknown(raw)` で生値保持し、エラーには
+しない（forward compatibility）。`0xFFFFFFFF` は属性連の終端マーカー。
+
+### 8.5 Flag ビット意味
+
+| ビット | 16 進値 | 意味 |
+|---|---|---|
+| 0 | 0x0001 | Compressed（圧縮属性。$DATA のみで通常用いる） |
+| 14 | 0x4000 | Encrypted（EFS 暗号化） |
+| 15 | 0x8000 | Sparse（スパースファイル） |
+
+実装は `flags: u16` を生値で保持し、デコードは呼び出し側（`data.rs` 等）の
+責務とする。これにより、複数ビット同時セット（例: compressed+encrypted は
+NTFS では非推奨だが、解析時に観測される可能性がある）をビット演算で
+自由に判定できる。
+
+### 8.6 解析の停止条件
+
+属性巡回ループは以下のいずれかで停止:
+
+1. type ID = 0xFFFFFFFF → `AttributeHeader::End` を返して終了。
+2. `length == 0` → `InvalidLength` エラー（無限ループ防止）。
+3. バッファ長不足 → `BufferTooSmall { got, need }` エラー。
+4. non-resident flag が 0/1 以外 → `InvalidNonResidentFlag` エラー。
+
+---
+
+## 9. 参考リソース
 
 - 書籍 9780321374752 第 13 章（NTFS Data Structures）— 本メモの主参照源。
 - Linux NTFS Documentation Project（公開ウェブ資料）

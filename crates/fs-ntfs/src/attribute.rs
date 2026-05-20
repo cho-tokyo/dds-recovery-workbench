@@ -195,4 +195,78 @@ mod tests {
         assert!(matches!(parse_attribute_header(&buf).unwrap_err(),
             AttributeError::InvalidLength { length: 0 }));
     }
+    /// 書籍 Table 13.2/13.3 例題再現: 96 バイト常駐 $STANDARD_INFORMATION。
+    /// type=0x10, length=0x60, content_size=0x48, content_offset=0x18, 0x18+0x48=0x60。
+    #[test]
+    fn book_example_si_resident_96_byte_attribute() {
+        let mut b = vec![0u8; 0x60];
+        b[0..4].copy_from_slice(&0x10u32.to_le_bytes()); b[4..8].copy_from_slice(&0x60u32.to_le_bytes());
+        b[0x10..0x14].copy_from_slice(&0x48u32.to_le_bytes()); b[0x14..0x16].copy_from_slice(&0x18u16.to_le_bytes());
+        let h = parse_attribute_header(&b).expect("parse");
+        let length = h.length();
+        let c = h.common().expect("common").clone();
+        assert_eq!((c.attribute_type, c.length, c.non_resident, c.name_length, c.flags, c.attribute_id),
+            (AttributeType::StandardInformation, 0x60, false, 0, 0, 0));
+        if let AttributeHeader::Resident { resident: r, .. } = h {
+            assert_eq!((r.content_size, r.content_offset), (0x48, 0x18));
+            assert_eq!(u32::from(r.content_offset) + r.content_size, length);
+        } else { panic!("expected resident") }
+    }
+    /// 書籍 Table 13.2/13.4 例題再現: 非常駐 $DATA + runlist。
+    /// type=0x80, vcn 0..0x20EF, runlist_offset=0x40, sizes=0x83C000。
+    #[test]
+    fn book_example_data_nonresident_with_runlist() {
+        let mut b = vec![0u8; 0x60];
+        b[0..4].copy_from_slice(&0x80u32.to_le_bytes()); b[4..8].copy_from_slice(&0x60u32.to_le_bytes()); b[0x08] = 1;
+        b[0x18..0x20].copy_from_slice(&0x20EFu64.to_le_bytes()); b[0x20..0x22].copy_from_slice(&0x40u16.to_le_bytes());
+        b[0x28..0x30].copy_from_slice(&0x83C000u64.to_le_bytes());
+        b[0x30..0x38].copy_from_slice(&0x83C000u64.to_le_bytes());
+        b[0x38..0x40].copy_from_slice(&0x83C000u64.to_le_bytes());
+        let h = parse_attribute_header(&b).expect("parse");
+        let c = h.common().expect("common");
+        assert_eq!((c.attribute_type, c.length, c.non_resident, c.name_length, c.flags),
+            (AttributeType::Data, 0x60, true, 0, 0));
+        if let AttributeHeader::NonResident { non_resident: nr, .. } = h {
+            assert_eq!((nr.starting_vcn, nr.last_vcn, nr.runlist_offset), (0, 0x20EF, 0x40));
+            assert_eq!((nr.allocated_size, nr.real_size, nr.initialized_size),
+                (0x83C000, 0x83C000, 0x83C000));
+        } else { panic!("expected non-resident") }
+    }
+    /// 書籍 Chapter 13 で言及される全 15 種 + Unknown 3 種 + End ラウンドトリップ網羅。
+    #[test]
+    fn all_attribute_types_roundtrip_including_unknown_and_end() {
+        let known: &[(u32, AttributeType)] = &[
+            (0x10, AttributeType::StandardInformation), (0x20, AttributeType::AttributeList),
+            (0x30, AttributeType::FileName), (0x40, AttributeType::ObjectId),
+            (0x50, AttributeType::SecurityDescriptor), (0x60, AttributeType::VolumeName),
+            (0x70, AttributeType::VolumeInformation), (0x80, AttributeType::Data),
+            (0x90, AttributeType::IndexRoot), (0xA0, AttributeType::IndexAllocation),
+            (0xB0, AttributeType::Bitmap), (0xC0, AttributeType::ReparsePoint),
+            (0xD0, AttributeType::EaInformation), (0xE0, AttributeType::Ea),
+            (0x100, AttributeType::LoggedUtilityStream)];
+        for (raw, exp) in known {
+            assert_eq!(AttributeType::from_raw(*raw), *exp);
+            assert_eq!(exp.to_raw(), *raw);
+        }
+        for raw in [0x42u32, 0xFF, 0x200] {
+            assert_eq!(AttributeType::from_raw(raw), AttributeType::Unknown(raw));
+            assert_eq!(AttributeType::Unknown(raw).to_raw(), raw);
+        }
+        assert_eq!(AttributeType::from_raw(END_MARKER), AttributeType::End);
+        assert_eq!(AttributeType::End.to_raw(), END_MARKER);
+    }
+    /// 書籍 Table 13.2 flags (0x0001/0x4000/0x8000) の組合せを生値保持し
+    /// 呼び出し側のビット演算で個別判定可能なことを検証。
+    #[test]
+    fn flag_bit_combinations_preserved_as_raw_value() {
+        const C: u16 = 0x0001; const E: u16 = 0x4000; const S: u16 = 0x8000;
+        for combo in [C, E, S, C | E, C | E | S] {
+            let mut b = br(0x80, 0x30);
+            b[0x0C..0x0E].copy_from_slice(&combo.to_le_bytes());
+            let c = parse_attribute_header(&b).expect("parse").common().expect("common").clone();
+            assert_eq!(c.flags, combo);
+            assert_eq!((c.flags & C != 0, c.flags & E != 0, c.flags & S != 0),
+                (combo & C != 0, combo & E != 0, combo & S != 0));
+        }
+    }
 }
