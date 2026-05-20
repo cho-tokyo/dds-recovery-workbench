@@ -1,7 +1,14 @@
 //! 属性巡回モジュール: MFT エントリ内の属性を順次取り出すイテレータと検索ヘルパ。
-//! 関連 FR: FR-LIVE-01（NTFS 読み取り）、FR-LIVE-06（メタデータ表示）。
+//! 関連 FR: FR-LIVE-01（NTFS 読み取り）、FR-LIVE-05（削除エントリ可視化）、FR-LIVE-06（メタデータ表示）。
+pub mod file_name;
 pub mod standard_information;
-pub use standard_information::{FileAttributes, FileTime, SiError, StandardInformation};
+pub use file_name::{
+    find_best_file_name, parse_file_name, FileName, FileNameError, FileNameNamespace,
+    MftReference,
+};
+pub use standard_information::{
+    parse_standard_information, FileAttributes, FileTime, SiError, StandardInformation,
+};
 use crate::attribute::{parse_attribute_header, AttributeError, AttributeHeader, AttributeType};
 
 /// MFT エントリ内の単一属性への参照。`raw` はヘッダ含む全バイトで、常駐属性のコンテンツは
