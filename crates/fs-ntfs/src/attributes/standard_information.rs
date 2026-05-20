@@ -24,7 +24,13 @@ macro_rules! fa_bits { ($($name:ident = $val:expr => $fn:ident),* $(,)?) => {
 }; }
 fa_bits!(READ_ONLY = 0x0001 => is_read_only, HIDDEN = 0x0002 => is_hidden,
     SYSTEM = 0x0004 => is_system, ARCHIVE = 0x0020 => is_archive,
-    COMPRESSED = 0x0800 => is_compressed, ENCRYPTED = 0x4000 => is_encrypted,
+    DEVICE = 0x0040 => is_device, NORMAL = 0x0080 => is_normal,
+    TEMPORARY = 0x0100 => is_temporary, SPARSE_FILE = 0x0200 => is_sparse_file,
+    REPARSE_POINT = 0x0400 => is_reparse_point,
+    COMPRESSED = 0x0800 => is_compressed,
+    OFFLINE = 0x1000 => is_offline,
+    NOT_CONTENT_INDEXED = 0x2000 => is_not_content_indexed,
+    ENCRYPTED = 0x4000 => is_encrypted,
     DIRECTORY = 0x1000_0000 => is_directory);
 /// `$STANDARD_INFORMATION` 属性のコンテンツ。Option フィールドは W2K+ 拡張版でのみ Some。
 /// 関連 FR: FR-LIVE-01, FR-LIVE-06。
@@ -106,5 +112,58 @@ mod tests {
         assert!(a.is_read_only() && a.is_hidden() && a.is_system() && a.is_archive()
             && a.is_compressed() && a.is_encrypted() && a.is_directory());
         assert!(!FileAttributes(0).is_read_only() && !FileAttributes(0).is_directory());
+    }
+    /// 書籍 Table 13.6 に列挙された追加 7 ビットが個別に判定できることを確認する。
+    #[test] fn extended_file_attribute_bits_book_table_13_6() {
+        type Predicate = fn(&FileAttributes) -> bool;
+        let pairs: [(u32, Predicate); 7] = [
+            (FileAttributes::DEVICE,              FileAttributes::is_device),
+            (FileAttributes::NORMAL,              FileAttributes::is_normal),
+            (FileAttributes::TEMPORARY,           FileAttributes::is_temporary),
+            (FileAttributes::SPARSE_FILE,         FileAttributes::is_sparse_file),
+            (FileAttributes::REPARSE_POINT,       FileAttributes::is_reparse_point),
+            (FileAttributes::OFFLINE,             FileAttributes::is_offline),
+            (FileAttributes::NOT_CONTENT_INDEXED, FileAttributes::is_not_content_indexed),
+        ];
+        for (bit, check) in pairs {
+            assert!(check(&FileAttributes(bit)), "bit {bit:#06x} should set its predicate");
+            assert!(!check(&FileAttributes(!bit)), "negated mask {bit:#06x} should clear pred");
+        }
+        assert_eq!(FileAttributes::DEVICE, 0x0040);
+        assert_eq!(FileAttributes::NOT_CONTENT_INDEXED, 0x2000);
+    }
+    /// 書籍 361 ページの $MFT 自身の $STANDARD_INFORMATION を再現する。
+    /// 4 タイムスタンプは同一、flags=0x06（HIDDEN+SYSTEM）、security_id=1。
+    #[test] fn book_example_mft_standard_information() {
+        let mut b = vec![0u8; 0x48];
+        for off in [0x00usize, 0x08, 0x10, 0x18] {
+            b[off..off + 8].copy_from_slice(&FT_2026.to_le_bytes());
+        }
+        b[0x20..0x24].copy_from_slice(&0x0000_0006u32.to_le_bytes());
+        // max_versions=0, version_number=0, class_id=0 はゼロ初期化のまま。
+        // owner_id=0 もゼロ初期化のまま。security_id=1 のみ書き込む。
+        b[0x34..0x38].copy_from_slice(&1u32.to_le_bytes());
+        // quota_charged=0, usn=0 もゼロ初期化のまま。
+        let si = parse_standard_information(&b).expect("parse $MFT example");
+        assert!(si.file_attributes.is_hidden() && si.file_attributes.is_system());
+        assert!(!si.file_attributes.is_read_only() && !si.file_attributes.is_archive());
+        assert_eq!(si.file_attributes.0, 0x0000_0006);
+        assert_eq!(si.created.0, si.modified.0);
+        assert_eq!(si.modified.0, si.mft_modified.0);
+        assert_eq!(si.mft_modified.0, si.accessed.0);
+        assert_eq!(si.max_versions, 0);
+        assert_eq!(si.version_number, 0);
+        assert_eq!(si.class_id, 0);
+        assert_eq!(si.owner_id, Some(0));
+        assert_eq!(si.security_id, Some(1));
+        assert_eq!(si.quota_charged, Some(0));
+        assert_eq!(si.usn, Some(0));
+    }
+    /// 極端な FILETIME（u64::MAX）でもパニックせず None を返すことを確認する。
+    #[test] fn filetime_overflow_safely_returns_none() {
+        assert!(FileTime(u64::MAX).to_datetime().is_none());
+        // i64::MAX の手前境界（i64::try_from は通る）。秒換算後の sub で None になり得る。
+        let near_i64_max = i64::MAX as u64;
+        let _ = FileTime(near_i64_max).to_datetime(); // パニックしないこと自体が成功
     }
 }

@@ -386,7 +386,97 @@ Reparse Point の理解に有用なので参考）:
 
 ---
 
-## 10. 参考リソース
+## 10. $STANDARD_INFORMATION 属性
+
+書籍 第 13 章「$STANDARD_INFORMATION Attribute」セクション Table 13.5（フィールド
+レイアウト）／Table 13.6（フラグビット）を読み込み、実装観点で必要な要点を
+**自前の言葉で再構成**した。書籍本文の逐語コピーはなし。原典への言及（章番号・
+Table 番号・ページ番号）は事実情報として記載。
+
+属性タイプ 0x10。MFT エントリ内に常駐属性として 1 件だけ存在する必須属性で、
+作成・最終更新・MFT 更新・最終アクセスの 4 タイムスタンプと、DOS 由来の
+ファイル属性ビット、世代管理・所有者・セキュリティ識別子・クォータ・USN 等を
+保持する。
+
+### 10.1 フィールド表（Table 13.5 対応の自前再構成）
+
+| オフセット | サイズ | フィールド名 | 実装での扱い |
+|---|---|---|---|
+| 0x00 | 8B | File creation time | `FileTime`（FILETIME 100ns since 1601） |
+| 0x08 | 8B | File modification time | 同上 |
+| 0x10 | 8B | MFT entry modification time | 同上 |
+| 0x18 | 8B | File access time | 同上 |
+| 0x20 | 4B | Flags（ファイル属性ビット） | `FileAttributes(u32)` で生値保持 |
+| 0x24 | 4B | Maximum number of versions | 通常 0（バージョン機能は未使用） |
+| 0x28 | 4B | Version number | 通常 0 |
+| 0x2C | 4B | Class identifier | 通常 0 |
+| 0x30 | 4B | Owner identifier | W2K+ 拡張部の先頭。`Option<u32>` |
+| 0x34 | 4B | Security identifier | `$Secure` ファイルへのキー。`Option<u32>` |
+| 0x38 | 8B | Quota charged | 課金量バイト数。`Option<u64>` |
+| 0x40 | 8B | Update Sequence Number (USN) | `$UsnJrnl` ジャーナルレコードへの参照。`Option<u64>` |
+
+### 10.2 NT 版（48 バイト）と W2K+ 版（72 バイト）の判別
+
+書籍は NT 4.0 までは offset 0x30 以降が存在せず合計 48 バイト、Windows 2000
+以降は 72 バイトに拡張された旨を説明している。実装は属性ヘッダの content_size
+を見るのではなく、実バイト長で分岐する:
+
+- `bytes.len() < 48` → `BufferTooSmall` エラー
+- `bytes.len() >= 0x34` で `owner_id = Some(_)`
+- `bytes.len() >= 0x38` で `security_id = Some(_)`
+- `bytes.len() >= 0x40` で `quota_charged = Some(_)`
+- `bytes.len() >= 0x48` で `usn = Some(_)`
+
+部分書き込み済みエントリ（例: 0x34 と 0x38 の間で切れている）に対しても
+オーバーランしないよう、各フィールドを段階的に検査する。
+
+### 10.3 Flag ビット完全列挙（Table 13.6 + NTFS 独自）
+
+Table 13.6 は 13 種類のビットを列挙する。実装はそれらすべてに `const` と
+`is_*` メソッドを定義する。NTFS 独自の `DIRECTORY` ビットは書籍には載って
+いないが Linux NTFS Documentation Project で正当性が確認されている。
+
+| 16 進値 | 定数名 | 意味 |
+|---|---|---|
+| 0x0001 | READ_ONLY | 読み取り専用 |
+| 0x0002 | HIDDEN | 隠しファイル |
+| 0x0004 | SYSTEM | システムファイル |
+| 0x0020 | ARCHIVE | アーカイブ対象 |
+| 0x0040 | DEVICE | デバイスファイル（予約） |
+| 0x0080 | NORMAL | 他属性が一切セットされていない通常ファイル |
+| 0x0100 | TEMPORARY | 一時ファイル |
+| 0x0200 | SPARSE_FILE | スパース割当ファイル |
+| 0x0400 | REPARSE_POINT | Reparse Point（シンボリックリンク・ジャンクション等） |
+| 0x0800 | COMPRESSED | NTFS 圧縮 |
+| 0x1000 | OFFLINE | オフライン記憶域に退避済み（HSM） |
+| 0x2000 | NOT_CONTENT_INDEXED | インデックスサービス除外 |
+| 0x4000 | ENCRYPTED | EFS 暗号化 |
+| 0x1000_0000 | DIRECTORY | ディレクトリ（NTFS 独自、書籍非掲載） |
+
+### 10.4 FILETIME 変換の正確性
+
+FILETIME は 1601-01-01 00:00:00 UTC を起点とする 100 ナノ秒単位の 64bit 値。
+Unix エポック（1970-01-01）との秒差は固定 `11_644_473_600` 秒。実装は
+i64 にキャストしてから `checked_div` / `checked_sub` / `checked_mul` で
+段階的に変換し、範囲外は `None` を返す。`u64::MAX` 入力でもパニックしない
+ことを単体テストで保証する。
+
+### 10.5 書籍 $MFT 例題の検証値
+
+書籍 361 ページの $MFT 自身（MFT エントリ 0）の $STANDARD_INFORMATION を
+例題として再現する:
+
+- 4 つのタイムスタンプは全て同じ FILETIME 値（フォーマット時刻）
+- flags = 0x0000_0006（HIDDEN | SYSTEM。`$MFT` はシステム隠しファイル）
+- max_versions = 0, version_number = 0, class_id = 0
+- owner_id = 0, security_id = 1, quota_charged = 0, usn = 0
+
+W2K+ 拡張部は全て格納されているが、本質的に未使用フィールドはゼロ。
+解析結果として `is_hidden() && is_system()` が真、`is_read_only()` が偽。
+
+---
+
+## 11. 参考リソース
 
 - 書籍 9780321374752 第 12 章（リンク）/ 第 13 章（NTFS Data Structures）— 本メモの主参照源。
 - Linux NTFS Documentation Project（公開ウェブ資料）
