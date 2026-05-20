@@ -6,7 +6,9 @@ use thiserror::Error;
 const BOOT_SECTOR_SIZE: usize = 512;
 const BOOT_SIGNATURE: u16 = 0xAA55;
 const NTFS_OEM_ID: &[u8; 8] = b"NTFS    ";
+const MIN_BYTES_PER_SECTOR: u16 = 256;
 const MAX_BYTES_PER_SECTOR: u16 = 4096;
+const MAX_SECTORS_PER_CLUSTER: u8 = 128;
 
 /// NTFS ブートセクタの解析済み構造体。すべてリトルエンディアン解釈。関連 FR: FR-LIVE-01。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,13 +45,16 @@ pub enum BootSectorError {
     /// 末尾シグネチャが `0xAA55` ではない。
     #[error("Invalid boot signature: expected 0xAA55, got 0x{got:04X}")]
     InvalidSignature { #[allow(missing_docs)] got: u16 },
-    /// `bytes_per_sector` が 0 または許容上限超え。
+    /// `bytes_per_sector` が 2 の累乗でない、または 256〜4096 の範囲外。
     #[error("Invalid bytes per sector: {got}")]
     InvalidBytesPerSector { #[allow(missing_docs)] got: u16 },
-    /// `sectors_per_cluster` が 0。
+    /// `sectors_per_cluster` が 2 の累乗でない、または 1〜128 の範囲外。
     #[error("Invalid sectors per cluster: {got}")]
     InvalidSectorsPerCluster { #[allow(missing_docs)] got: u8 },
 }
+
+#[inline]
+fn is_pow2(v: u32) -> bool { v != 0 && (v & (v - 1)) == 0 }
 
 /// 512 バイト以上のスライスから NTFS ブートセクタを解析します（先頭 512 B のみ参照）。
 /// 関連 FR: FR-LIVE-01。失敗時は [`BootSectorError`] を返します。
@@ -67,11 +72,13 @@ pub fn parse_boot_sector(bytes: &[u8]) -> Result<BootSector, BootSectorError> {
         return Err(BootSectorError::InvalidSignature { got: signature });
     }
     let bytes_per_sector = u16::from_le_bytes([b[0x0B], b[0x0C]]);
-    if bytes_per_sector == 0 || bytes_per_sector > MAX_BYTES_PER_SECTOR {
+    if !is_pow2(bytes_per_sector.into())
+        || !(MIN_BYTES_PER_SECTOR..=MAX_BYTES_PER_SECTOR).contains(&bytes_per_sector)
+    {
         return Err(BootSectorError::InvalidBytesPerSector { got: bytes_per_sector });
     }
     let sectors_per_cluster = b[0x0D];
-    if sectors_per_cluster == 0 {
+    if !is_pow2(sectors_per_cluster.into()) || sectors_per_cluster > MAX_SECTORS_PER_CLUSTER {
         return Err(BootSectorError::InvalidSectorsPerCluster { got: sectors_per_cluster });
     }
     let u64le = |s: &[u8]| u64::from_le_bytes(s.try_into().expect("len 8"));
@@ -88,6 +95,18 @@ pub fn parse_boot_sector(bytes: &[u8]) -> Result<BootSector, BootSectorError> {
     })
 }
 
+/// 符号付きクラスタ数フィールド（MFT/Index record size）を実サイズ（バイト）に展開する共通ロジック。
+/// 正値: `raw * cluster_size_bytes`、負値: `1 << (-raw)`（書籍 Table 13.18 のエンコーディング）。
+#[inline]
+fn compute_record_size_bytes(raw: i8, cluster_size: u32) -> u32 {
+    if raw >= 0 {
+        (raw as u32) * cluster_size
+    } else {
+        // i8 最小 -128 でも安全に。実NTFSでは -10 前後しか出現しない。
+        1u32 << ((-(raw as i32)) as u32).min(31)
+    }
+}
+
 impl BootSector {
     /// クラスタサイズ（バイト）= `bytes_per_sector * sectors_per_cluster`。
     pub fn cluster_size_bytes(&self) -> u32 {
@@ -95,13 +114,12 @@ impl BootSector {
     }
     /// MFT レコードサイズ（バイト）。負の `clusters_per_mft_record` は `1 << (-value)` を意味する。
     pub fn mft_record_size_bytes(&self) -> u32 {
-        let raw = self.clusters_per_mft_record;
-        if raw >= 0 {
-            (raw as u32) * self.cluster_size_bytes()
-        } else {
-            // i8 最小 -128 でも安全に。実NTFSでは -10 前後しか出現しない。
-            1u32 << ((-(raw as i32)) as u32).min(31)
-        }
+        compute_record_size_bytes(self.clusters_per_mft_record, self.cluster_size_bytes())
+    }
+    /// INDEX レコードサイズ（バイト）。`mft_record_size_bytes` と同じ符号付きエンコーディング規則。
+    /// 書籍 Table 13.18 / 381 ページの例: `clusters_per_index_record=4` × 1 KB cluster = 4096 B。
+    pub fn index_record_size_bytes(&self) -> u32 {
+        compute_record_size_bytes(self.clusters_per_index_record, self.cluster_size_bytes())
     }
     /// `$MFT` のバイトオフセット = `mft_lcn * cluster_size_bytes()`。
     pub fn mft_byte_offset(&self) -> u64 {
@@ -192,6 +210,71 @@ mod tests {
             b[0x0B..0x0D].copy_from_slice(&bps.to_le_bytes());
             b[0x0D] = spc;
             assert_eq!(parse_boot_sector(&b).unwrap().cluster_size_bytes(), exp, "bps={bps} spc={spc}");
+        }
+    }
+
+    #[test]
+    fn book_example_512_byte_sector_2_spc_1kb_cluster() {
+        // 書籍 Table 13.18 サンプル: bps=512, spc=2 (→cluster=1024), cpmr=1 (→1024B), cpir=4 (→4096B)。
+        let mut b = make_valid_boot_sector();
+        b[0x0B..0x0D].copy_from_slice(&512u16.to_le_bytes());
+        b[0x0D] = 2;
+        b[0x28..0x30].copy_from_slice(&2_056_256u64.to_le_bytes());
+        b[0x30..0x38].copy_from_slice(&342_709u64.to_le_bytes());
+        b[0x38..0x40].copy_from_slice(&514_064u64.to_le_bytes());
+        b[0x40] = 1; b[0x44] = 4;
+        b[0x48..0x50].copy_from_slice(&0x0450_2284_5022_7C94u64.to_le_bytes());
+        let bs = parse_boot_sector(&b).expect("parse");
+        assert_eq!((bs.bytes_per_sector, bs.sectors_per_cluster), (512, 2));
+        assert_eq!((bs.total_sectors, bs.mft_lcn, bs.mft_mirror_lcn), (2_056_256, 342_709, 514_064));
+        assert_eq!((bs.clusters_per_mft_record, bs.clusters_per_index_record), (1, 4));
+        assert_eq!(bs.volume_serial, 0x0450_2284_5022_7C94);
+        assert_eq!((bs.cluster_size_bytes(), bs.mft_record_size_bytes(), bs.index_record_size_bytes()),
+            (1024, 1024, 4096));
+    }
+
+    #[test]
+    fn index_record_size_negative_and_positive_encodings() {
+        // 同じ符号付きエンコーディング規則が index record にも適用される。bps=512, spc=2 → cluster=1024。
+        let mut b = make_valid_boot_sector();
+        b[0x0B..0x0D].copy_from_slice(&512u16.to_le_bytes());
+        b[0x0D] = 2;
+        for (v, exp) in [(4i8, 4096u32), (-12, 4096), (-10, 1024)] {
+            b[0x44] = v as u8;
+            assert_eq!(parse_boot_sector(&b).unwrap().index_record_size_bytes(), exp, "v={v}");
+        }
+    }
+
+    #[test]
+    fn parses_4kn_drive_with_4096_byte_sectors() {
+        // Advanced Format 4Kn: bps=4096, spc=1 → cluster=4096。
+        let mut b = make_valid_boot_sector();
+        b[0x0B..0x0D].copy_from_slice(&4096u16.to_le_bytes());
+        b[0x0D] = 1;
+        let bs = parse_boot_sector(&b).expect("parse");
+        assert_eq!((bs.bytes_per_sector, bs.sectors_per_cluster, bs.cluster_size_bytes()), (4096, 1, 4096));
+    }
+
+    #[test]
+    fn non_power_of_two_bytes_per_sector_rejected() {
+        for bad in [1000u16, 100, 8192] {
+            let mut b = make_valid_boot_sector();
+            b[0x0B..0x0D].copy_from_slice(&bad.to_le_bytes());
+            assert!(matches!(parse_boot_sector(&b).unwrap_err(),
+                BootSectorError::InvalidBytesPerSector { got } if got == bad),
+                "bad bps={bad} should be rejected");
+        }
+    }
+
+    #[test]
+    fn non_power_of_two_sectors_per_cluster_rejected() {
+        // 3 / 192 / 130: 非2累乗。256 は u8 不能のため、上限 128 超は 192/130 で検証。
+        for bad in [3u8, 192, 130] {
+            let mut b = make_valid_boot_sector();
+            b[0x0D] = bad;
+            assert!(matches!(parse_boot_sector(&b).unwrap_err(),
+                BootSectorError::InvalidSectorsPerCluster { got } if got == bad),
+                "bad spc={bad} should be rejected");
         }
     }
 }

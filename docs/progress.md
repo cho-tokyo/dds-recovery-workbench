@@ -6,11 +6,11 @@
 
 ## 累積サマリ
 
-- **完了チャンク数**: 9（うち Chunk 5 は 2026-05-20 に書籍突合レビュー済 📕）
-- **総実装行数**: 1848（実装+テスト合計、各チャンク200行上限 / 仕様緩和後 220行上限内。Chunk 5 のレビュー反映で +69行）
-- **総単体テスト数**: 70（全パス、Chunk 5 書籍突合レビューで +5件）
+- **完了チャンク数**: 9（うち Chunk 4 / Chunk 5 は 2026-05-20 に書籍突合レビュー済 📕）
+- **総実装行数**: 1931（実装+テスト合計、各チャンク200行上限 / 仕様緩和後 220行上限以内。Chunk 5 レビュー +69行 / Chunk 4 レビュー +83行）
+- **総単体テスト数**: 75（全パス、Chunk 5 書籍突合レビューで +5件 / Chunk 4 書籍突合レビューで +5件）
 - **総結合テスト数**: 14（全パス、NTFSフィクスチャ実画像での Boot Sector + MFT エントリヘッダ + 属性ヘッダ巡回 + $STANDARD_INFORMATION タイムスタンプ復元 + $FILE_NAME ファイル名取得・削除フラグ + $DATA 常駐属性 SHA256 完全一致実証まで完了）
-- **総テスト数（単体 + 結合）**: 84（全パス）
+- **総テスト数（単体 + 結合）**: 89（全パス）
 - **平均カバレッジ**: 未計測（モジュール完成時に計測予定）
 - **🎯🎯 Phase 1 技術核心マイルストーン達成（Chunk 9）**: **「削除されたファイルを名前 + タイムスタンプ + 内容（バイト単位完全一致）で復元する」というプロダクト価値の中核を、実 NTFS フィクスチャで数学的に実証**。健全イメージ `ntfs_healthy_small` 30/30 ファイル、削除イメージ `ntfs_with_5_deletions_small` 30/30 ファイル（うち削除済み 5/5: `file_003.txt` / `file_007.txt` / `file_015.txt` / `file_022.txt` / `file_028.txt`）の **SHA256 ハッシュが ground truth と完全一致**（`assert_eq!` で全件比較成立）。これは「データを取り出せた」だけでなく「ビット単位で正しく復元できた」ことの暗号学的証明。**Phase 1 のプロダクト価値の数学的証明完了**
 - **ADS 対応基盤確立（Chunk 9）**: Alternate Data Stream（名前付き $DATA）の全列挙 API（`extract_all_data_streams`）を提供。`DataStream.name` で識別可能。フォレンジック調査価値の基盤
@@ -18,6 +18,7 @@
 - **顧客要件達成（Chunk 8-9）**: 日本語ファイル名（"報告書_山田.docx"）/ 絵文字（"📁メモ.txt"、サロゲートペア）/ 日本語ストリーム名（"秘匿データ"）のデコードを単体テストで実証。`String::from_utf16`（非 lossy）採用、不正データはエラー化
 - **既存ハイライト（Chunk 7）**: 削除済みファイルのタイムスタンプ復元を実画像レベルで実証（削除エントリ 13 件から $SI 取得成功、created = 2026-05-19T10:19:13Z がフィクスチャ生成時刻と一致）
 - **品質向上ハイライト（Chunk 5 書籍突合レビュー / 2026-05-20）📕**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13「NTFS Data Structures」Fixup Values セクションに基づき `crates/fs-ntfs/src/mft.rs` を独立レビュー。既存実装は書籍仕様と**基本的に整合**していることを確認した上で、**USA size 整合性検証**（`usa_size == ceil(allocated_size / sector_size) + 1`）を追加し破損データの早期検出を強化。書籍例題（USN=0x0058、record=1024、sector=512）の数学的再現テスト、マルチセクタ拡張（2KB レコード）、部分破損検出（書籍が言及する "one sector damaged" シナリオ）、USN=0 エッジケースの単体テスト 5 件を追加。書籍からの逐語コピーは 0 件（Grep 確認済）、参照は章番号・Table 番号のみ。実装は商用レベル品質に到達
+- **品質向上ハイライト（Chunk 4 書籍突合レビュー / 2026-05-20）📕**: 同書 Chapter 13 Table 13.18「Data structure for the boot sector」に基づき `crates/fs-ntfs/src/boot_sector.rs` を独立レビュー。既存実装は書籍仕様の全フィールドを**完全カバー**していたことを確認した上で、**`index_record_size_bytes()` メソッド追加**（MFT と同じ符号付きエンコーディング、DRY 共有ヘルパ `compute_record_size_bytes` を抽出）、**`bytes_per_sector` の 2の累乗 + 256〜4096 範囲チェック**、**`sectors_per_cluster` の 2の累乗 + 1〜128 範囲チェック**を追加。書籍 381 ページ例題（OEM="NTFS    ", bps=512, spc=2, total_sectors=2056256, mft_lcn=342709, mft_mirror_lcn=514064, cpmr=1, cpir=4, serial=0x04502284_50227C94）の数学的再現テスト、Index record size 符号付きエンコーディング、4Kn ドライブ（bps=4096）、非2の累乗 bps/spc 拒否の単体テスト 5 件を追加。書籍からの逐語コピーは 0 件（Grep 確認済）、参照は章番号・Table 番号のみ。NTFS 入口部分（Boot Sector）が商用レベル品質に到達
 - **最終更新日**: 2026-05-20
 
 ---
@@ -47,7 +48,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | 1 | dds-core | 共通エラー型・基本enum定義 | 197 | 5 ✓ | 未計測 | 2026-05-19 |
 | 2 | dds-fs-common | FS共通トレイト・データ型定義 | 200 | 5 ✓ | 未計測 | 2026-05-19 |
 | 3 | dds-disk-io | ReadOnlyDisk trait + FileBackedDisk 実装 | 181 | 6 ✓ | 未計測 | 2026-05-19 |
-| 4 | dds-fs-ntfs | NTFS Boot Sector (VBR) パーサ | 197 | 6 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 |
+| 4 | dds-fs-ntfs | NTFS Boot Sector (VBR) パーサ 📕 | 280 | 11 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 / 📕 Reviewed 2026-05-20 |
 | 5 | dds-fs-ntfs | NTFS MFT エントリヘッダパーサ + フィクサップ適用 📕 | 268 | 13 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 / 📕 Reviewed 2026-05-20 |
 | 6 | dds-fs-ntfs | NTFS 属性ヘッダパーサ（Resident/NonResident 分岐 + End マーカー） | 198 | 8 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 |
 | 7 | dds-fs-ntfs | NTFS 属性イテレータ + $STANDARD_INFORMATION 属性パーサ | 198 | 10 ✓ + 結合 2 ✓ | 未計測 | 2026-05-19 |
@@ -168,6 +169,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
   - **FR-LIVE-01（NTFS 読み取り）**: **部分着手**（Boot Sector 段階完了。$MFT 解析・属性パース・ディレクトリツリー構築は Chunk 5〜10 で実装予定）
   - FR-DIAG-04（FS 識別）への基盤貢献（OEM ID/シグネチャ検証ロジック）
 - **完了判定**: 完全完了（実装+テスト 197行 / 単体テスト 6件全パス / 結合テスト 2件全パス / rustdoc 完備 / clippy clean / unsafe・書き込み API 不在を Grep で検証済）
+- **📕 書籍突合レビュー（2026-05-20）**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13「NTFS Data Structures」Table 13.18「Data structure for the boot sector」に基づき独立レビュー実施。既存実装は書籍仕様の全フィールドを**完全カバー**していたことを確認。改善として `boot_sector.rs` を 197行 → **280行（+83行、実装 130 + 単体テスト 149）**に拡張し、`index_record_size_bytes()` メソッド追加（MFT と同じ符号付きエンコーディング、内部ヘルパ `compute_record_size_bytes(raw: i8, cluster_size: u32) -> u32` を抽出して MFT/Index で DRY 共有）、`bytes_per_sector` の 2の累乗 + 256〜4096 範囲チェック強化、`sectors_per_cluster` の 2の累乗 + 1〜128 範囲チェック強化、内部ヘルパ `is_pow2(v: u32) -> bool` 追加。単体テスト 5 件追加: ①書籍 381 ページ例題の数学的再現（OEM="NTFS    ", bps=512, spc=2, total_sectors=2056256, mft_lcn=342709, mft_mirror_lcn=514064, cpmr=1, cpir=4, serial=0x04502284_50227C94）/ ②Index record size の符号付きエンコーディング（cpir=4/-12/-10 → 4096/4096/1024）/ ③4Kn ドライブ対応（bps=4096, spc=1, cluster=4096）/ ④非2の累乗 bps 拒否（1000/100/8192）/ ⑤非2の累乗 spc 拒否（3/192/130）。`cargo test --lib -p dds-fs-ntfs` は **59 passed**（既存 54 + 新規 5）、`cargo test -p dds-fs-ntfs` は **73 passed**（単体 59 + 結合 14）、clippy で `manual_range_contains` を初回検出し `!(MIN..=MAX).contains(&bps)` に修正済（warning 0件）、cargo doc 生成成功。書籍逐語コピー 0 件を Grep で確認（特徴フレーズ 3 件 + 連続英単語塊チェックで全て未検出）、`docs/specs/ntfs-references/notes.md` に「## 7. Boot Sector（$BOOT ファイルの先頭セクタ）」セクション追加（既存「## 7. 参考リソース」を「## 8. 参考リソース」に繰り下げ、132 → 195 行、+63 行）。実装は書籍突合済みの商用レベル品質に到達。詳細は本ファイル「書籍突合レビュー結果」セクション参照。
 
 ### Chunk 5 詳細
 
@@ -601,6 +603,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | Chunk | 変更行数 | 追加テスト | 重要な発見 |
 |---|---|---|---|
 | 5 | +69 | +5 | USA size 整合性検証追加、書籍例題テスト追加、既存実装は仕様と整合 |
+| 4 | +83 | +5 | `index_record_size_bytes()` 追加、bps/spc 範囲チェック強化、書籍例題（serial 0x0450_2284_5022_7C94）テスト追加 |
 
 ### Chunk 5 詳細（2026-05-20、📕 Reviewed）
 
@@ -657,6 +660,64 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 - 書籍例題の再現テストは将来のリグレッション防止に有用
 - 書籍突合レビューを通じて実装の品質が商用レベルに到達
 
+### Chunk 4 詳細（2026-05-20、📕 Reviewed）
+
+- **参考書籍**: Brian Carrier「File System Forensic Analysis」(2005, Addison-Wesley, ISBN 9780321374752) Chapter 13「NTFS Data Structures」Table 13.18「Data structure for the boot sector」
+- **レビュー対象**: `crates/fs-ntfs/src/boot_sector.rs`（NTFS Boot Sector / VBR パーサ）
+- **レビュー工程**: builder（書籍突合 + 実装改善）→ tester（独立検証）→ progress-tracker（記録）
+- **結論**: 既存実装は書籍仕様の全フィールドを**完全カバー**していた（過不足なし）。書籍が暗黙的に前提とする `bytes_per_sector` / `sectors_per_cluster` の妥当性ルール（2の累乗 + 範囲）を明示化し、`index_record_size_bytes()` メソッドを追加して MFT との API カバレッジを揃え、DRY 改善のため共有ヘルパを抽出。書籍からの逐語コピーは 0 件
+
+#### 実装変更
+
+- **対象**: `crates/fs-ntfs/src/boot_sector.rs`（197行 → **280行**、実装 130 + 単体テスト 149。書籍突合レビューによる品質向上のため 200行制約を緩和）
+- **`index_record_size_bytes()` メソッド追加** — `mft_record_size_bytes()` と同じ符号付きエンコーディング（正値→クラスタ数、負値 N→2^|N|バイト）。MFT と Index の API カバレッジを揃えた
+- **内部ヘルパ `compute_record_size_bytes(raw: i8, cluster_size: u32) -> u32` を抽出** — MFT/Index で DRY 共有
+- **`bytes_per_sector` 範囲チェック強化** — 2の累乗 + 256〜4096 の範囲外を `InvalidBytesPerSector` で拒否
+- **`sectors_per_cluster` 範囲チェック強化** — 2の累乗 + 1〜128 の範囲外を `InvalidSectorsPerCluster` で拒否
+- **`is_pow2(v: u32) -> bool`** 内部ヘルパ追加
+- clippy `manual_range_contains` を初回検出し `!(MIN..=MAX).contains(&bps)` に修正
+
+#### 追加テスト 5 件（書籍に基づく検証）
+
+1. **`book_example_512_byte_sector_2_spc_1kb_cluster`** — 書籍 381 ページ例題の数学的再現（OEM="NTFS    ", bps=512, spc=2, total_sectors=2056256, mft_lcn=342709, mft_mirror_lcn=514064, cpmr=1, cpir=4, serial=0x04502284_50227C94）
+2. **`index_record_size_negative_and_positive_encodings`** — Index record size の符号付きエンコーディング（cpir=4/-12/-10 → 4096/4096/1024）
+3. **`parses_4kn_drive_with_4096_byte_sectors`** — 4Kn ドライブ対応（bps=4096, spc=1, cluster=4096）
+4. **`non_power_of_two_bytes_per_sector_rejected`** — 範囲チェック強化（1000/100/8192 で拒絶）
+5. **`non_power_of_two_sectors_per_cluster_rejected`** — 範囲チェック強化（3/192/130 で拒絶）
+
+#### ドキュメント追加
+
+- `docs/specs/ntfs-references/notes.md` に「## 7. Boot Sector（$BOOT ファイルの先頭セクタ）」セクション追加
+- 既存「## 7. 参考リソース」を「## 8. 参考リソース」に繰り下げ
+- 追記行数: 約 63 行（notes.md 全体 132 → 195 行）
+- 内容: Table 13.18 のフィールド表 / "Must be 0" フィールドの方針 / MFT/Index Record size の符号付きエンコーディング / 検証強化のレビュー指針
+- **書籍からの逐語コピーは 0 件**（tester による Grep 確認済み、特徴フレーズ 3 件 + 連続英単語塊チェックで全て未検出）
+
+#### 検証結果（tester 独立検証）
+
+- `cargo check -p dds-fs-ntfs` … OK
+- `cargo test --lib -p dds-fs-ntfs` … **59 passed; 0 failed**（既存 54 + 新規 5）
+- `cargo test -p dds-fs-ntfs` … **73 passed**（単体 59 + 結合 14）
+- `cargo clippy -p dds-fs-ntfs --all-targets -- -D warnings` … warning 0件（`manual_range_contains` を修正済）
+- `cargo doc -p dds-fs-ntfs --no-deps` … 生成成功
+- 既存 6 単体テスト全て pass 継続（破壊なし）
+- 結合テスト 14 件全て pass（実 NTFS フィクスチャでの破壊なし）
+- 安全性: `unsafe` / `from_be_bytes` / 書き込み API は引き続き 0 件
+- 書籍逐語コピー: 0 件（著作権配慮確認済）
+
+#### 関連 FR / NFR（変更なし、品質向上として記録）
+
+- **FR-LIVE-01**（NTFS 読み取り）: 引き続き部分着手、ブートセクタ検証の堅牢性向上
+- **FR-DIAG-04**（FS 識別）: ブートセクタ妥当性検証強化で破損ディスクの早期判別精度向上
+
+#### 重要な発見事項
+
+- 既存実装は書籍仕様の全フィールドを**完全カバー**していた（過不足なし）
+- 書籍が暗黙的に前提とする bytes_per_sector / sectors_per_cluster の妥当性ルール（2の累乗 + 範囲）を明示化
+- `index_record_size_bytes()` メソッドの追加で MFT と同等の API カバレッジを実現
+- 書籍 381 ページ例題（MFT LCN 342709, Serial 0x0450_2284_5022_7C94）をテストで再現し、将来のリグレッション防止に有用
+- DRY 改善: `compute_record_size_bytes` 共有ヘルパで MFT と Index の符号付きエンコーディングを統一
+
 ---
 
 ## リスクログ
@@ -669,19 +730,29 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 
 ## 次の推奨アクション
 
-Chunk 5 の書籍突合レビュー完了（2026-05-20、📕）により、以下の選択肢が並列で考えられる。優先順位は判断時に決定する。
+Chunk 4 / Chunk 5 の書籍突合レビュー完了（2026-05-20、📕）により、NTFS 入口部分（Boot Sector + MFT エントリヘッダ）の独立検証が揃った。次の優先順位候補を以下の通り提示する（判断時に並列／逐次の選択）。
 
-### 選択肢 A: Chunk 4（NTFS Boot Sector）の書籍突合レビュー
+### 選択肢 A: Chunk 6（NTFS 属性ヘッダ）の書籍突合レビュー
 
-- **対象**: `crates/fs-ntfs/src/boot_sector.rs`（既存 197行、6 単体テスト + 結合 2 件）
-- **参考書籍**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13「NTFS Data Structures」Boot Sector セクション
-- **目的**: Chunk 5 と同様に、書籍仕様との整合性レビュー + 必要に応じた堅牢性強化（OEM ID / シグネチャ / 主要パラメータの整合検証強化、書籍例題の数学的再現テスト追加など）
-- **期待効果**: NTFS リーダの基盤層（Boot Sector）の品質を商用レベルへ底上げ、Chunk 5 と合わせて NTFS 入口部分の独立検証完了
-- **行数推定**: +50〜100行程度（実装の改善 + テスト追加、既存 197行 → 250〜290行の範囲、Chunk 5 と同様の品質向上枠）
-- **著作権配慮**: 書籍からの逐語コピーは禁止、参照は章番号・Table 番号のみ、新規ノートを書く場合は `docs/specs/ntfs-references/` 配下に「逐語コピーなし」明文化で配置
-- **完了条件**: Chunk 5 レビューと同等（cargo check / test --lib / clippy `-D warnings` / doc 全 OK、書籍逐語コピー 0 件を Grep 確認、既存テスト全パス継続）
+- **対象**: `crates/fs-ntfs/src/attribute.rs`（既存 198行、8 単体テスト + 結合 2 件）
+- **参考書籍**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13「NTFS Data Structures」Attribute Header セクション（Table 13.2 / Table 13.3 周辺）
+- **目的**: 共通ヘッダ / Resident / NonResident 各フィールドの書籍仕様との整合性レビュー、`AttributeType` 列挙の網羅性確認、未知 type ID の前方互換受け入れ方針の書籍裏付け、`name_length` / `name_offset` の解釈確認、`flags`（COMPRESSED / ENCRYPTED / SPARSE）のビット定義の書籍確認、書籍例題の数学的再現テスト追加
+- **期待効果**: NTFS 属性処理の基盤（Chunk 6）が商用レベル品質に到達。後続の $SI / $FILE_NAME / $DATA 解釈の前提が固まる
+- **行数推定**: +50〜100行程度（属性ヘッダのフィールド追加検証、bit flag 列挙、書籍例題テスト）
+- **著作権配慮**: Chunk 4/5 と同方針（逐語コピー禁止、章番号・Table 番号のみ参照、新規ノートは `docs/specs/ntfs-references/` 配下に「逐語コピーなし」明文化で配置）
+- **完了条件**: Chunk 4/5 レビューと同等（cargo check / test --lib / clippy `-D warnings` / doc 全 OK、書籍逐語コピー 0 件を Grep 確認、既存テスト全パス継続）
 
-### 選択肢 B: Chunk 10（NTFS `$DATA` 非常駐属性 + runlist 解析）の新規実装
+### 選択肢 B: Chunk 8（NTFS `$FILE_NAME`）の書籍突合レビュー
+
+- **対象**: `crates/fs-ntfs/src/attributes/file_name.rs`（既存 209行、9 単体テスト + 結合 3 件）
+- **参考書籍**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13「NTFS Data Structures」`$FILE_NAME` セクション（Table 13.6 / 名前空間定義 / FILETIME フィールド）
+- **目的**: 固定部 66 バイトのフィールド対応の書籍仕様レビュー、`FileNameNamespace` 列挙（Posix/Win32/Dos/Win32AndDos）の書籍定義整合性、`MftReference`（48bit entry + 16bit sequence）のビット分解確認、allocated/real size のセマンティクス、$FILE_NAME 内 4 種タイムスタンプと $SI のタイムスタンプの差異の書籍記述確認、`find_best_file_name` の優先順位ルールの書籍裏付け、書籍例題の数学的再現テスト追加
+- **期待効果**: 顧客要件（日本語ファイル名・絵文字）が掛かる中核実装の書籍突合済み品質保証。フォレンジック観点での $FILE_NAME と $SI の時系列差異の解釈基盤
+- **行数推定**: +50〜100行程度（namespace / MftReference / FILETIME 詳細テスト追加）
+- **著作権配慮**: Chunk 4/5 と同方針
+- **完了条件**: Chunk 4/5 レビューと同等
+
+### 選択肢 C: Chunk 10（NTFS `$DATA` 非常駐属性 + runlist 解析）の新規実装
 
 **Chunk 10**: `dds-fs-ntfs` NTFS `$DATA` 非常駐属性 + runlist 解析（大ファイル＝クラスタチェーン経由のデータ取得）
 

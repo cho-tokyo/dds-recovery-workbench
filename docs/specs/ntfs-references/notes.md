@@ -122,7 +122,70 @@ usa_size = ceil(allocated_size / sector_size) + 1
 
 ---
 
-## 7. 参考リソース
+## 7. Boot Sector（$BOOT ファイルの先頭セクタ）
+
+書籍 第 13 章「$BOOT FILE」セクション Table 13.18「Data structure for the boot sector」
+を自分の言葉で再構成したフィールド一覧。NTFS 解析の起点となる構造。
+
+### 7.1 フィールド表（先頭 0x54 バイトのみ実装で参照）
+
+| オフセット | サイズ | フィールド名 | 実装での扱い |
+|---|---|---|---|
+| 0x00 | 3B | Jump instruction | 検査せず（任意の x86 jmp） |
+| 0x03 | 8B | OEM ID | `"NTFS    "` と完全一致を要求 |
+| 0x0B | 2B | Bytes per sector | 2 累乗かつ 256〜4096。一般は 512 / 4096 |
+| 0x0D | 1B | Sectors per cluster | 2 累乗かつ 1〜128 |
+| 0x0E〜0x14 | 7B | "Must be 0" 群 | 緩い検証（Phase 1 では未チェック） |
+| 0x15 | 1B | Media descriptor | 値保持のみ（通常 0xF8） |
+| 0x16〜0x17 | 2B | "Must be 0" | 同上 |
+| 0x18〜0x23 | 12B | CHS / Hidden sectors 等 | 値保持・検査せず |
+| 0x24〜0x27 | 4B | "Must be 0" | 同上 |
+| 0x28 | 8B | Total sectors | u64 として保持 |
+| 0x30 | 8B | $MFT cluster (LCN) | u64 として保持 |
+| 0x38 | 8B | $MFTMirr cluster (LCN) | u64 として保持 |
+| 0x40 | 1B (i8) | Clusters per MFT record | 符号付きエンコーディング（後述） |
+| 0x41〜0x43 | 3B | 予約 / 未使用 | 検査せず |
+| 0x44 | 1B (i8) | Clusters per index record | 同じ符号付きエンコーディング |
+| 0x45〜0x47 | 3B | 予約 | 検査せず |
+| 0x48 | 8B | Volume serial number | u64 として保持 |
+| 0x50〜0x53 | 4B | チェックサム | 検査せず |
+| 0x54〜0x1FD | ブートコード | 検査せず |
+| 0x1FE | 2B | Boot signature | `0xAA55` を要求 |
+
+### 7.2 "Must be 0" フィールドの方針
+
+Table 13.18 には複数の「値は 0 でなければならない」フィールドがあるが、
+実環境のディスクでは一部のツールが非 0 を書くケースが報告されている。
+Phase 1 では**緩い検証**（OEM ID / signature / bps / spc のみ厳格に検査）に
+留め、後続フェーズで `tracing::warn!` ベースの soft warning を出す予定。
+ソースディスクの read-only 原則上、ここで panic させる利益はない。
+
+### 7.3 MFT/Index Record size の符号付きエンコーディング
+
+書籍 380 ページの本文要約: `clusters_per_mft_record` および
+`clusters_per_index_record` は i8 として読む。
+
+- 値が **0 より大きい**場合: その値はそのまま **クラスタ数**。
+  実バイト数 = `value * cluster_size_bytes()`。
+- 値が **0 より小さい**場合: その値の絶対値が「2 の指数（log2 of bytes）」。
+  実バイト数 = `1 << (-value)`。
+
+書籍 381 ページの例題: byte 0x40 = -10 (i8) → 2^10 = 1024 byte。
+                       byte 0x44 = 4  (i8) →  4 × 1 KB cluster = 4096 byte。
+
+実装は `compute_record_size_bytes(raw: i8, cluster_size: u32) -> u32` という
+1 関数に集約し、MFT 用と Index 用の両アクセサから共有する。
+
+### 7.4 検証強化のレビュー指針
+
+書籍 第 10 章 FAT（Table 10.1）が `bps ∈ {512, 1024, 2048, 4096}` と
+列挙しているのに準じ、NTFS の bps も同範囲＋2 累乗で弾く。spc も同様に
+2 累乗かつ ≤128（実 NTFS 最大）で弾く。これにより破損ブートセクタを
+早期に拒否でき、後段の overflow / 0 除算リスクを抑える。
+
+---
+
+## 8. 参考リソース
 
 - 書籍 9780321374752 第 13 章（NTFS Data Structures）— 本メモの主参照源。
 - Linux NTFS Documentation Project（公開ウェブ資料）
