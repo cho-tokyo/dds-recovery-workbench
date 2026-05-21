@@ -2,11 +2,16 @@
 //! 関連 FR: FR-LIVE-01（NTFS 読み取り）、FR-LIVE-05（削除エントリ可視化）、FR-LIVE-06（メタデータ表示）。
 pub mod data;
 pub mod file_name;
+pub mod index;
 pub mod runlist;
 pub mod standard_information;
 pub use data::{
     extract_all_data_streams, extract_main_data_stream, parse_data_stream,
     DataContent, DataError, DataStream,
+};
+pub use index::{
+    parse_entries_in_node, parse_index_root, parse_indx_block, IndexEntry, IndexError,
+    IndexNodeHeader, IndexRoot, IndxBlock,
 };
 pub use runlist::{parse_runlist, read_runs_with, Run, RunlistError};
 pub use file_name::{

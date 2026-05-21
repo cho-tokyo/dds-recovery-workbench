@@ -1,6 +1,8 @@
 //! NTFS MFT エントリ（FILE レコード）ヘッダパーサ。フィクサップ（Update Sequence）も適用する。
+//! Chunk 12 で `crate::fixup` モジュールにフィクサップロジックを共有化（INDX ブロックと共用）。
 //! 関連 FR: FR-LIVE-01（NTFS 読み取り）、FR-LIVE-05（削除エントリ可視化）。
 //! 仕様: <https://flatcap.github.io/linux-ntfs/ntfs/concepts/file_record.html>
+use crate::fixup::{apply_fixup, FixupError};
 use thiserror::Error;
 
 const MIN_HEADER_SIZE: usize = 48;
@@ -38,7 +40,8 @@ pub struct MftEntry {
     pub data: Vec<u8>,
 }
 
-/// `parse_mft_entry` が返すエラー型。
+/// `parse_mft_entry` が返すエラー型。フィクサップ関連エラーは `Fixup(FixupError)` バリアントに
+/// 集約（Chunk 12 リファクタ）。`MftError::InvalidUsaSize` は MFT 固有の事前検証で出るもののみ。
 #[derive(Debug, Error, PartialEq, Eq)]
 #[allow(missing_docs)]
 pub enum MftError {
@@ -49,12 +52,14 @@ pub enum MftError {
     /// `"BAAD"` シグネチャ検出（NTFS が破損を明示マーキング）。
     #[error("BAAD MFT entry: data corruption detected")]
     BadEntry,
+    /// MFT 固有の事前検証エラー: usa_offset がヘッダ最小サイズ（48）未満。
     #[error("Invalid USA offset: {offset}")]
     InvalidUsaOffset { offset: u16 },
+    /// MFT 固有の事前検証エラー: usa_size が allocated_size 整合ルールから外れる。
     #[error("Invalid USA size: {size}")]
     InvalidUsaSize { size: u16 },
-    #[error("Fixup mismatch at sector {sector}: expected USN 0x{expected:04X}, got 0x{got:04X}")]
-    FixupMismatch { sector: usize, expected: u16, got: u16 },
+    #[error("Fixup error: {0}")]
+    Fixup(#[from] FixupError),
     #[error("used_size ({used}) exceeds allocated_size ({allocated})")]
     UsedExceedsAllocated { used: u32, allocated: u32 },
 }
@@ -92,31 +97,14 @@ pub fn parse_mft_entry(bytes: &[u8]) -> Result<MftEntry, MftError> {
         base_record_reference: u64le(0x20), next_attribute_id: u16le(0x28),
         mft_record_number: if rec_no_raw == 0 { None } else { Some(rec_no_raw) },
     };
+    // MFT 固有の事前検証: usa_offset はヘッダ最小サイズ (48) 以上である必要がある。
+    // 共有 fixup モジュールは汎用なのでこのチェックは呼び出し側責務。
+    if (usa_offset as usize) < MIN_HEADER_SIZE {
+        return Err(MftError::InvalidUsaOffset { offset: usa_offset });
+    }
     let mut data = bytes.to_vec();
     apply_fixup(&mut data, usa_offset, usa_size, DEFAULT_SECTOR_SIZE)?;
     Ok(MftEntry { header, data })
-}
-
-// USA を読み取り、各セクタ末尾の 2 バイトに対しフィクサップを適用する内部関数。
-fn apply_fixup(bytes: &mut [u8], usa_offset: u16, usa_size: u16, sector_size: u16) -> Result<(), MftError> {
-    if usa_size == 0 { return Err(MftError::InvalidUsaSize { size: usa_size }); }
-    let (usa_off, usa_bytes) = (usa_offset as usize, (usa_size as usize) * 2);
-    if usa_off < MIN_HEADER_SIZE || usa_off + usa_bytes > bytes.len() {
-        return Err(MftError::InvalidUsaOffset { offset: usa_offset });
-    }
-    let usn = u16::from_le_bytes([bytes[usa_off], bytes[usa_off + 1]]);
-    let (sectors, ss) = ((usa_size as usize) - 1, sector_size as usize);
-    if ss < 2 || sectors.checked_mul(ss).map_or(true, |n| n > bytes.len()) {
-        return Err(MftError::InvalidUsaSize { size: usa_size });
-    }
-    for i in 0..sectors {
-        let pos = ss * (i + 1) - 2;
-        let got = u16::from_le_bytes([bytes[pos], bytes[pos + 1]]);
-        if got != usn { return Err(MftError::FixupMismatch { sector: i, expected: usn, got }); }
-        let fx_off = usa_off + 2 + i * 2;
-        bytes[pos] = bytes[fx_off]; bytes[pos + 1] = bytes[fx_off + 1];
-    }
-    Ok(())
 }
 
 impl MftEntryHeader {
@@ -195,8 +183,11 @@ mod tests {
     fn fixup_mismatch_detected() {
         let mut buf = build_valid_mft_entry(FLAG_IN_USE, 0x1234, 0xAABB, 0xCCDD);
         buf[0x3FE..0x400].copy_from_slice(&0x9999u16.to_le_bytes());
-        assert!(matches!(parse_mft_entry(&buf).unwrap_err(),
-            MftError::FixupMismatch { sector: 1, expected: 0x1234, got: 0x9999 }));
+        // Chunk 12 リファクタ後: `MftError::Fixup(FixupError::FixupMismatch { .. })` で伝播。
+        assert!(matches!(
+            parse_mft_entry(&buf).unwrap_err(),
+            MftError::Fixup(FixupError::FixupMismatch { sector: 1, expected: 0x1234, got: 0x9999 })
+        ));
     }
     #[test]
     fn used_exceeds_allocated_rejected() {
@@ -258,11 +249,13 @@ mod tests {
     }
     #[test]
     fn partial_corruption_detected_at_second_sector() {
-        // sector 0 は USN 一致、sector 1 のみ別値 → sector=1 で FixupMismatch。
+        // sector 0 は USN 一致、sector 1 のみ別値 → sector=1 で FixupMismatch（Fixup 経由）。
         let mut buf = build_valid_mft_entry(FLAG_IN_USE, 0x1234, 0xAABB, 0xCCDD);
         assert_eq!(&buf[0x1FE..0x200], &0x1234u16.to_le_bytes());
         buf[0x3FE..0x400].copy_from_slice(&0xDEADu16.to_le_bytes());
-        assert!(matches!(parse_mft_entry(&buf).unwrap_err(),
-            MftError::FixupMismatch { sector: 1, expected: 0x1234, got: 0xDEAD }));
+        assert!(matches!(
+            parse_mft_entry(&buf).unwrap_err(),
+            MftError::Fixup(FixupError::FixupMismatch { sector: 1, expected: 0x1234, got: 0xDEAD })
+        ));
     }
 }
