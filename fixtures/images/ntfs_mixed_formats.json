@@ -1,0 +1,136 @@
+{
+  "fixture_name": "ntfs_mixed_formats",
+  "fs_type": "NTFS",
+  "image_size_bytes": 31457280,
+  "generated_with": "gen_ntfs_mixed_formats.py",
+  "purpose": "Chunk 19: validators 拡充 - 混在形式 + 破損 + 拡張子不一致",
+  "structure_summary": {
+    "valid_samples": 10,
+    "corrupted_samples": 3,
+    "mismatch_samples": 1,
+    "unknown_extension": 1,
+    "total": 15
+  },
+  "files": [
+    {
+      "path": "\\image_001.png",
+      "size_bytes": 67,
+      "content_hash_sha256": "b52c36618b62e81a2b408213934ce083719337a4d371195f9a4d9be6b70e0244",
+      "is_deleted": false,
+      "expected_validation_status": "valid",
+      "expected_format": "PNG"
+    },
+    {
+      "path": "\\image_002.png",
+      "size_bytes": 67,
+      "content_hash_sha256": "b52c36618b62e81a2b408213934ce083719337a4d371195f9a4d9be6b70e0244",
+      "is_deleted": false,
+      "expected_validation_status": "valid",
+      "expected_format": "PNG"
+    },
+    {
+      "path": "\\image_003.png",
+      "size_bytes": 67,
+      "content_hash_sha256": "b52c36618b62e81a2b408213934ce083719337a4d371195f9a4d9be6b70e0244",
+      "is_deleted": false,
+      "expected_validation_status": "valid",
+      "expected_format": "PNG"
+    },
+    {
+      "path": "\\photo_001.jpg",
+      "size_bytes": 22,
+      "content_hash_sha256": "d20f6ffd523b78a86cd2f916fa34af5d1918d75f7b142237c752ad6b254213ab",
+      "is_deleted": false,
+      "expected_validation_status": "valid",
+      "expected_format": "JPEG"
+    },
+    {
+      "path": "\\photo_002.jpg",
+      "size_bytes": 22,
+      "content_hash_sha256": "d20f6ffd523b78a86cd2f916fa34af5d1918d75f7b142237c752ad6b254213ab",
+      "is_deleted": false,
+      "expected_validation_status": "valid",
+      "expected_format": "JPEG"
+    },
+    {
+      "path": "\\report_001.pdf",
+      "size_bytes": 82,
+      "content_hash_sha256": "7c9fa4e0cf2a53d026d2bb43d562d7084dcce627734d52e6cd9faf6e867db756",
+      "is_deleted": false,
+      "expected_validation_status": "valid",
+      "expected_format": "PDF"
+    },
+    {
+      "path": "\\report_002.pdf",
+      "size_bytes": 82,
+      "content_hash_sha256": "7c9fa4e0cf2a53d026d2bb43d562d7084dcce627734d52e6cd9faf6e867db756",
+      "is_deleted": false,
+      "expected_validation_status": "valid",
+      "expected_format": "PDF"
+    },
+    {
+      "path": "\\anim_001.gif",
+      "size_bytes": 43,
+      "content_hash_sha256": "e4c8efe0cd4a34ef45c313760fe5bd92c0d0d61cf444ca99d53519d9d3657608",
+      "is_deleted": false,
+      "expected_validation_status": "valid",
+      "expected_format": "GIF"
+    },
+    {
+      "path": "\\bitmap_001.bmp",
+      "size_bytes": 70,
+      "content_hash_sha256": "7484ce7c2b3a8f628295cfcba5953d517de10fde6c34210998199e1baeb11f07",
+      "is_deleted": false,
+      "expected_validation_status": "valid",
+      "expected_format": "BMP"
+    },
+    {
+      "path": "\\doc_001.docx",
+      "size_bytes": 592,
+      "content_hash_sha256": "7d0d25c10e42a34c4bff0efe97638ca8b5e0053c46fe9f0050d7e9b4aa9ae0d5",
+      "is_deleted": false,
+      "expected_validation_status": "valid",
+      "expected_format": "DOCX"
+    },
+    {
+      "path": "\\broken_001.png",
+      "size_bytes": 55,
+      "content_hash_sha256": "179306d62e4d92d497d5e04ef4c7c3251ff3ea26a8ad98bb7aa201f0efebdd29",
+      "is_deleted": false,
+      "expected_validation_status": "invalid",
+      "expected_format": "PNG"
+    },
+    {
+      "path": "\\broken_002.jpg",
+      "size_bytes": 20,
+      "content_hash_sha256": "a30f31a6a61325012e8c25deb3bd9b59dc9a2b4350b2b18e3c02dca9a87fea0b",
+      "is_deleted": false,
+      "expected_validation_status": "invalid",
+      "expected_format": "JPEG"
+    },
+    {
+      "path": "\\broken_003.pdf",
+      "size_bytes": 77,
+      "content_hash_sha256": "0fccd8934924b6f54dff0a47d1c2d7b300e1830b55e7151c8580462c4970ec95",
+      "is_deleted": false,
+      "expected_validation_status": "invalid",
+      "expected_format": "PDF"
+    },
+    {
+      "path": "\\mismatch_001.pdf",
+      "size_bytes": 67,
+      "content_hash_sha256": "b52c36618b62e81a2b408213934ce083719337a4d371195f9a4d9be6b70e0244",
+      "is_deleted": false,
+      "expected_validation_status": "invalid",
+      "expected_format": "PDF"
+    },
+    {
+      "path": "\\unknown_001.xyz",
+      "size_bytes": 22,
+      "content_hash_sha256": "58c89a49b0cf516b5aa2b2bb3bbdefc4eb7c77182556ef658fa89da2ac92eed1",
+      "is_deleted": false,
+      "expected_validation_status": "uncertain",
+      "expected_format": null
+    }
+  ]
+}

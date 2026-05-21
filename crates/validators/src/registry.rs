@@ -48,12 +48,26 @@ impl ValidatorRegistry {
         }
     }
 
-    /// デフォルト Validator 群（PNG / JPEG / PDF）を登録した Registry を返す。
+    /// デフォルト Validator 群を登録した Registry を返す。
+    ///
+    /// Phase 1 でサポートする 9 種:
+    /// - 画像系: PNG / JPEG / GIF / BMP
+    /// - 文書系: PDF / DOCX / XLSX / PPTX
+    /// - アーカイブ系: ZIP
     pub fn with_defaults() -> Self {
         let mut reg = Self::new();
+        // Chunk 18: PNG / JPEG / PDF
         reg.register(Arc::new(crate::formats::png::PngValidator));
         reg.register(Arc::new(crate::formats::jpeg::JpegValidator));
         reg.register(Arc::new(crate::formats::pdf::PdfValidator));
+        // Chunk 19: GIF / BMP / ZIP
+        reg.register(Arc::new(crate::formats::gif::GifValidator));
+        reg.register(Arc::new(crate::formats::bmp::BmpValidator));
+        reg.register(Arc::new(crate::formats::zip::ZipValidator));
+        // Chunk 19: OOXML (DOCX / XLSX / PPTX)
+        reg.register(Arc::new(crate::formats::ooxml::DocxValidator));
+        reg.register(Arc::new(crate::formats::ooxml::XlsxValidator));
+        reg.register(Arc::new(crate::formats::ooxml::PptxValidator));
         reg
     }
 
@@ -120,8 +134,9 @@ mod tests {
     const VALID_PDF_MINIMAL: &[u8] = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\nxref\n0 1\n0000000000 65535 f\ntrailer\n<</Size 1>>\n%%EOF";
 
     #[test]
-    fn registry_with_defaults_has_three_formats() {
-        // 業務観測: デフォルト登録の PNG/JPEG/PDF が全て Valid 判定される基本回帰。
+    fn registry_with_defaults_validates_chunk18_formats() {
+        // 業務観測: 既存の PNG/JPEG/PDF が全て Valid 判定される回帰。
+        // Chunk 18 までの動作が Chunk 19 拡張後も維持されることを保証。
         let reg = ValidatorRegistry::with_defaults();
         assert!(reg.validate(VALID_PNG_1X1, Some("png")).status.is_valid());
         assert!(reg
@@ -133,8 +148,25 @@ mod tests {
             .status
             .is_valid());
         assert!(reg.validate(VALID_PDF_MINIMAL, Some("pdf")).status.is_valid());
-        // jpg / jpeg / png / pdf = 4 拡張子（JpegValidator が 2 拡張子に展開される）。
-        assert_eq!(reg.registered_extension_count(), 4);
+    }
+
+    #[test]
+    fn with_defaults_registers_all_9_validators() {
+        // Chunk 19: 9 種 validator が拡張子マップに登録されること。
+        // jpg/jpeg = JpegValidator 共有なので拡張子数は 10。
+        // 拡張子: png, jpg, jpeg, pdf, gif, bmp, zip, docx, xlsx, pptx
+        let reg = ValidatorRegistry::with_defaults();
+        assert_eq!(reg.registered_extension_count(), 10);
+        for ext in ["png", "jpg", "jpeg", "pdf", "gif", "bmp", "zip", "docx", "xlsx", "pptx"] {
+            let result = reg.validate(b"", Some(ext));
+            // 空バイト列だが、Validator が登録されていれば Uncertain ではなく Invalid を返す。
+            // 未登録なら Uncertain になるので、業務的にはこれで判定可能。
+            assert!(
+                !result.status.is_uncertain(),
+                "extension .{} should have a registered validator",
+                ext
+            );
+        }
     }
 
     #[test]

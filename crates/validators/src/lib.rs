@@ -13,9 +13,13 @@
 //!
 //! ## サポート形式（Phase 1）
 //!
-//! - **PNG**: signature + IHDR + IEND チェック
-//! - **JPEG**: SOI + EOI + マーカープレフィックス
-//! - **PDF**: `%PDF-1.X` ヘッダ (X=0-7) + 末尾 `%%EOF`
+//! - **PNG**: signature + IHDR + IEND チェック (Chunk 18)
+//! - **JPEG**: SOI + EOI + マーカープレフィックス (Chunk 18)
+//! - **PDF**: `%PDF-1.X` ヘッダ (X=0-7) + 末尾 `%%EOF` (Chunk 18)
+//! - **GIF**: `GIF87a` / `GIF89a` signature + trailer `0x3B` (Chunk 19)
+//! - **BMP**: `BM` signature + ヘッダのファイルサイズ整合性 (Chunk 19)
+//! - **ZIP**: `PK\x03\x04` / `PK\x05\x06` + EOCD 検出 (Chunk 19)
+//! - **DOCX / XLSX / PPTX**: ZIP + `[Content_Types].xml` + format marker (Chunk 19)
 //!
 //! ## 使い方
 //!
