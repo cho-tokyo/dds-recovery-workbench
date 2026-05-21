@@ -7,9 +7,10 @@ use crate::attribute::{AttributeError, AttributeHeader, AttributeType};
 use crate::attributes::file_name::{FileName, MftReference};
 use crate::attributes::{
     find_attribute, parse_entries_in_node, parse_index_root, parse_indx_block, parse_runlist,
-    IndexEntry, IndexError, Run, RunlistError,
+    read_runs_with, IndexEntry, IndexError, Run, RunlistError,
 };
 use crate::boot_sector::{parse_boot_sector, BootSector, BootSectorError};
+use crate::file::{build_file_for_record, FileContentRef, NtfsFile, NtfsFileIterator};
 use crate::mft::{parse_mft_entry, MftEntry, MftError};
 use thiserror::Error;
 
@@ -432,6 +433,51 @@ where
     pub fn full_path(&mut self, record_index: u64) -> Result<String, VolumeError> {
         let mut resolver = crate::path::PathResolver::new();
         resolver.resolve(record_index, self)
+    }
+
+    /// 全 [`NtfsFile`] を順次列挙するイテレータを返す（Chunk 14）。
+    ///
+    /// `$FILE_NAME` 属性のないエントリは自動スキップ。個別エントリのパースエラーは `Result`
+    /// として yield、イテレーションは継続。`PathResolver` キャッシュを内部共有するため
+    /// N ファイル列挙が実用上 O(N) になる。業務統合層からの標準呼び出し口。
+    /// 関連 FR: FR-LIVE-01, FR-LIVE-04, FR-LIVE-05, FR-LIVE-06。
+    pub fn iter_files(&mut self) -> NtfsFileIterator<'_, F> {
+        NtfsFileIterator::new(self)
+    }
+
+    /// 単一 MFT エントリから [`NtfsFile`] を構築する（単発呼び出し向け）。
+    ///
+    /// 戻り値の意味は [`crate::file::NtfsFileIterator`] と同じく `Ok(None)` で
+    /// `$FILE_NAME` 欠落エントリを示す。複数件取得時は [`Self::iter_files`] の方が
+    /// キャッシュが効いて効率が良い。
+    /// 関連 FR: FR-LIVE-01, FR-LIVE-04。
+    pub fn build_file(&mut self, record_index: u64) -> Result<Option<NtfsFile>, VolumeError> {
+        let mut resolver = crate::path::PathResolver::new();
+        build_file_for_record(self, record_index, &mut resolver)
+    }
+
+    /// [`NtfsFile`] のメイン `$DATA` 実バイト列を取得する（Chunk 14）。
+    ///
+    /// - [`FileContentRef::Resident`]: 既に bytes を保持しているので clone を返却。
+    /// - [`FileContentRef::NonResident`]: ランを辿ってクラスタを読み、`real_size` で切詰め。
+    /// - [`FileContentRef::None`]: 空 `Vec` を返却（ディレクトリ・$DATA 無しメタファイル等）。
+    ///
+    /// メモリ確保は `real_size` ぶん。Phase 1 では小〜中サイズ前提。
+    /// 関連 FR: FR-LIVE-01, FR-REC-01, FR-REC-04。
+    pub fn read_file_content(&mut self, file: &NtfsFile) -> Result<Vec<u8>, VolumeError> {
+        match &file.content {
+            FileContentRef::Resident(bytes) => Ok(bytes.clone()),
+            FileContentRef::NonResident { real_size, runs } => {
+                let cluster_size = self.cluster_size;
+                // 分割借用: `read_clusters` フィールドだけ &mut で借りる（self 全体は借りない）。
+                let read_fn = &mut self.read_clusters;
+                read_runs_with(runs, cluster_size, *real_size, |lcn, count| {
+                    (read_fn)(lcn, count)
+                })
+                .map_err(VolumeError::Runlist)
+            }
+            FileContentRef::None => Ok(Vec::new()),
+        }
     }
 }
 
@@ -887,5 +933,140 @@ mod tests {
         // テスト用 fn_content は file_attributes フィールドを 0 にしているのでディレクトリではない
         assert!(!entry.is_directory());
         assert_eq!(entry.child_ref.entry_number, 64);
+    }
+
+    // ---------------- Chunk 14: build_file テスト用ヘルパ + テスト -----------------
+    /// 2026-01-01 00:00:00 UTC を FILETIME（1601 起算 100ns 単位）で表現。`$SI` 用。
+    const FT_2026_JAN: u64 = 134_116_992_000_000_000;
+    /// `$FILE_NAME` 用、$SI と明確に異なる遠い未来の FILETIME（$SI + 大幅 offset）。
+    /// 厳密な年は問わず「$SI と FN の値が明らかに異なる」ことのみテストで検証する。
+    const FT_FAR_FUTURE: u64 = FT_2026_JAN + 200_000_000_000_000_000;
+
+    /// 4 つのタイムスタンプを埋めた `$FILE_NAME` コンテンツ。
+    fn fn_content_with_times(parent_entry: u64, name: &str, base_ft: u64) -> Vec<u8> {
+        let utf16: Vec<u16> = name.encode_utf16().collect();
+        let mut b = vec![0u8; 0x42 + utf16.len() * 2];
+        b[0..8].copy_from_slice(&(parent_entry | (1u64 << 48)).to_le_bytes());
+        for (i, off) in [0x08usize, 0x10, 0x18, 0x20].iter().enumerate() {
+            b[*off..*off + 8].copy_from_slice(&(base_ft + i as u64).to_le_bytes());
+        }
+        b[0x40] = utf16.len() as u8;
+        b[0x41] = 1;
+        for (i, u) in utf16.iter().enumerate() {
+            b[0x42 + i * 2..0x44 + i * 2].copy_from_slice(&u.to_le_bytes());
+        }
+        b
+    }
+
+    /// 常駐 `$FILE_NAME` 属性（タイムスタンプ付き）。
+    fn resident_fn_attr_with_times(parent: u64, name: &str, base_ft: u64) -> Vec<u8> {
+        let content = fn_content_with_times(parent, name, base_ft);
+        let (cs, hs) = (content.len() as u32, 0x18u32);
+        let length = (hs + cs).div_ceil(8) * 8;
+        let mut b = vec![0u8; length as usize];
+        put32(&mut b, 0, 0x30);
+        put32(&mut b, 4, length);
+        put16(&mut b, 0x0A, 0x18);
+        put32(&mut b, 0x10, cs);
+        put16(&mut b, 0x14, hs as u16);
+        b[hs as usize..hs as usize + content.len()].copy_from_slice(&content);
+        b
+    }
+
+    /// 常駐 `$STANDARD_INFORMATION` 属性（48B コンテンツ、4 タイムスタンプ）。
+    fn resident_si_attr(base_ft: u64) -> Vec<u8> {
+        let mut content = vec![0u8; 0x48];
+        for (i, off) in [0x00usize, 0x08, 0x10, 0x18].iter().enumerate() {
+            content[*off..*off + 8].copy_from_slice(&(base_ft + i as u64).to_le_bytes());
+        }
+        // file_attributes=0x20 (ARCHIVE)
+        content[0x20..0x24].copy_from_slice(&0x20u32.to_le_bytes());
+        let (cs, hs) = (content.len() as u32, 0x18u32);
+        let length = (hs + cs).div_ceil(8) * 8;
+        let mut b = vec![0u8; length as usize];
+        put32(&mut b, 0, 0x10); // STANDARD_INFORMATION
+        put32(&mut b, 4, length);
+        put16(&mut b, 0x0A, 0x18);
+        put32(&mut b, 0x10, cs);
+        put16(&mut b, 0x14, hs as u16);
+        b[hs as usize..hs as usize + content.len()].copy_from_slice(&content);
+        b
+    }
+
+    /// rec1 を「$SI + $FILE_NAME」両持ち、rec2 を「$FILE_NAME のみ」にしたボリュームを構築。
+    fn build_volume_with_si_and_fn(rec1_attrs: &[u8], rec2_attrs: &[u8]) -> Vec<u8> {
+        let mut img = vec![0u8; IMG_CLUSTERS as usize * CLUSTER];
+        put(&mut img, 0, &make_boot_sector());
+        put(
+            &mut img,
+            MFT_START,
+            &make_record(true, &nonres_data_attr(&single_runlist())),
+        );
+        put(&mut img, MFT_START + RECORD, &make_record(true, rec1_attrs));
+        put(
+            &mut img,
+            MFT_START + 2 * RECORD,
+            &make_record(true, rec2_attrs),
+        );
+        put(&mut img, MFT_START + 3 * RECORD, &make_record(false, &[]));
+        img
+    }
+
+    #[test]
+    fn build_file_returns_none_for_entry_without_filename() {
+        // rec1 = 空属性（$FILE_NAME 無し） → build_file は Ok(None)
+        let img = build_volume_with_dir(&[]);
+        let mut v = NtfsVolume::open(make_reader(img)).expect("open");
+        let result = v.build_file(1).expect("build_file ok");
+        assert!(result.is_none(), "expected None for entry without $FILE_NAME");
+    }
+
+    #[test]
+    fn build_file_extracts_all_timestamps() {
+        // rec1 = $SI(FT_2026_JAN) + $FILE_NAME(FT_FAR_FUTURE)
+        let si = resident_si_attr(FT_2026_JAN);
+        let fnm = resident_fn_attr_with_times(5, "doc.txt", FT_FAR_FUTURE);
+        let mut attrs = si;
+        attrs.extend_from_slice(&fnm);
+        let img = build_volume_with_si_and_fn(&attrs, &[]);
+        let mut v = NtfsVolume::open(make_reader(img)).expect("open");
+        let file = v.build_file(1).expect("ok").expect("some");
+        assert!(file.created.is_some());
+        assert!(file.modified.is_some());
+        assert!(file.accessed.is_some());
+        assert!(file.mft_modified.is_some());
+        // $SI 優先: 2026 年（$SI 値）が採用されるはず（$FILE_NAME は遠い未来）。
+        let created_rfc = file.created.unwrap().to_rfc3339();
+        assert!(
+            created_rfc.starts_with("2026"),
+            "expected $SI (2026) priority, got {}",
+            created_rfc
+        );
+        assert_eq!(file.name, "doc.txt");
+        assert_eq!(file.record_index, 1);
+    }
+
+    #[test]
+    fn build_file_falls_back_to_filename_when_si_missing() {
+        // rec2 = $FILE_NAME のみ（$SI 無し） → $FILE_NAME のタイムスタンプが採用される
+        let fnm = resident_fn_attr_with_times(5, "fallback.txt", FT_FAR_FUTURE);
+        let img = build_volume_with_si_and_fn(&[], &fnm);
+        let mut v = NtfsVolume::open(make_reader(img)).expect("open");
+        let file = v.build_file(2).expect("ok").expect("some");
+        assert!(file.created.is_some());
+        // $FILE_NAME のタイムスタンプ（遠い未来）が採用されている → 少なくとも 2026 ではない。
+        let created_rfc = file.created.unwrap().to_rfc3339();
+        assert!(
+            !created_rfc.starts_with("2026"),
+            "expected $FILE_NAME fallback (far future), but got 2026 (= $SI default), {}",
+            created_rfc
+        );
+        // 具体的には数十年以上未来の値（年=2050 以上）であることを確認。
+        assert!(
+            file.created.unwrap().timestamp() > chrono::DateTime::parse_from_rfc3339("2050-01-01T00:00:00+00:00").unwrap().timestamp(),
+            "$FILE_NAME fallback timestamp should be in the far future, got {}",
+            created_rfc
+        );
+        assert_eq!(file.name, "fallback.txt");
     }
 }
