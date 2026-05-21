@@ -14,6 +14,7 @@ pub mod attribute;
 pub mod attributes;
 pub mod boot_sector;
 pub mod mft;
+pub mod volume;
 
 pub use attribute::{
     parse_attribute_header, AttributeCommonHeader, AttributeError, AttributeHeader,
@@ -28,3 +29,4 @@ pub use attributes::{
 };
 pub use boot_sector::{parse_boot_sector, BootSector, BootSectorError};
 pub use mft::{parse_mft_entry, MftEntry, MftEntryHeader, MftError};
+pub use volume::{NtfsMftIterator, NtfsVolume, VolumeError};

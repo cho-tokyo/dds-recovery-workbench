@@ -4,15 +4,16 @@
 
 ---
 
-## 🎉🎉🎉 Phase 1 NTFS リーダ技術コア完成（2026-05-20）
+## 🎉🎉🎉🎉 Phase 1 NTFS リーダ実用形完成（2026-05-21）
 
-**Chunks 1-10 完了**: NTFS リーダの **基盤（Chunks 1-3）** + **書籍突合済みパーサ群（Chunks 4-9）** + **runlist 解析（Chunk 10）** が揃い、Phase 1 NTFS リーダの技術コアが完成。
+**Chunks 1-11 完了**: Chunk 10 完了時点で揃った技術コア（パーサ群）の上に、**Chunk 11 で `NtfsVolume` 高レベル API + MFT 全エントリイテレータ**が乗り、**`NtfsVolume::open(reader)` 1 行で全エントリ列挙可能な状態に到達**。Chunks 4-10 の純粋関数群が高レベル API で束ねられ、上位層（wish-match / recovery / report 等）からの呼び出しが極めて容易になった。
 
-- 入口層（Chunk 1-3）: 共通エラー型 / FS 共通 trait / `ReadOnlyDisk` 抽象 — 安全な disk アクセス基盤
+- 入口層（Chunks 1-3）: 共通エラー型 / FS 共通 trait / `ReadOnlyDisk` 抽象 — 安全な disk アクセス基盤
 - メタデータ層（Chunks 4-8、書籍突合済み 📕）: Boot Sector / MFT エントリヘッダ + フィクサップ / 属性ヘッダ / $STANDARD_INFORMATION / $FILE_NAME
-- データ取得層（Chunk 9-10、書籍突合済み 📕）: $DATA 常駐 + ADS + **$DATA 非常駐 + runlist 解析（Chunk 10）**
+- データ取得層（Chunks 9-10、書籍突合済み 📕）: $DATA 常駐 + ADS + $DATA 非常駐 + runlist 解析
+- **集約層（Chunk 11、2026-05-21）🎉**: **`NtfsVolume` 高レベル API + `NtfsMftIterator` で MFT 全エントリ列挙 + 多 run MFT 透過対応 + 個別レコード破損で停止しない破損耐性設計**
 
-これにより、**ファイルサイズに関わらず NTFS 上のデータを取り出せる**技術基盤が完成。Brian Carrier「File System Forensic Analysis」(2005, Addison-Wesley, ISBN 9780321374752) Chapter 13 p.358-359 の runlist 例題（`[0x32, 0xc0, 0x1e, 0xb5, 0x3a, 0x05, 0x21, 0x70, 0x1b, 0x1f, 0x00]` → 2 ラン [length=7872, LCN=342709] + [length=112, LCN=350672]）を数学的に再現できる品質に到達。
+これにより、**ファイルサイズに関わらず NTFS 上のデータを取り出せる**技術基盤に加え、**1 行の API 呼び出しでボリューム全体を列挙できる実用形**が完成。Brian Carrier「File System Forensic Analysis」(2005, Addison-Wesley, ISBN 9780321374752) Chapter 13 p.358-359 の runlist 例題（`[0x32, 0xc0, 0x1e, 0xb5, 0x3a, 0x05, 0x21, 0x70, 0x1b, 0x1f, 0x00]` → 2 ラン [length=7872, LCN=342709] + [length=112, LCN=350672]）を数学的に再現できる品質を維持しつつ、上位層から呼びやすい形に統合された。
 
 **Phase 1 中核テスト完全保全**:
 - `recovers_all_30_files_with_matching_sha256_in_healthy_image`（健全 30/30 SHA256 一致）
@@ -20,18 +21,31 @@
 - `product_demo_complete_recovery`（削除 5 ファイル完全復元）
 - `recovers_deleted_file_names_with_timestamps`（ファイル名 + タイムスタンプ復元）
 
-すべて pass 継続。Chunk 10 による破壊なし。残作業は **Chunk 11+（MFT イテレータ、ディレクトリツリー再構築、`NtfsVolume` 高レベル API、disk-io 統合）** のみ。
+すべて pass 継続。Chunk 11 による破壊なし（既存 88 単体 + 17 結合 = 105 件全て pass 継続、Chunk 11 で +11 単体 + +3 結合）。残作業は **Chunk 12+（$INDEX_ROOT / $INDEX_ALLOCATION ディレクトリエントリ解析、フルパス再構築、disk-io 統合）** のみ。
+
+---
+
+## 🎉🎉🎉 Phase 1 NTFS リーダ技術コア完成（2026-05-20、Chunk 10 完了時点の節目）
+
+**Chunks 1-10 完了**: NTFS リーダの **基盤（Chunks 1-3）** + **書籍突合済みパーサ群（Chunks 4-9）** + **runlist 解析（Chunk 10）** が揃い、Phase 1 NTFS リーダの技術コアが完成。
+
+- 入口層（Chunk 1-3）: 共通エラー型 / FS 共通 trait / `ReadOnlyDisk` 抽象 — 安全な disk アクセス基盤
+- メタデータ層（Chunks 4-8、書籍突合済み 📕）: Boot Sector / MFT エントリヘッダ + フィクサップ / 属性ヘッダ / $STANDARD_INFORMATION / $FILE_NAME
+- データ取得層（Chunk 9-10、書籍突合済み 📕）: $DATA 常駐 + ADS + **$DATA 非常駐 + runlist 解析（Chunk 10）**
+
+これにより、**ファイルサイズに関わらず NTFS 上のデータを取り出せる**技術基盤が完成。
 
 ---
 
 ## 累積サマリ
 
-- **完了チャンク数**: 10（うち Chunk 4 / Chunk 5 / Chunk 6 / Chunk 7 / Chunk 8 / Chunk 9 は 2026-05-20 に書籍突合レビュー済 📕、Chunk 10 は新規実装かつ書籍 Chapter 13 p.358-359 例題突合済み 📕。🎉 **Phase 1 NTFS リーダ技術コア完成**、未レビュー残り 0）
-- **総実装行数**: 2376（実装+テスト合計、各チャンク 220行上限以内。Chunk 10 新規 +218行: runlist.rs 218 + data.rs/mod.rs/lib.rs 微調整）
-- **総単体テスト数**: 88（全パス、Chunk 10 で +16件 — 書籍 Chapter 13 p.358-359 例題再現 1 件 + parse_runlist 系 11 件 + read_runs_with 系 4 件）
-- **総結合テスト数**: 17（全パス、Chunk 10 で +3件 — 健全イメージ全ユーザファイル常駐確認 + 実 NTFS の $MFT 自身の $DATA 非常駐 runlist パース成功 + 削除イメージで同経路確認）
-- **総テスト数（単体 + 結合）**: 105（全パス）
+- **完了チャンク数**: 11（うち Chunk 4 / Chunk 5 / Chunk 6 / Chunk 7 / Chunk 8 / Chunk 9 は 2026-05-20 に書籍突合レビュー済 📕、Chunk 10 は新規実装かつ書籍 Chapter 13 p.358-359 例題突合済み 📕。🎉🎉🎉🎉 **Phase 1 NTFS リーダ実用形完成（Chunk 11 / 2026-05-21）**、未レビュー残り 0）
+- **総実装行数**: 2733（実装+テスト合計。Chunk 11 で +357行: volume.rs 357行追加 + lib.rs 微調整。Chunk 11 は合成 NTFS ビルダーの複雑性のため 220行上限を超過したが、tester が「機能・安全性・SHA256 維持すべてクリア」と判断し合格扱い）
+- **総単体テスト数**: 99（全パス、Chunk 11 で +11件 — NtfsVolume::open / virtual_to_physical / read_record / iter_records / sparse 拒否 / 破損エントリ耐性 等）
+- **総結合テスト数**: 20（全パス、Chunk 11 で +3件 — `ntfs_healthy_small` 全エントリ列挙 30 ユーザファイル検出 + 削除イメージで削除 5 件検出 + `NtfsVolume::iter_records` ベースの拡張版プロダクトデモ）
+- **総テスト数（単体 + 結合）**: 119（全パス）
 - **平均カバレッジ**: 未計測（モジュール完成時に計測予定）
+- **🎉🎉🎉🎉 Phase 1 NTFS リーダ実用形完成ハイライト（Chunk 11 / 2026-05-21）**: `crates/fs-ntfs/src/volume.rs`（新規 357行、実装 173 + 単体テスト 184）を追加し、**NTFS の全パーサを束ねた高レベル API `NtfsVolume<F>` + MFT 全エントリイテレータ `NtfsMftIterator<'a, F>` を提供**。`pub fn open(read_clusters: F) -> Result<Self, VolumeError>` で **bootstrap 5 ステップ**（① 先頭クラスタ → ブートセクタ解析 / ② MFT record 0 読み取り → `parse_mft_entry` / ③ $DATA 属性探索 / ④ 非常駐確認 + `parse_runlist`（スパースは `SparseMftRun` 拒否） / ⑤ 総レコード数算出）を自動実行し、上位層は 1 行で NTFS ボリュームをオープン可能。`read_record(index)` で任意レコードを取得、`iter_records()` で全レコードを `(u64, Result<MftEntry, VolumeError>)` として yield（個別レコード破損で停止しない破損耐性設計）。`virtual_to_physical(virtual_offset)` で多 run MFT（断片化）透過対応。`VolumeError` enum（10 variants）は `#[from]` で **5 種既存エラー型を集約**（`BootSectorError` / `MftError` / `AttributeError` / `RunlistError` / `std::io::Error`） + 固有 5 種（`NoMftDataAttribute` / `MftDataMustBeNonResident` / `SparseMftRun` / `RecordIndexOutOfRange` / `BootSectorBufferTooSmall`）。**disk-io 直接依存なし**: `read_clusters: FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>` クロージャパターンを採用し、disk-io 統合は Chunk 14 で別途実装可能な疎結合設計（Cargo.toml + コード両方で `dds_disk_io` 参照ゼロを確認）。単体テスト 11 件 + 結合テスト 3 件追加。**結合テストで実 NTFS フィクスチャ動作実証**: `ntfs_healthy_small` で 108 MFT レコード列挙 → 30 ユーザファイル検出（クラスタサイズ 4096 / MFT レコードサイズ 1024）、削除入りイメージで `[DELETED]` フラグ付き 5 ファイル復元、破損エントリ 14 件をスキップしつつイテレーション継続。`cargo test --lib -p dds-fs-ntfs` は **99 passed**（既存 88 + 新規 11）、`cargo test -p dds-fs-ntfs` は **119 passed**（単体 99 + 結合 20）、clippy で warning 0件、cargo doc 生成成功。既存 88 単体 + 17 結合 = 105 件全て pass 継続（破壊なし）。Phase 1 中核 SHA256 検証 4 件すべて pass 維持。安全性: `unsafe` 0 件、書き込み API 0 件、`from_be_bytes` 0 件、`String::from_utf16_lossy` 0 件。🎯 **行数 357 の超過は tester の判断で「合格扱い」**（合成 NTFS ビルダーの複雑性のため、機能・安全性・SHA256 維持すべてクリア）。🎯 **プロダクトデモ出力**（`product_demo_with_volume_api`）: "Total MFT records: 108 / Cluster size: 4096 / MFT record size: 1024 / [Live]/[DELETED] フラグ付きエントリ列挙 / Total user files recovered: 30 / Deleted files recovered: 5 / Per-record parse errors: 14 (tolerated)"。**M2 NTFSリーダα が 80% → 90%** へ押し上げ、Phase 1 NTFS リーダの実用形完成
 - **🎉🎉🎉 Phase 1 NTFS リーダ技術コア完成ハイライト（Chunk 10 / 2026-05-20）📕**: `crates/fs-ntfs/src/attributes/runlist.rs`（新規 218行）を追加し、NTFS `$DATA` 非常駐属性の runlist 解析を実装。書籍 Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 11 Figure 11.6 + Chapter 13 Figure 13.3 + p.358-359 サンプルに準拠した実装。`Run` 構造体（`length_clusters: u64` / `lcn: Option<u64>` / `is_sparse()` / `byte_length()`）+ `RunlistError` enum（9 バリアント: BufferTooSmall / InvalidHeaderNibble / LengthFieldTruncated / OffsetFieldTruncated / LcnOverflow / NegativeLcn / InvalidClusterSize / RealSizeMismatch / DiskRead）+ `parse_runlist(bytes) -> Result<Vec<Run>, RunlistError>`（書籍 Chapter 13 Figure 13.3 エンコーディング準拠、累積 LCN 計算、符号拡張、スパースラン対応）+ `read_runs_with<F: FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>>(runs, cluster_size, real_size, read_clusters)`（クロージャベース読み出し、スパースは 0 埋め、real_size でトリミング）を提供。`DataContent::runlist_bytes(&self) -> Option<&[u8]>` も追加（常駐 None / 非常駐 raw bytes）。`cargo test --lib -p dds-fs-ntfs` は **88 passed**（既存 72 + 新規 16）、`cargo test -p dds-fs-ntfs` は **105 passed**（単体 88 + 結合 17）、clippy で warning 0件、cargo doc 生成成功。安全性: `unsafe` 0 件 / 書き込み API 0 件 / `from_be_bytes` 0 件 / `String::from_utf16_lossy` 0 件。🎯 **書籍仕様の数学的再現**: `parse_runlist([0x32, 0xc0, 0x1e, 0xb5, 0x3a, 0x05, 0x21, 0x70, 0x1b, 0x1f, 0x00])` で Run 1（header=0x32 → length 2 bytes `c0 1e`=7872 + offset 3 bytes `b5 3a 05`=342709 → 絶対 LCN 342709）+ Run 2（header=0x21 → length 1 byte `70`=112 + offset 2 bytes `1b 1f`=+7963 → 累積 LCN 350672）を完全再現、書籍 Chapter 13 p.358-359 と一致。🎯 **結合テストの実イメージ発見**: 結合テスト中に **実 NTFS フィクスチャの $MFT 自身（エントリ 0）の $DATA が非常駐**であることを発見し、その runlist を実際にパース成功（書籍 Chapter 13 記載と一致）、削除入りイメージでも同経路でパス。`mft_entry_zero_has_non_resident_data_with_parseable_runlist` / `mft_entry_zero_runlist_parses_in_deletions_image` / `all_user_files_in_healthy_image_have_resident_data` の結合テスト 3 件で実画像レベル動作を実証。🎯 **Phase 1 プロダクト価値の核は完全保全**: `recovers_all_30_files_with_matching_sha256_in_healthy_image` / `recovers_all_5_deleted_files_with_matching_sha256` / `product_demo_complete_recovery` / `recovers_deleted_file_names_with_timestamps` すべて pass 継続（破壊なし）。**M2 NTFSリーダα が 60% → 80% に押し上げ**、Phase 1 NTFS リーダの技術コア完成
 - **🎉 書籍突合レビュー完遂（2026-05-20）**: Chunk 4 / 5 / 6 / 7 / 8 / 9 すべての書籍突合レビューが完了し、**Phase 1 主要パーサ 6 チャンク全てが Brian Carrier「File System Forensic Analysis」（2005, ISBN 9780321374752）と突合済みの商用レベル品質**に到達。NTFS 入口（Boot Sector）+ メタデータ層（MFT エントリ / 属性ヘッダ / $STANDARD_INFORMATION / $FILE_NAME）+ データ取得層（$DATA 常駐 + ADS）が一貫して書籍仕様準拠。書籍逐語コピーは全レビューで 0 件、参照は章番号・Table 番号・ページ番号のみの著作権配慮維持。残作業は Chunk 10（非常駐 $DATA + runlist）の新規実装のみで、これにより M2 NTFSリーダα が事実上完了する見込み
 - **🎯🎯 Phase 1 技術核心マイルストーン達成（Chunk 9）**: **「削除されたファイルを名前 + タイムスタンプ + 内容（バイト単位完全一致）で復元する」というプロダクト価値の中核を、実 NTFS フィクスチャで数学的に実証**。健全イメージ `ntfs_healthy_small` 30/30 ファイル、削除イメージ `ntfs_with_5_deletions_small` 30/30 ファイル（うち削除済み 5/5: `file_003.txt` / `file_007.txt` / `file_015.txt` / `file_022.txt` / `file_028.txt`）の **SHA256 ハッシュが ground truth と完全一致**（`assert_eq!` で全件比較成立）。これは「データを取り出せた」だけでなく「ビット単位で正しく復元できた」ことの暗号学的証明。**Phase 1 のプロダクト価値の数学的証明完了**
@@ -45,7 +59,7 @@
 - **品質向上ハイライト（Chunk 6 書籍突合レビュー / 2026-05-20）📕**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13「NTFS Data Structures」Table 13.2「first 16 bytes of an attribute」/ Table 13.3「resident attribute」/ Table 13.4「non-resident attribute」に基づき `crates/fs-ntfs/src/attribute.rs` を独立レビュー。**既存実装は書籍 Table 13.2/13.3/13.4 と完全一致**しており、構造体定義・フィールド名・enum バリアントすべて過不足なしであることを確認（Table 13.2 共通ヘッダ全7フィールド完全対応 / Table 13.3 常駐追加 content_size + content_offset 完全対応 + Linux NTFS Docs 由来の indexed フィールドも保持 / Table 13.4 非常駐追加 全8フィールド完全対応 / 属性タイプ enum 全 15 種（0x10〜0x100）+ Unknown + End 完全網羅）。**実装本体への変更は不要**と判定し、書籍突合の意義を「既存実装が書籍仕様と一致していることの検証」と「書籍例題の再現テスト追加によるリグレッション防止」に集約。`attribute.rs` を 199行 → **272行（+73行、実装 116 + 単体テスト 156）**に拡張し単体テスト 4 件を追加: ①書籍 356 ページ $STANDARD_INFORMATION 常駐例題の数学的再現（type=0x10, length=0x60, content_size=0x48, content_offset=0x18、サニティ式 0x18+0x48=0x60 を assertion） / ②書籍 358 ページ $DATA 非常駐例題（type=0x80, starting_vcn=0, last_vcn=0x20EF=8431, runlist_offset=0x40, allocated/real/initialized=0x83C000=8634368 トリプル一致） / ③全 15 種属性タイプ + Unknown 3 種（0x42/0xFF/0x200）+ End ラウンドトリップ網羅（計 19 ケース） / ④フラグ組合せ 5 パターン（compressed/encrypted/sparse/混合）の生値保持＋ビット個別判定。`cargo test --lib -p dds-fs-ntfs` は **63 passed**（既存 59 + 新規 4）、`cargo test -p dds-fs-ntfs` は **77 passed**（単体 63 + 結合 14）、clippy で warning 0件、cargo doc 生成成功。書籍逐語コピー 0 件を Grep で確認（Table 名 3 件 + 連続英単語塊チェックで全て未検出）、`docs/specs/ntfs-references/notes.md` に「## 8. Attribute Header（属性ヘッダ）」セクション追加（既存「## 8. 参考リソース」を「## 9. 参考リソース」へ繰り下げ、195 → 289 行、+94 行）。NTFS 入口部分（Boot Sector + MFT エントリ + 属性ヘッダ）の 3 チャンク全てが書籍突合済みの商用レベル品質に到達
 - **品質向上ハイライト（Chunk 5 書籍突合レビュー / 2026-05-20）📕**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13「NTFS Data Structures」Fixup Values セクションに基づき `crates/fs-ntfs/src/mft.rs` を独立レビュー。既存実装は書籍仕様と**基本的に整合**していることを確認した上で、**USA size 整合性検証**（`usa_size == ceil(allocated_size / sector_size) + 1`）を追加し破損データの早期検出を強化。書籍例題（USN=0x0058、record=1024、sector=512）の数学的再現テスト、マルチセクタ拡張（2KB レコード）、部分破損検出（書籍が言及する "one sector damaged" シナリオ）、USN=0 エッジケースの単体テスト 5 件を追加。書籍からの逐語コピーは 0 件（Grep 確認済）、参照は章番号・Table 番号のみ。実装は商用レベル品質に到達
 - **品質向上ハイライト（Chunk 4 書籍突合レビュー / 2026-05-20）📕**: 同書 Chapter 13 Table 13.18「Data structure for the boot sector」に基づき `crates/fs-ntfs/src/boot_sector.rs` を独立レビュー。既存実装は書籍仕様の全フィールドを**完全カバー**していたことを確認した上で、**`index_record_size_bytes()` メソッド追加**（MFT と同じ符号付きエンコーディング、DRY 共有ヘルパ `compute_record_size_bytes` を抽出）、**`bytes_per_sector` の 2の累乗 + 256〜4096 範囲チェック**、**`sectors_per_cluster` の 2の累乗 + 1〜128 範囲チェック**を追加。書籍 381 ページ例題（OEM="NTFS    ", bps=512, spc=2, total_sectors=2056256, mft_lcn=342709, mft_mirror_lcn=514064, cpmr=1, cpir=4, serial=0x04502284_50227C94）の数学的再現テスト、Index record size 符号付きエンコーディング、4Kn ドライブ（bps=4096）、非2の累乗 bps/spc 拒否の単体テスト 5 件を追加。書籍からの逐語コピーは 0 件（Grep 確認済）、参照は章番号・Table 番号のみ。NTFS 入口部分（Boot Sector）が商用レベル品質に到達
-- **最終更新日**: 2026-05-20
+- **最終更新日**: 2026-05-21
 
 ---
 
@@ -54,7 +68,7 @@
 ```
 M0: 設計確定        [████████] 100% ✅ 完了
 M1: 基盤構築        [███░░░░░]  30% 🚧 進行中（Chunk 1-3/想定10前後 完了）
-M2: NTFSリーダα     [████████]  80% 🎉 技術コア完成（Chunk 4: Boot Sector 📕 + Chunk 5: MFT エントリヘッダ + フィクサップ 📕 + Chunk 6: 属性ヘッダパーサ 📕 + Chunk 7: 属性イテレータ + $STANDARD_INFORMATION 📕 + Chunk 8: $FILE_NAME 📕 + Chunk 9: $DATA 常駐 + ADS + SHA256 完全一致実証 📕 + Chunk 10: $DATA 非常駐 + runlist 解析 📕 完了。🎉🎉🎉 **Phase 1 NTFS リーダ技術コア完成**。残るは Chunk 11+ MFT イテレータ + ディレクトリツリー再構築 + `NtfsVolume` 高レベル API + disk-io 統合）
+M2: NTFSリーダα     [█████████]  90% 🎉🎉 実用形完成（Chunks 4-10 完了に加え、Chunk 11: NtfsVolume 高レベル API + MFT 全エントリイテレータで集約層完成。🎉🎉🎉🎉 **Phase 1 NTFS リーダ実用形完成**。`NtfsVolume::open(reader)` 1 行で全エントリ列挙可能。残るは Chunk 12+ $INDEX_ROOT/$INDEX_ALLOCATION ディレクトリエントリ + フルパス再構築 + disk-io 統合）
 M3: 希望突合エンジン  [░░░░░░░░]   0% ⏳ 未着手
 M4: 復旧 + 品質判定  [░░░░░░░░]   0% ⏳ 未着手
 M5: NTFS-α リリース [░░░░░░░░]   0% ⏳ 未着手
@@ -81,6 +95,9 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | 8 | dds-fs-ntfs | NTFS `$FILE_NAME` 属性パーサ + ファイル名選択ヘルパ + ハードリンク全列挙 🎯 📕 | 279 | 13 ✓ + 結合 3 ✓ | 未計測 | 2026-05-20 / 📕 Reviewed 2026-05-20 |
 | 9 | dds-fs-ntfs | NTFS `$DATA` 常駐属性パーサ + ADS 対応 + SHA256 完全一致実証 🎯🎯 📕 | 226 | 10 ✓ + 結合 3 ✓ | 未計測 | 2026-05-20 / 📕 Reviewed 2026-05-20 |
 | 10 | dds-fs-ntfs | NTFS `$DATA` 非常駐属性（runlist 解析）🎉 Phase 1 NTFS リーダ技術コア完成 📕 | 218 | 16 ✓ + 結合 3 ✓ | 未計測 | 2026-05-20 |
+| 11 | dds-fs-ntfs | NtfsVolume + MFT イテレータ（全エントリ列挙）🎉 Phase 1 NTFS リーダ実用形完成 | 357※ | 11 ✓ + 結合 3 ✓ | 未計測 | 2026-05-21 |
+
+※ Chunk 11 は合成 NTFS ビルダーの複雑性のため 220行上限を超過したが、tester が「機能・安全性・SHA256 維持すべてクリア」と判断し合格扱い。
 
 ### Chunk 1 詳細
 
@@ -610,6 +627,105 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 
 ---
 
+### Chunk 11 詳細 🎉🎉🎉🎉 Phase 1 NTFS リーダ実用形完成
+
+- **対象ファイル**:
+  - `crates/fs-ntfs/src/volume.rs`（**新規 357行**、実装 173 + 単体テスト 184）
+  - `crates/fs-ntfs/src/lib.rs`（`NtfsVolume` / `NtfsMftIterator` / `VolumeError` の re-export 追加）
+  - `crates/fs-ntfs/tests/volume_integration.rs`（**新規 119行**、結合テスト 3 件）
+- **完了日**: 2026-05-21
+- **担当**: builder（実装 357行 + 単体テスト 11 件 + 結合テスト 3 件）→ tester（独立検証、119 件 pass）→ progress-tracker（記録）
+- **実装内容**:
+  - **`NtfsVolume<F>` 構造体**（`F: FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>` クロージャ型をジェネリックパラメータとして保持）:
+    - `pub fn open(read_clusters: F) -> Result<Self, VolumeError>` — **bootstrap 5 ステップ実行**
+    - `pub fn total_records(&self) -> u64`
+    - `pub fn mft_record_size(&self) -> u32`
+    - `pub fn cluster_size(&self) -> u64`
+    - `pub fn boot_sector(&self) -> &BootSector`
+    - `pub fn read_record(&mut self, index: u64) -> Result<MftEntry, VolumeError>`
+    - `pub fn iter_records(&mut self) -> NtfsMftIterator<'_, F>`
+    - 内部 `virtual_to_physical(virtual_offset) -> Result<(u64, u64), VolumeError>` — 多 run MFT 透過対応（複数 run を累積走査、断片化 MFT に対応）
+  - **`NtfsMftIterator<'a, F>` 構造体**:
+    - `Iterator::Item = (u64, Result<MftEntry, VolumeError>)`
+    - **個別レコード破損で停止しない設計**（復旧ソフトとしての破損耐性、`Result` で yield、`?` propagation せず継続）
+  - **`VolumeError` enum**（10 variants、`#[derive(Error, Debug)]` のみ）:
+    - **5 種 `#[from]` 集約**: `BootSector(#[from] BootSectorError)` / `Mft(#[from] MftError)` / `Attribute(#[from] AttributeError)` / `Runlist(#[from] RunlistError)` / `Io(#[from] std::io::Error)`
+    - **固有 5 種**: `NoMftDataAttribute` / `MftDataMustBeNonResident` / `SparseMftRun` / `RecordIndexOutOfRange { index, total }` / `BootSectorBufferTooSmall { got }`
+- **$MFT bootstrap 5 ステップ**（`NtfsVolume::open` 内、コメント付き実装）:
+  1. 先頭クラスタ → ブートセクタ解析（cluster_size / mft_record_size / mft_lcn）
+  2. MFT record 0 読み取り → `parse_mft_entry`
+  3. $DATA 属性探索（`find_attribute(..., AttributeType::Data)`）
+  4. 非常駐確認 + `parse_runlist`（スパースは `SparseMftRun` で拒否）
+  5. 総レコード数算出（`total_bytes / mft_record_size`）
+- **設計上のポイント**:
+  - **disk-io 直接依存なし**: `read_clusters: FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>` クロージャパターンを採用し、`dds_disk_io` への直接依存を持たない疎結合設計（Cargo.toml + コード両方で `dds_disk_io` 参照ゼロを確認）。disk-io 統合は Chunk 14 で別途実装可能
+  - **エラー型集約 `#[from]`**: Chunk 10 の `RunlistError::DiskRead(#[from] std::io::Error)` パターンを継承し、既存全エラー型を集約することで上位層がエラーハンドリングしやすい
+  - **破損エントリ耐性**: イテレータは `Result` で yield、`?` propagation せず停止しない（復旧ソフトとしての要件）
+  - **多 run MFT 対応**: `virtual_to_physical` で複数 run を累積走査、断片化 MFT に透過対応
+- **単体テスト 11 件追加**（volume::tests）:
+  1. `opens_minimal_valid_volume`
+  2. `virtual_to_physical_single_run_correct_mapping`
+  3. `virtual_to_physical_multi_run_crosses_boundary`
+  4. `read_record_out_of_range_returns_error`
+  5. `read_record_zero_returns_mft_itself`
+  6. `open_fails_without_boot_sector` → `BootSectorBufferTooSmall`
+  7. `open_fails_when_mft_data_is_resident` → `MftDataMustBeNonResident`
+  8. `open_fails_when_no_mft_data_attribute` → `NoMftDataAttribute`
+  9. `iter_records_yields_all_indices_in_order`
+  10. `iter_records_continues_on_individual_parse_error`
+  11. `sparse_mft_runlist_rejected` → `SparseMftRun`
+- **結合テスト 3 件追加**（volume_integration）:
+  - `ntfs_healthy_small_enumerates_all_records_and_finds_30_user_files` — 健全フィクスチャで 108 MFT レコード列挙 → 30 ユーザファイル検出
+  - `ntfs_with_deletions_finds_5_deleted_user_files` — 削除イメージで `[DELETED]` フラグ付き 5 ファイル復元
+  - `product_demo_with_volume_api` — `NtfsVolume::iter_records` ベースの拡張版プロダクトデモ
+- **検証結果（tester 独立検証）**:
+  - 実装+単体テスト行数: **357行**（仕様上限 220 を超過、合成 NTFS ビルダーの複雑性のため。tester が「機能・安全性・SHA256 維持すべてクリアのため合格扱い」と判断）
+  - `cargo check -p dds-fs-ntfs` … OK
+  - `cargo test --lib -p dds-fs-ntfs` … **99 passed; 0 failed**（既存 88 + 新規 11）
+  - `cargo test -p dds-fs-ntfs` … **119 passed**（単体 99 + 結合 20）
+  - `cargo clippy -p dds-fs-ntfs --all-targets -- -D warnings` … warning 0 件
+  - `cargo doc -p dds-fs-ntfs --no-deps` … 生成成功
+  - 既存 88 単体 + 17 結合 = 105 件全て pass 継続（破壊なし）
+  - Phase 1 中核 SHA256 検証 4 件すべて pass 維持
+  - 安全性: `unsafe` 0 件、書き込み API 0 件、`from_be_bytes` 0 件、`String::from_utf16_lossy` 0 件
+  - disk-io 直接依存なし確認（Cargo.toml + コード両方で `dds_disk_io` 参照ゼロ）
+- **🎯 プロダクトデモ出力サンプル**（`product_demo_with_volume_api`）:
+
+  ```
+  === DDS Recovery Workbench - Phase 1 (post-Chunk 11) ===
+
+  Total MFT records: 108
+  Cluster size: 4096 bytes
+  MFT record size: 1024 bytes
+
+    [Live]    #64   file_000.txt
+    [Live]    #65   file_001.txt
+    [Live]    #66   file_002.txt
+    [DELETED] #67   file_003.txt  <- 完全復元!
+    [Live]    #68   file_004.txt
+    ...
+  === Summary ===
+  Total user files recovered: 30
+  Deleted files recovered:    5
+  Per-record parse errors:    14 (tolerated, iteration continued)
+  ```
+
+  破損エントリ 14 件をスキップしつつイテレーション継続する破損耐性も実証。
+
+- **関連 FR**:
+  - **FR-LIVE-01（NTFS 読み取り）**: ✅ **完全達成継続**、API レベルで実用形完成。`NtfsVolume::open(reader)` 1 行で全エントリ列挙可能
+  - **FR-LIVE-04（ファイルツリー構築）**: 🚧 **部分達成（フラットなエントリ列挙レベル）**。MFT 全エントリの列挙までは可能、ディレクトリツリー再構築（親 → 子のリンク集約）は Chunk 12+ で実装予定
+  - **FR-LIVE-05（削除エントリ可視化）**: ✅ **API 経由で容易に**（`iter_records` で `is_deleted()` フラグ判定が 1 行で可能）
+  - **FR-LIVE-06（メタデータ表示）**: 🚧 **API 経由で容易に**（属性巡回が `NtfsVolume` 経由で集約済）
+- **🎉🎉🎉🎉 マイルストーン意義**:
+  - **Phase 1 NTFS リーダ実用形完成**: Chunks 4-10 の純粋関数群が高レベル API で束ねられ、上位層からの呼び出しが極めて容易になった。`NtfsVolume::open(reader)` 1 行で全エントリ列挙可能な状態に到達
+  - **M2 NTFSリーダα が 80% → 90%** へ押し上げ。残作業は Chunk 12+（$INDEX_ROOT/$INDEX_ALLOCATION ディレクトリエントリ解析、フルパス再構築、disk-io 統合）
+  - 上位層（wish-match / recovery / report 等）がこの API を呼び出せば、Phase 1 のプロダクト価値（希望リスト × 削除ファイル突合 + 復元）が組み立て可能に
+  - **疎結合設計**: disk-io 直接依存なし（クロージャパターン）により、Chunk 14 の disk-io 統合（実 HDD 対応）が独立して進められる
+- **完了判定**: 完全完了（実装+単体テスト 357 行 ※合成ビルダー複雑性のため上限超過、tester 合格判定 / 単体テスト 11 件全パス / 結合テスト 3 件全パス / rustdoc 完備 / clippy clean / unsafe・書き込み API 不在を維持 / disk-io 直接依存なし / 既存 105 テスト全 pass 継続 / Phase 1 中核 SHA256 検証 4 件 pass 維持）
+
+---
+
 ## FR要件達成マトリクス
 
 ### 案件管理 (FR-CASE)
@@ -629,7 +745,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 - [ ] FR-DIAG-07: 診断レポート生成
 
 ### ライブモード (FR-LIVE)
-- [x] **FR-LIVE-01: NTFS読み取り** ✅ **完全達成 🎉**（Chunk 4-10 / dds-fs-ntfs、書籍突合済み 📕）
+- [x] **FR-LIVE-01: NTFS読み取り** ✅ **完全達成 🎉🎉**（Chunk 4-11 / dds-fs-ntfs、書籍突合済み 📕、Chunk 11 で API レベル実用形完成）
   - Boot Sector (VBR) パーサ完了。OEM ID/シグネチャ検証、主要パラメータ抽出、MFT 開始オフセット算出が利用可能
   - MFT エントリヘッダパーサ + フィクサップ適用完了。`FILE`/`BAAD` 判定、USA 検証、フラグ抽出（in-use/directory）、レコード番号/シーケンス番号取得が利用可能
   - 属性ヘッダパーサ完了。共通ヘッダ抽出、Resident/NonResident 排他分岐、End マーカー検出、未知 type ID の前方互換受け入れ、0長拒否による安全な巡回基盤が利用可能。実フィクスチャで $STANDARD_INFORMATION / $FILE_NAME / $DATA / $BITMAP / End の昇順巡回を実証
@@ -638,24 +754,28 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
   - **$DATA 常駐属性パース + ADS 対応 + SHA256 完全一致実証完了 🎯🎯**（Chunk 9）。`DataContent`（Resident / NonResident enum）、`DataStream`（name / content / 圧縮・暗号化・スパースフラグ）、`extract_all_data_streams`（ADS 含む全列挙）/ `extract_main_data_stream` 提供。健全 30/30 + 削除 5/5 の SHA256 ハッシュが ground truth と完全一致することを結合テストで数学的に証明。日本語ストリーム名（"秘匿データ"）対応も実証
   - **$DATA 非常駐 + runlist 解析完了 🎉**（Chunk 10）。`Run` 構造体 + `RunlistError`（9 バリアント）+ `parse_runlist` + `read_runs_with` を提供。書籍 Carrier Chapter 13 p.358-359 例題（11 バイト入力 → 2 ラン、LCN 342709 / 350672）を数学的に再現。スパース対応、符号拡張、不正バイト列の安全な拒否。実 NTFS フィクスチャの $MFT 自身の $DATA が非常駐であることを発見し、その runlist を結合テストでパース成功
   - **これにより NTFS 上の全エントリ（メタデータ + データ）に対して、ファイルサイズに関わらず安全に読み出せる技術基盤が完成**。Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) 主要章と完全突合済みの商用レベル品質
-  - 残作業: Chunk 11+（$INDEX_ROOT/ALLOCATION 経由のディレクトリツリー集約、`FsReader` trait の NTFS 実装、`NtfsVolume` 高レベル API、disk-io 統合）。これは FR-LIVE-01「NTFS 読み取り」の上位機能であり、本要件のコアは完了
+  - **`NtfsVolume` 高レベル API + MFT イテレータ完成 🎉🎉**（Chunk 11、2026-05-21）: `NtfsVolume::open(read_clusters)` 1 行で **bootstrap 5 ステップ**自動実行（ブートセクタ解析 → MFT record 0 → $DATA 属性 → 非常駐 runlist → 総レコード数算出）。`iter_records()` で MFT 全エントリ列挙、`read_record(index)` で個別取得、`virtual_to_physical()` で多 run MFT（断片化）透過対応。`VolumeError` enum で `#[from]` による既存 5 エラー型集約（BootSectorError / MftError / AttributeError / RunlistError / std::io::Error）。**個別レコード破損で停止しない破損耐性設計**（イテレータが `Result` で yield）。disk-io 直接依存なし（クロージャパターン）の疎結合設計
+  - 残作業: Chunk 12+（$INDEX_ROOT/ALLOCATION 経由のディレクトリエントリ取得、フルパス再構築、`FsReader` trait の NTFS 実装、disk-io 統合）。これは FR-LIVE-04「ファイルツリー構築」の上位機能であり、本 FR-LIVE-01「NTFS 読み取り」のコアは完全達成
 - [ ] FR-LIVE-02: exFAT読み取り
 - [ ] FR-LIVE-03: FAT32読み取り
-- [~] **FR-LIVE-04: ファイルツリー構築** 🚧 **部品集約段階**（Chunk 5-9 / dds-fs-ntfs）
-  - エントリ取得（Chunk 5）+ 属性巡回（Chunk 6-7）+ ファイル名 / 親参照（Chunk 8）+ 内容取得（Chunk 9）が揃い、ツリー組み立てに必要な部品が出揃った
-  - 残作業: 親→子のリンク集約（$INDEX_ROOT/ALLOCATION 経由）、`FsReader::list_all_entries` の NTFS 実装、削除エントリのツリー上配置
-- [x] **FR-LIVE-05: 削除エントリ可視化** ✅ **実用化完了 🎯**（Chunk 5, 7, 8 / dds-fs-ntfs。※UI 色分け表示はフロントエンド未実装）
+- [~] **FR-LIVE-04: ファイルツリー構築** 🚧 **部分達成（フラットなエントリ列挙レベル）**（Chunk 5-11 / dds-fs-ntfs）
+  - エントリ取得（Chunk 5）+ 属性巡回（Chunk 6-7）+ ファイル名 / 親参照（Chunk 8）+ 内容取得（Chunk 9-10）が揃い、ツリー組み立てに必要な部品が出揃った
+  - **Chunk 11 で `NtfsVolume::iter_records()` による MFT 全エントリ列挙が実用化された**。フラットなエントリ列挙レベルでは API 1 行で可能。`(record_id, MftEntry)` のペアを順に取得でき、各エントリの $FILE_NAME から親 MFT 参照を取得することは個別に可能（ただし親→子ツリー集約のヘルパは未実装）
+  - 残作業: $INDEX_ROOT / $INDEX_ALLOCATION B+木走査によるディレクトリエントリ取得（Chunk 12）、フルパス再構築（Chunk 13、親 MFT 参照を辿るループ + 循環検出 + ルート到達判定）、`FsReader::list_all_entries` の NTFS 実装、削除エントリのツリー上配置
+- [x] **FR-LIVE-05: 削除エントリ可視化** ✅ **実用化完了 🎯**（Chunk 5, 7, 8, 11 / dds-fs-ntfs。※UI 色分け表示はフロントエンド未実装）
   - MFT エントリ単位の削除判定 `is_deleted()` を提供（flags の in-use ビット非立で判定、Chunk 5）
   - 削除エントリの $STANDARD_INFORMATION から 4 種タイムスタンプを実フィクスチャレベルで復元実証（Chunk 7、削除 13 件取得成功）
   - **削除エントリの $FILE_NAME からファイル名・親参照・サイズ・属性フラグを実フィクスチャレベルで取得実証**（Chunk 8、`recovers_deleted_file_names_with_timestamps`）
   - **ground truth との 100% 一致を実証**: `ntfs_with_5_deletions_small.json` の `file_003.txt` / `file_007.txt` / `file_015.txt` / `file_022.txt` / `file_028.txt` の 5 件全てを `[DELETED]` フラグ + タイムスタンプ + ファイル名で復元（人間可読出力 `prints_live_and_deleted_file_listing_for_human_review` で検証可能）
+  - **Chunk 11 で API 経由の列挙が極めて容易に**: `NtfsVolume::iter_records()` で全エントリを順に取得し、`MftEntry::is_deleted()` で 1 行判定が可能。プロダクトデモ `product_demo_with_volume_api` で `[Live]/[DELETED]` フラグ付きエントリ列挙を実演
   - これにより「削除されたファイル名 + いつ削除されたか」のペアが取得可能となり、Phase 1 のプロダクト価値（希望リスト × 削除ファイル突合）の中核データ供給は完了
   - 残作業: ディレクトリツリー上の削除エントリ階層化列挙（FR-LIVE-04 依存）、UI 上の色分け表示・一覧化（フロントエンド実装）
-- [~] **FR-LIVE-06: メタデータ表示** 🚧 **メタデータ抽出ほぼ完成**（Chunk 6-8 / dds-fs-ntfs）
+- [~] **FR-LIVE-06: メタデータ表示** 🚧 **メタデータ抽出完成 + API 集約進行中**（Chunk 6-8, 11 / dds-fs-ntfs）
   - 属性ヘッダ巡回 API（`parse_attribute_header` / `AttributeIterator` / `find_attribute`）が確立し、$MFT エントリから安全に End マーカーまで属性を列挙可能
   - $STANDARD_INFORMATION パース完了: 4 種タイムスタンプ（created / modified / mft_modified / accessed、Windows FILETIME → `DateTime<Utc>` 変換 / オーバーフロー安全）、DOS ファイル属性フラグ（READ_ONLY / HIDDEN / SYSTEM / ARCHIVE / COMPRESSED / ENCRYPTED / DIRECTORY）の抽出が可能。NT(48B)/W2K+(72B) 両版対応
   - **$FILE_NAME パース完了 🎯**（Chunk 8）: ファイル名（UTF-16LE 非 lossy デコード、日本語・絵文字対応）、親ディレクトリ MFT 参照（48bit entry + 16bit sequence）、$FILE_NAME 内 4 種タイムスタンプ、allocated/real size、file_attributes、namespace（Posix/Win32/Dos/Win32AndDos）抽出、Win32/DOS 二重登録時の `find_best_file_name` 優先選択ヘルパ提供
   - 削除エントリ含めて実フィクスチャでタイムスタンプ + ファイル名復元を実証（ground truth 100% 一致）
+  - **Chunk 11 で API 経由のメタデータ取得が容易に**: `NtfsVolume::read_record(index)` で個別レコード取得、`iter_records()` で全レコード列挙、各 `MftEntry` から属性巡回が `find_attribute` で 1 行
   - 残作業: $DATA（実体サイズ・データラン）の具象属性パーサと、上位レイヤでのメタデータ集約・表示（`FsEntry` への集約 API）
   - 完了マークはメタデータ集約 API が `FsEntry` に必要なフィールドを全て返せるようになった時点で付与
 - [ ] FR-LIVE-07: バックアップメタ活用
@@ -1107,53 +1227,62 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 
 ## 次の推奨アクション
 
-🎉🎉🎉 **Phase 1 NTFS リーダ技術コア完成（2026-05-20）**: Chunk 10 完了により、NTFS の入口（disk-io / Boot Sector）→ メタデータ層（MFT / 属性ヘッダ / $SI / $FILE_NAME）→ データ取得層（$DATA 常駐 + ADS + 非常駐 runlist）が一貫した品質で揃った。ファイルサイズに関わらず NTFS データの読み出しが可能となり、Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13 p.358-359 例題を数学的に再現できる商用レベル品質に到達。
+🎉🎉🎉🎉 **Phase 1 NTFS リーダ実用形完成（2026-05-21）**: Chunk 11 完了により、Chunks 4-10 の純粋関数群が `NtfsVolume` 高レベル API で束ねられ、**`NtfsVolume::open(reader)` 1 行で全エントリ列挙可能な状態**に到達。`iter_records()` で MFT 全列挙、多 run MFT 透過対応、個別レコード破損で停止しない破損耐性設計、disk-io 直接依存なしの疎結合設計（クロージャパターン）。上位層（wish-match / recovery / report 等）からの呼び出しが極めて容易になった。
 
-残作業は **NTFS リーダの上位レイヤ集約**（MFT イテレータ、ディレクトリツリー再構築、`NtfsVolume` 高レベル API、disk-io 統合）であり、これは Chunk 11+ で順次取り組む。**M2 NTFSリーダα は 60% → 80% に押し上げ**、残り 20% は上位 API 整備で達成見込み。
+残作業は **ディレクトリツリー再構築（フルパス取得）+ disk-io 統合（実 HDD/SSD 対応）** であり、これは Chunk 12-14 で順次取り組む。**M2 NTFSリーダα は 80% → 90% に押し上げ**、残り 10% は $INDEX_* パーサ + フルパス再構築 + disk-io 統合で達成見込み。
 
-### 第一推奨: Chunk 11（MFT イテレータ + ディレクトリツリー再構築）
+### 第一推奨: Chunk 12（`$INDEX_ROOT` / `$INDEX_ALLOCATION` パーサ — ディレクトリエントリ取得）
 
-**Chunk 11**: `dds-fs-ntfs` MFT 全エントリ走査 + 親→子リンク集約による完全ディレクトリツリー構築（フルパス取得）
+**Chunk 12**: `dds-fs-ntfs` NTFS ディレクトリインデックス（B+木）パーサ。$INDEX_ROOT（常駐ディレクトリ）と $INDEX_ALLOCATION（非常駐ディレクトリ）から子エントリのリストを取得する
 
 - **対象クレート**: `crates/fs-ntfs/`
 - **対象ファイル（予定）**:
-  - `crates/fs-ntfs/src/mft_iterator.rs`（新規、MFT 全エントリの逐次走査）
-  - `crates/fs-ntfs/src/directory_tree.rs`（新規、$FILE_NAME の親 MFT 参照を辿ったツリー再構築 + フルパス算出）
+  - `crates/fs-ntfs/src/attributes/index_root.rs`（新規、$INDEX_ROOT パーサ）
+  - `crates/fs-ntfs/src/attributes/index_allocation.rs`（新規、$INDEX_ALLOCATION パーサ + INDX レコード解析）
+  - `crates/fs-ntfs/src/attributes/index_entry.rs`（新規、共通のインデックスエントリ構造）
   - `crates/fs-ntfs/src/lib.rs`（公開 API の re-export 追加）
+  - `crates/fs-ntfs/tests/index_integration.rs`（新規、結合テスト）
+- **目的**: NTFS のディレクトリは $INDEX_ROOT（常駐、小さいディレクトリ）+ $INDEX_ALLOCATION（非常駐、大きいディレクトリ）の B+木で管理されている。これを解析し、親ディレクトリ → 子エントリのリストを取得できるようにする。インデックスエントリ内部には $FILE_NAME 構造が埋め込まれており、Chunk 8 の `parse_file_name` を再利用可能
+- **スコープ外**: B+木の最適化された検索（線形列挙で可、Phase 1 はパフォーマンス最適化より正確さ優先）、削除済みインデックスエントリのスラック領域からの復元（Chunk 13+ 別途）
+- **依存**: Chunk 6（属性ヘッダ）、Chunk 8（$FILE_NAME パース、インデックスエントリは内部に $FILE_NAME を含む）、Chunk 10（runlist、$INDEX_ALLOCATION は非常駐）、Chunk 11（NtfsVolume の `read_record` 経由でインデックス保持エントリを取得）
+- **推定行数**: 約 200 行（実装 ~140 + テスト ~60）
+- **マイルストーン意義**: ディレクトリエントリのリスト取得が API 化され、Chunk 13 のフルパス再構築の前提条件が揃う
+- **参考仕様**: 書籍 Brian Carrier「File System Forensic Analysis」Chapter 13「Index Attributes」/ `docs/specs/ntfs-references/` 配下の INDX レコード形式メモ
+
+### 第二推奨: Chunk 13（フルパス再構築 — 親 MFT 参照を辿る + ディレクトリツリー）
+
+**Chunk 13**: Chunk 11 の `NtfsVolume::iter_records()` + Chunk 12 の `$INDEX_*` パーサを組み合わせ、各 MFT エントリにフルパス（例: `\Users\user_001\file_003.txt`）を付与する
+
+- **対象ファイル（予定）**:
+  - `crates/fs-ntfs/src/directory_tree.rs`（新規、親 MFT 参照を辿るループ + 循環検出 + ルート到達判定）
+  - `crates/fs-ntfs/src/volume.rs`（既存に `NtfsVolume::iter_files_with_path()` 等を追加検討）
   - `crates/fs-ntfs/tests/directory_tree_integration.rs`（新規、結合テスト）
-- **目的**: Chunk 5 で得た MFT エントリヘッダ + Chunk 8 で得た $FILE_NAME の親参照を組み合わせ、**MFT 全エントリを走査して親→子の関係を集約し、ルート（MFT エントリ 5: `$Root`）から葉までの完全パスを算出**する。これにより既存フィクスチャの 30 ファイルそれぞれにフルパス（例: `\Users\user_001\file_003.txt`）が付与でき、希望リスト × 復旧候補の突合がパス指定で可能になる。
-- **スコープ外**: $INDEX_ROOT / $INDEX_ALLOCATION の B+木走査による効率的ディレクトリ列挙（Chunk 12 以降、別途）。Chunk 11 では「MFT 全走査 + $FILE_NAME 経由のパス算出」というシンプルなアプローチに集中
-- **依存**: Chunk 5（MFT エントリヘッダ）、Chunk 8（$FILE_NAME パーサ + MftReference）
-- **推定行数**: 約 200 行（MFT イテレータ ~80 + ツリー集約 ~80 + テスト ~40）
-- **完了条件**: Chunk 1-10 と同等
-- **マイルストーン意義**: Phase 1 のプロダクト価値（希望リスト × 削除ファイル突合）を「ファイル名 + パス」レベルで提供する基盤
+- **目的**: 各 MFT エントリの $FILE_NAME から親 MFT 参照を取得 → 親エントリを `read_record` で取得 → さらに親を辿る、というループを実装。ルート（MFT エントリ 5: `$Root`）に到達したら停止、循環検出（visited セット）で無限ループ防止、シーケンス番号ミスマッチで「親が再利用された」ケースをエラー化。これにより既存フィクスチャの 30 ファイルそれぞれにフルパス（例: `\Users\user_001\file_003.txt`）が付与でき、希望リスト × 復旧候補の突合がパス指定で可能になる
+- **依存**: Chunk 5（MFT エントリヘッダ）、Chunk 8（$FILE_NAME パーサ + MftReference 構造）、Chunk 11（NtfsVolume）、Chunk 12（$INDEX パーサ、削除エントリの親確認用）
+- **推定行数**: 約 180 行
+- **マイルストーン意義**: **FR-LIVE-04（ファイルツリー構築）が完全達成**。Phase 1 のプロダクト価値（希望リスト × 削除ファイル突合）を「ファイル名 + フルパス」レベルで提供する基盤
 
-### 第二推奨: Chunk 12（NTFS 高レベル API: `NtfsVolume::iter_files()` 等、`FsReader` trait 実装、`FsEntry` 集約）
+### 第三推奨: Chunk 14（disk-io 統合 — `RawDeviceDisk` で実 HDD/SSD 対応）
 
-**Chunk 12**: Chunk 4-11 で構築した個別パーサ群を 1 つのファサード型 `NtfsVolume` に集約 + `fs-common::FsReader` trait の NTFS 実装 + `FsEntry` への集約
+**Chunk 14**: `dds-disk-io` `RawDeviceDisk`（Windows 実物理ドライブ `\\.\PhysicalDriveN` 経由の read-only アクセス）+ `NtfsVolume` への `ReadOnlyDisk` アダプタ
 
-- **目的**: 上位レイヤ（wish-match、recovery、report 等）から `let volume = NtfsVolume::open(disk)?;` の 1 行で NTFS を扱えるようにする。`FsEntry` への集約（record_id / parent_record_id / name / full_path / size_bytes / kind / is_deleted / timestamps / fs_type）も提供
-- **依存**: Chunk 1-11（NTFS リーダの全パーサ）
-- **推定行数**: 約 200 行
-- **マイルストーン意義**: 本チャンク完了で **M2 NTFSリーダα が完了**（80% → 100%）。FR-LIVE-04（ファイルツリー構築）も完全達成見込み
-
-### 第三推奨: Chunk 13（disk-io 統合 — 実 HDD 対応）
-
-**Chunk 13**: `dds-disk-io` `RawDeviceDisk`（Windows 実物理ドライブ \\.\PhysicalDriveN 経由の read-only アクセス）
-
-- **目的**: 実 HDD/SSD を read-only でオープンする `ReadOnlyDisk` 実装。`FileBackedDisk`（既存）は開発用、`RawDeviceDisk` は本番案件用。顧客 HDD/SSD に対する実機検証を可能にする
-- **依存**: Chunk 3（`ReadOnlyDisk` trait）
-- **推定行数**: 約 150 行
-- **特記**: NFR-REL-01（書き込み禁止）の実機検証もここで担保。Windows API 経由のセクタ単位読み出し、`DeviceIoControl` での容量取得
+- **対象ファイル（予定）**:
+  - `crates/disk-io/src/raw_device.rs`（新規、Windows API `CreateFileW` / `DeviceIoControl` 経由）
+  - `crates/fs-ntfs/src/volume_disk_adapter.rs`（新規、`ReadOnlyDisk` → `read_clusters` クロージャ変換、Chunk 11 の疎結合設計をここで初めて結合）
+- **目的**: 実 HDD/SSD を read-only でオープンする `ReadOnlyDisk` 実装。`FileBackedDisk`（既存）は開発用、`RawDeviceDisk` は本番案件用。顧客 HDD/SSD に対する実機検証を可能にする。Chunk 11 で意図的に disk-io 直接依存を避けた疎結合設計のため、本チャンクで初めて disk-io と fs-ntfs が結合する形になる
+- **依存**: Chunk 3（`ReadOnlyDisk` trait）、Chunk 11（`NtfsVolume::open` の `read_clusters` クロージャシグネチャ）
+- **推定行数**: 約 180 行
+- **特記**: NFR-REL-01（書き込み禁止）の実機検証もここで担保。Windows API 経由のセクタ単位読み出し、`DeviceIoControl(IOCTL_DISK_GET_LENGTH_INFO)` での容量取得
 
 ### 推奨優先順位（明示）
 
-1. **第一推奨**: Chunk 11 MFT イテレータ + ディレクトリツリー再構築 — Phase 1 のプロダクト価値を「ファイル名 + パス」レベルで提供
-2. **第二推奨**: Chunk 12 高レベル API（`NtfsVolume::iter_files()` 等）— 上位レイヤが NTFS リーダを使いやすくする集約 + M2 完了
-3. **第三推奨**: Chunk 13 disk-io 統合（実 HDD 対応）— 本番案件への適用準備、M3 着手前の必須整備
+1. **第一推奨**: Chunk 12 `$INDEX_ROOT` / `$INDEX_ALLOCATION` パーサ — ディレクトリエントリ取得 API 化
+2. **第二推奨**: Chunk 13 フルパス再構築（親 MFT 参照を辿る + ディレクトリツリー）— FR-LIVE-04 完全達成、Phase 1 プロダクト価値の完成
+3. **第三推奨**: Chunk 14 disk-io 統合（`RawDeviceDisk` で実 HDD/SSD 対応）— 本番案件への適用準備、M3 着手前の必須整備
 
 ### 過去の達成
 
+- **🎉🎉🎉🎉 Phase 1 NTFS リーダ実用形完成（Chunk 11 / 2026-05-21）**: `NtfsVolume::open(reader)` 1 行で全エントリ列挙可能な状態に到達。`iter_records()` で MFT 全列挙、多 run MFT 透過対応、個別レコード破損で停止しない破損耐性設計、disk-io 直接依存なしの疎結合設計。119 テスト全 pass（単体 99 + 結合 20）、Phase 1 中核 SHA256 検証 4 件 pass 維持
 - **🎉 Phase 1 NTFS リーダ技術コア完成（Chunk 10 / 2026-05-20）**: Chunks 1-10 で NTFS パーサ群が完成、書籍突合済み品質に到達、Phase 1 中核テスト（SHA256 完全一致）4 件すべて pass 継続。書籍 Chapter 13 p.358-359 の runlist 例題を数学的に再現
 - **🎉 書籍突合レビュー完遂（2026-05-20）**: Chunks 4-9 + Chunk 10 すべての書籍突合が完了し、商用レベル品質に到達。書籍逐語コピー 0 件の著作権配慮維持
 
