@@ -29,6 +29,15 @@ impl<'a> DataContent<'a> {
     pub fn size(&self) -> u64 { match self {
         DataContent::Resident { size, .. } => *size as u64,
         DataContent::NonResident { real_size, .. } => *real_size } }
+    /// 非常駐の場合、属性 raw データから runlist バイト列スライスを返す（`runlist_offset_in_attr`
+    /// 以降）。常駐の場合は `None`。Chunk 10 の `parse_runlist` への入力として使う。
+    pub fn runlist_bytes(&self) -> Option<&[u8]> {
+        match self {
+            DataContent::NonResident { runlist_offset_in_attr, attribute_raw, .. } =>
+                attribute_raw.get(*runlist_offset_in_attr..),
+            DataContent::Resident { .. } => None,
+        }
+    }
 }
 /// 1 つの `$DATA` ストリーム（無名メイン or ADS）。`name` 空文字列がメイン無名ストリーム。
 /// `is_compressed`/`is_encrypted`/`is_sparse` は属性 flags から派生。関連 FR: FR-LIVE-01, FR-REC-01。
