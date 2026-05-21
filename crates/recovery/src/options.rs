@@ -24,6 +24,10 @@ pub struct RecoveryOptions {
 
     /// このサイズ（バイト）を超えるファイルはスキップ。`None` で無制限。
     pub max_file_size_bytes: Option<u64>,
+
+    /// 復旧後に `dds-validators` でファイル形式検証を行うか。
+    /// Chunk 18 で追加。デフォルト `true`（業務的に「品質判定はデフォルト ON」が安全側）。
+    pub validate_after_recovery: bool,
 }
 
 impl Default for RecoveryOptions {
@@ -34,6 +38,7 @@ impl Default for RecoveryOptions {
             separate_live_and_deleted: true,
             compute_sha256: true,
             max_file_size_bytes: None,
+            validate_after_recovery: true,
         }
     }
 }
@@ -62,6 +67,7 @@ mod tests {
         assert!(opt.separate_live_and_deleted);
         assert!(opt.compute_sha256);
         assert!(opt.max_file_size_bytes.is_none());
+        assert!(opt.validate_after_recovery);
     }
 
     #[test]
@@ -80,8 +86,10 @@ mod tests {
             separate_live_and_deleted: false,
             compute_sha256: false,
             max_file_size_bytes: Some(100 * 1024 * 1024),
+            validate_after_recovery: false,
         };
         assert_eq!(opt.conflict_strategy, ConflictStrategy::Skip);
         assert_eq!(opt.max_file_size_bytes, Some(100 * 1024 * 1024));
+        assert!(!opt.validate_after_recovery);
     }
 }

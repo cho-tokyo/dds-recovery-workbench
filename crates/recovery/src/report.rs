@@ -5,6 +5,7 @@
 //! が `RecoveryReport` を受け取って PDF/Excel/HTML 出力する設計。
 
 use chrono::{DateTime, Utc};
+use dds_validators::ValidationResult;
 use std::path::PathBuf;
 
 /// 復旧結果の全体レポート。1 回の `recover_files` 呼び出し結果を表現。
@@ -42,6 +43,47 @@ impl RecoveryReport {
     pub fn total_bytes_written(&self) -> u64 {
         self.recovered.iter().map(|e| e.bytes_written).sum()
     }
+
+    /// 検証で `Valid` 判定されたファイル数（Chunk 18）。
+    pub fn validated_count(&self) -> usize {
+        self.recovered
+            .iter()
+            .filter(|e| {
+                e.validation
+                    .as_ref()
+                    .map(|v| v.status.is_valid())
+                    .unwrap_or(false)
+            })
+            .count()
+    }
+
+    /// 検証で `Invalid` 判定されたファイル数（Chunk 18）。
+    pub fn invalid_count(&self) -> usize {
+        self.recovered
+            .iter()
+            .filter(|e| {
+                e.validation
+                    .as_ref()
+                    .map(|v| v.status.is_invalid())
+                    .unwrap_or(false)
+            })
+            .count()
+    }
+
+    /// 検証で `Uncertain` 判定されたファイル数（Chunk 18）。
+    ///
+    /// `validation` フィールドが `None` のもの（`validate_after_recovery=false`）はカウントしない。
+    pub fn uncertain_count(&self) -> usize {
+        self.recovered
+            .iter()
+            .filter(|e| {
+                e.validation
+                    .as_ref()
+                    .map(|v| v.status.is_uncertain())
+                    .unwrap_or(false)
+            })
+            .count()
+    }
 }
 
 /// 復旧成功したファイル 1 件の詳細情報。
@@ -61,6 +103,10 @@ pub struct RecoveredEntry {
     pub is_deleted: bool,
     /// 出力ファイル内容の SHA256（`RecoveryOptions::compute_sha256` が `true` のとき）。
     pub sha256: Option<String>,
+
+    /// 復旧後の検証結果（Chunk 18）。
+    /// `RecoveryOptions::validate_after_recovery` が `true` のときのみ `Some`。
+    pub validation: Option<ValidationResult>,
 }
 
 /// 復旧失敗したファイル 1 件。レポートで原因確認できるようにする。
@@ -99,6 +145,7 @@ mod tests {
             priority_score: 50,
             is_deleted: false,
             sha256: None,
+            validation: None,
         }
     }
 
@@ -143,5 +190,34 @@ mod tests {
             skipped: Vec::new(),
         };
         assert_eq!(report.total_bytes_written(), 600);
+    }
+
+    #[test]
+    fn validation_counts_classify_by_status() {
+        // Chunk 18 業務観測: validation フィールドの 3 値で集計が分離されること。
+        let now = Utc::now();
+        let mut valid_entry = build_recovered(10);
+        valid_entry.validation = Some(ValidationResult::valid(
+            "PNG",
+            "png_v1",
+            vec!["magic OK".into()],
+        ));
+        let mut invalid_entry = build_recovered(20);
+        invalid_entry.validation = Some(ValidationResult::invalid("PNG", "png_v1", "bad header"));
+        let mut uncertain_entry = build_recovered(30);
+        uncertain_entry.validation = Some(ValidationResult::uncertain("no validator"));
+        let none_entry = build_recovered(40); // validation = None
+
+        let report = RecoveryReport {
+            started_at: now,
+            finished_at: now,
+            total_matched: 4,
+            recovered: vec![valid_entry, invalid_entry, uncertain_entry, none_entry],
+            failed: Vec::new(),
+            skipped: Vec::new(),
+        };
+        assert_eq!(report.validated_count(), 1);
+        assert_eq!(report.invalid_count(), 1);
+        assert_eq!(report.uncertain_count(), 1);
     }
 }

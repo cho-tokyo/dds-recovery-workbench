@@ -191,6 +191,15 @@ impl RecoveryEngine {
             None
         };
 
+        // Chunk 18: 復旧後の品質判定。validate_after_recovery が true なら、
+        // dds-validators の registry で拡張子に応じた検証を実行する。
+        let validation = if self.options.validate_after_recovery {
+            let registry = dds_validators::ValidatorRegistry::with_defaults();
+            Some(registry.validate(&content, ntfs_file.extension().as_deref()))
+        } else {
+            None
+        };
+
         Ok(SingleOutcome::Recovered(RecoveredEntry {
             source_id: m.source_id.clone(),
             original_path: ntfs_file.path.clone(),
@@ -199,6 +208,7 @@ impl RecoveryEngine {
             priority_score: m.priority_score,
             is_deleted: ntfs_file.is_deleted,
             sha256,
+            validation,
         }))
     }
 

@@ -1,0 +1,164 @@
+//! Chunk 18: Validator trait と ValidatorRegistry。
+//!
+//! 各形式バリデータが共通実装する trait と、拡張子→Validator の
+//! ルックアップを担うレジストリ。`Arc<dyn Validator>` 共有所有で
+//! 「1 つの Validator を複数拡張子（例: jpg / jpeg）」にマップ可能。
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::result::ValidationResult;
+
+/// ファイル形式バリデータの共通 trait。
+///
+/// 各実装は特定の 1 形式（PNG, PDF, etc.）に対するチェックを行う。
+/// マジックナンバー検証 + 基本構造検証で `ValidationResult` を返す。
+pub trait Validator: Send + Sync {
+    /// この Validator の識別名（例: `"png_v1"`）。
+    fn name(&self) -> &str;
+
+    /// この Validator が扱う形式の表示名（例: `"PNG"`）。
+    fn format(&self) -> &str;
+
+    /// この Validator が対応する拡張子リスト（小文字、ドットなし）。
+    fn extensions(&self) -> &[&str];
+
+    /// 検証本体。
+    ///
+    /// 戻り値の status:
+    /// - `Valid`: マジック + 基本構造 OK
+    /// - `Invalid`: 構造破損明確
+    /// - `Uncertain`: 切り詰めなど判定不能（Phase 1 では主に拡張子未登録時に使用）
+    fn validate(&self, content: &[u8]) -> ValidationResult;
+}
+
+/// 複数の Validator を保持し、拡張子で適切なものを選ぶレジストリ。
+///
+/// `Arc<dyn Validator>` を使うことで、1 つの Validator インスタンスを
+/// 複数の拡張子キー（`jpg`, `jpeg` 等）にマップできる。
+pub struct ValidatorRegistry {
+    by_extension: HashMap<String, Arc<dyn Validator>>,
+}
+
+impl ValidatorRegistry {
+    /// 空の Registry を生成する。
+    pub fn new() -> Self {
+        Self {
+            by_extension: HashMap::new(),
+        }
+    }
+
+    /// デフォルト Validator 群（PNG / JPEG / PDF）を登録した Registry を返す。
+    pub fn with_defaults() -> Self {
+        let mut reg = Self::new();
+        reg.register(Arc::new(crate::formats::png::PngValidator));
+        reg.register(Arc::new(crate::formats::jpeg::JpegValidator));
+        reg.register(Arc::new(crate::formats::pdf::PdfValidator));
+        reg
+    }
+
+    /// Validator を登録する。`extensions()` が返す全拡張子に対して同じ
+    /// インスタンスをマップする（Arc クローンで共有）。
+    pub fn register(&mut self, validator: Arc<dyn Validator>) {
+        for ext in validator.extensions().iter() {
+            self.by_extension
+                .insert(ext.to_lowercase(), Arc::clone(&validator));
+        }
+    }
+
+    /// 登録された拡張子の総数（テスト用メトリクス）。
+    pub fn registered_extension_count(&self) -> usize {
+        self.by_extension.len()
+    }
+
+    /// 拡張子に基づいて適切な Validator で検証する。
+    ///
+    /// 該当する Validator がない、または拡張子が `None` の場合は
+    /// `Uncertain` を返す。
+    pub fn validate(&self, content: &[u8], extension: Option<&str>) -> ValidationResult {
+        let Some(ext) = extension else {
+            return ValidationResult::uncertain("No extension provided");
+        };
+
+        let lower = ext.to_lowercase();
+        let Some(validator) = self.by_extension.get(&lower) else {
+            return ValidationResult::uncertain(format!(
+                "No validator for extension: .{}",
+                lower
+            ));
+        };
+
+        validator.validate(content)
+    }
+}
+
+impl Default for ValidatorRegistry {
+    fn default() -> Self {
+        Self::with_defaults()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 各 format テスト用バイト列の最小サンプル。
+    // PNG / JPEG / PDF それぞれの formats モジュールで定義した最小サンプル相当。
+    const VALID_PNG_1X1: &[u8] = &[
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x62, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ];
+
+    const VALID_JPEG_MINIMAL: &[u8] = &[
+        0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00, 0x01, 0x01, 0x00, 0x00,
+        0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xD9,
+    ];
+
+    const VALID_PDF_MINIMAL: &[u8] = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\nxref\n0 1\n0000000000 65535 f\ntrailer\n<</Size 1>>\n%%EOF";
+
+    #[test]
+    fn registry_with_defaults_has_three_formats() {
+        // 業務観測: デフォルト登録の PNG/JPEG/PDF が全て Valid 判定される基本回帰。
+        let reg = ValidatorRegistry::with_defaults();
+        assert!(reg.validate(VALID_PNG_1X1, Some("png")).status.is_valid());
+        assert!(reg
+            .validate(VALID_JPEG_MINIMAL, Some("jpeg"))
+            .status
+            .is_valid());
+        assert!(reg
+            .validate(VALID_JPEG_MINIMAL, Some("jpg"))
+            .status
+            .is_valid());
+        assert!(reg.validate(VALID_PDF_MINIMAL, Some("pdf")).status.is_valid());
+        // jpg / jpeg / png / pdf = 4 拡張子（JpegValidator が 2 拡張子に展開される）。
+        assert_eq!(reg.registered_extension_count(), 4);
+    }
+
+    #[test]
+    fn registry_returns_uncertain_for_unknown_extension() {
+        // 業務観測: .xyz など Validator なしの拡張子は Uncertain を返す。
+        let reg = ValidatorRegistry::with_defaults();
+        let result = reg.validate(b"some bytes", Some("xyz"));
+        assert!(result.status.is_uncertain());
+        assert!(result.diagnostics[0].contains("xyz"));
+    }
+
+    #[test]
+    fn registry_returns_uncertain_when_no_extension() {
+        // 業務観測: 拡張子なしファイル（NTFS の MFT エントリ等）は Uncertain。
+        let reg = ValidatorRegistry::with_defaults();
+        let result = reg.validate(b"some bytes", None);
+        assert!(result.status.is_uncertain());
+    }
+
+    #[test]
+    fn registry_is_case_insensitive_for_extension() {
+        // 業務観測: 大文字拡張子（.PNG）でも同じ Validator にマップされる。
+        let reg = ValidatorRegistry::with_defaults();
+        assert!(reg.validate(VALID_PNG_1X1, Some("PNG")).status.is_valid());
+        assert!(reg.validate(VALID_PNG_1X1, Some("Png")).status.is_valid());
+    }
+}

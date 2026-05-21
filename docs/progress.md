@@ -4,6 +4,122 @@
 
 ---
 
+## 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 validators 品質判定基盤完成 / PNG・JPEG・PDF Validator + 復旧パイプライン統合 / 業務観測「.txt は Validator 未登録 → Uncertain」/ 保守的 3 値判定 / M4 復旧+品質判定 70% 達成（Chunk 18 / 2026-05-21）
+
+**Chunks 1-18 完了**: Chunk 17 で完成した `recovery` クレートの上に、**Chunk 18 で `validators` クレートが新規誕生**し、**PNG / JPEG / PDF の 3 種フォーマット Validator + `Validator` trait + `ValidatorRegistry`（Arc<dyn Validator> で複数拡張子マップ）+ `ValidationStatus`（Valid / Invalid / Uncertain の 3 値）+ 復旧パイプラインへの統合（`fs::write` 直後に Validator 駆動、`RecoveredEntry.validation` 記録、サマリ集計）**が完成。**M4「復旧+品質判定」が 40% → 🎉 70%**（残り 30% は Chunk 19 でフィクスチャ追加 + Valid/Invalid 区別実証 + DB 記録）。FR-QUAL-01 / FR-QUAL-02 / FR-QUAL-03 を達成（プロダクトコード視点）。
+
+### 🎯🎯🎯 Chunk 18 ハイライト（品質判定基盤の確立）
+
+| 観点 | Chunk 17（復旧基盤） | **Chunk 18（品質判定統合）** |
+|---|---|---|
+| 復旧後の品質判定 | 0 件（書き込みのみ） | **3 種 Validator（PNG / JPEG / PDF）が動作** |
+| 判定値の体系 | なし | **3 値（Valid / Invalid / Uncertain）+ summary()** |
+| 復旧レポートの品質欄 | 無し | **`RecoveredEntry.validation: Option<ValidationResult>` 追加** |
+| サマリ集計 | recovered / failed / skipped | **+ `validated_count` / `invalid_count` / `uncertain_count`** |
+| 業務観測 | SHA256 109/109 | **109 件全 Uncertain（「.txt 用 Validator なし」を CS 報告に直結）** |
+| マイルストーン | M3 100% / M4 40% | **M4 40% → 🎉 70%** |
+| 関連 FR 達成 | FR-REC-01/02/03/04 | **+ FR-QUAL-01 / FR-QUAL-02 / FR-QUAL-03** |
+
+### 🎯🎯 設計ポリシー（業務上重要）
+
+#### A. 保守的 3 値判定（Valid / Invalid / Uncertain）
+
+- 曖昧な場合は **Uncertain**（誤って Valid 判定して CS の信頼を失うリスクを回避）
+- 「.txt 用 Validator なし」のような **registry 未登録ケースは Uncertain として CS 報告に直結**（プロダクトデモで 109 件全 Uncertain と実観測）
+- 業務上「結果が Green と返ってきたら本当に開ける」という信頼を守る設計選択
+
+#### B. `Arc<dyn Validator>` で複数拡張子マップ
+
+- 1 つの Validator インスタンスを **複数拡張子に登録可能**（例: 同じ JPEG Validator を `jpg` + `jpeg` 両方にマップ）
+- `ValidatorRegistry::with_defaults()` で PNG / JPEG（×2 拡張子）/ PDF を一括登録
+
+#### C. 拡張子と中身の不一致検出
+
+- PDF バイト列 + .png 拡張子のような不一致を **Invalid 判定**（業務観測の重要シグナル）
+- フォレンジック・偽装ファイル検出の入口
+
+#### D. 単方向依存（recovery → validators）
+
+- `validators` クレートは **dds-* 依存なし**（thiserror + serde (derive) のみ）
+- `recovery` → `validators` の一方向（validators 側に recovery 参照なし）
+- 業務層から技術層を呼び出す疎結合を維持
+
+### 🎯 構造（合計 ~949 行、8 新規ファイル + 既存統合）
+
+**新規 `crates/validators/`**:
+
+| ファイル | 行数 | 内容 |
+|---|---|---|
+| `Cargo.toml` | - | thiserror + serde (derive) のみ |
+| `src/lib.rs` | 48 | モジュール宣言 + 再エクスポート |
+| `src/error.rs` | 70 | `ValidatorError` 2 バリアント |
+| `src/result.rs` | 162 | `ValidationStatus`（Valid/Invalid/Uncertain）+ `ValidationResult` + `summary()` |
+| `src/registry.rs` | 164 | `Validator` trait + `ValidatorRegistry`（**Arc<dyn Validator>**）|
+| `src/formats/png.rs` | 134 | PNG signature + IHDR + IEND |
+| `src/formats/jpeg.rs` | 141 | SOI + EOI + マーカープレフィックス（jpg/jpeg 2 拡張子）|
+| `src/formats/pdf.rs` | 148 | `%PDF-1.X`（X=0-7）+ 末尾 1024 byte 内 `%%EOF` |
+| `tests/validators_integration.rs` | 82 | 結合テスト 2 件 |
+
+**recovery クレート統合**:
+
+- `Cargo.toml`: `dds-validators.workspace = true` 追加（recovery → validators 単方向）
+- `options.rs`: `validate_after_recovery: bool` フィールド追加（デフォルト `true`）
+- `report.rs`: `RecoveredEntry.validation: Option<ValidationResult>` + `validated_count` / `invalid_count` / `uncertain_count`
+- `engine.rs::recover_one`: `fs::write` 後に `ValidatorRegistry::with_defaults()` 経由検証
+- `tests/recovery_validation_integration.rs`: 149 行 + 結合テスト 2 件
+
+### 🎯 業務観測（プロダクトデモ）
+
+`ntfs_directories.img.zst` で 109 件全 Uncertain 判定:
+
+```
+Validation breakdown:
+  Valid:     0
+  Invalid:   0
+  Uncertain: 109 (no validator for .txt)
+```
+
+- 「.txt 用 Validator なし」を CS 報告に直結する設計が実画像レベルで動作
+- Chunk 19 で PNG/JPEG/PDF フィクスチャ追加予定（Valid/Invalid 区別の実証）
+
+### 🎯 テスト合計
+
+- **validators**: 単体 26 + 結合 2 + doctest 1 = **29 件**
+- **recovery**: 既存 + 新規 3 件 = 24 件
+- **workspace 全体**: **289 件 pass**（Chunk 17 完了時 257 件 → +32 件）
+
+### 🎯 検証結果（tester 独立検証で全項目合格）
+
+- `cargo check --workspace`: OK
+- `cargo test -p dds-validators`: **29 passed**（単体 26 + 結合 2 + doctest 1）
+- `cargo test --workspace`: **289 passed; 0 failed**
+- `cargo clippy --workspace --all-targets -- -D warnings`: 0 warning
+- `cargo doc --workspace --no-deps`: 0 warning
+
+### 🎯 安全性継続
+
+- `crates/validators/src/` に `unsafe` **0 件**、書き込み API **0 件**
+- 単方向依存: recovery → validators、validators → 他クレートなし
+- ソース read-only 制約は完全維持（Chunk 17 と同水準）
+
+### 関連 FR の進捗
+
+- **FR-QUAL-01**（品質判定 3 値）: 未着手 → **🎉 完成 [x]**（`ValidationStatus` Valid/Invalid/Uncertain + `ValidationResult` + `summary()`）
+- **FR-QUAL-02**（PNG / JPEG / PDF Validator）: 未着手 → **🎉 完成 [x]**（3 種実装、registry 経由で 4 拡張子マップ）
+- **FR-QUAL-03**（復旧パイプラインへの品質判定統合）: 未着手 → **🎉 完成 [x]**（`validate_after_recovery` フラグ + `RecoveredEntry.validation` + サマリ集計）
+- **FR-QA-01**（ファイル形式検証）: 未着手 → **基盤完成 [~]**（マジックバイト判定 + ヘッダ整合性）
+- **FR-QA-02**（構造的整合性）: 未着手 → **基盤完成 [~]**（PNG IHDR/IEND, JPEG SOI/EOI, PDF %PDF/%%EOF）
+- **FR-QA-04**（4 段階分類）: 未着手 → **基盤の 3 値設計 [~]**（4 段階拡張は Chunk 19+ で）
+- **FR-QA-06**（プラグイン式バリデータ）: 未着手 → **🎉 完成 [x]**（`Validator` trait + `Arc<dyn Validator>` registry）
+
+### マイルストーン意義
+
+- **M4 復旧+品質判定: 40% → 🎉 70%**（品質判定基盤が復旧パイプラインに統合、validators v1.0 完成）
+- 残り 30% は Chunk 19 で PNG/JPEG/PDF フィクスチャ追加 + Valid/Invalid 区別の実証 + DB 記録（FR-QA-05）+ 4 段階分類拡張
+- **次は Chunk 19（PNG/JPEG/PDF フィクスチャ + Valid/Invalid 業務観測テスト追加、`validated_count + invalid_count + uncertain_count == recovered.len()` 整合性アサーション継続、case-manager クレート（FR-CASE-01-05）並行検討可、Tauri UI 着手準備）**
+
+---
+
 ## 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 Phase 1 復旧パイプライン基盤完成 / 初の「ディスク書き込み」チャンク / read/write 境界厳格維持 / SHA256 109/109 ground truth 完全一致 / M3 希望突合エンジン 🎉 100% 完了 / M4 復旧+品質判定 40% 着手（Chunk 17 / 2026-05-21）
 
 **Chunks 1-17 完了**: Chunk 15-16 で完成した wish-match v1.0 業務本番運用レベルの突合エンジンの上に、**Chunk 17 で `recovery` クレートが新規誕生**し、**「希望リスト → NTFS マッチ → 実ファイル復旧」が end-to-end で動作**。**Phase 1 の中核プロダクト価値が業務基盤として実装完成**に到達。**M3「希望突合エンジン」が 70% → 🎉 100% 完了**（残り 30% だった復旧パイプライン統合が完成）、**M4「復旧 + 品質判定」が 0% → 🎉 40% 着手**（復旧基盤完成、品質判定は Chunk 18 で）。
@@ -500,12 +616,13 @@ Deleted files (MFT only):                 5
 
 ## 累積サマリ
 
-- **完了チャンク数**: **17**（うち Chunk 4 / Chunk 5 / Chunk 6 / Chunk 7 / Chunk 8 / Chunk 9 は 2026-05-20 に書籍突合レビュー済 📕、Chunk 10 は新規実装かつ書籍 Chapter 13 p.358-359 例題突合済み 📕、Chunk 11 で **Phase 1 NTFS リーダ実用形完成**、Chunk 12 でディレクトリインデックス解析の基盤完成 + フィクサップ共有化リファクタ完成 📕、Chunk 13 / 2026-05-21 で NTFS リーダ実用形完成形 / M2 NTFSリーダα 100% 完了 📕、🎉🎉🎉🎉🎉🎉🎉 **Chunk 14 / 2026-05-21 で `NtfsFile` 高レベル統合型 + `iter_files` API 完成、Phase 1 NTFS リーダー実装完成 / 業務統合層 API 完成形到達**、🎉🎉🎉🎉🎉🎉🎉🎉 **Chunk 15 / 2026-05-21 で `wish-match` クレート新規誕生、業務統合層着手、お客様希望リスト駆動型復旧の基盤完成**、🎉🎉🎉🎉🎉🎉🎉🎉🎉 **Chunk 16 / 2026-05-21 で wish-match v1.0 完成、Glob / 日付範囲 / 論理結合（And/Or/Not）の 3 拡張、業務本番運用レベル到達、M3 希望突合エンジン 70% 達成**、🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 **Chunk 17 / 2026-05-21 で `recovery` クレート新規誕生、Phase 1 復旧パイプライン基盤完成、初の「ディスクへの書き込み」チャンク、read/write 境界厳格維持、SHA256 109/109 ground truth 完全一致、M3 希望突合エンジン 🎉 100% 完了 / M4 復旧+品質判定 40% 着手**、未レビュー残り 0）
-- **総実装行数**: 約 **7082**（Chunk 16 までの累積 5873 + Chunk 17 で +1209 行: `crates/recovery/` クレート新規誕生 — `src/error.rs` 50 + `src/options.rs` 84 + `src/report.rs` 141 + `src/sanitize.rs` 157 + `src/engine.rs` ~310（実装）+ tests 5 + `tests/recovery_integration.rs` 含む結合テスト + `tests/common/mod.rs`、ワークスペース `Cargo.toml` に `tempfile = "3.10"` 追加 + `crates/recovery/Cargo.toml` 更新（chrono / sha2 / dds-wish-match / dds-fs-ntfs + dev-deps））
-- **総単体テスト数**: 約 **202**（Chunk 16 までの 185 + Chunk 17 で recovery +17 件追加 — options 3 件 / report 3 件 / sanitize 6 件（Windows 予約名サニタイズ含む）/ engine 5 件（`build_output_path_rejects_path_traversal` 含む））
-- **総結合テスト数**: **43**（全パス、Chunk 17 で recovery 結合テスト +3 件 — ①`recovers_all_5_deleted_txt_files`（30 ファイル全件復旧、削除 5 件が `deleted/`、生存 25 件が `live/` に分離、削除ファイル名に `(deleted-#NN)` マーカー検証）+ ②**`recovered_files_match_ground_truth_sha256`**（`ntfs_directories` の **109/109 ファイル**で SHA256 完全一致）+ ③**`product_demo_end_to_end_recovery`**（お客様シナリオ、Live 25 + Deleted 5 復旧、`--nocapture` で人間可読出力））
-- **総テスト数（workspace 全体）**: **257**（全パス、Chunk 16 までの 236 → Chunk 17 で recovery 単体 17 + 結合 3 + doctest 1 = +21 で 257 件。core 5 + fs-common 5 + disk-io 11 + fs-ntfs 単体 140 + wish-match 単体 40 + 結合 40 + recovery 単体 17 + 結合 3 + doctest 1 + その他）
+- **完了チャンク数**: **18**（うち Chunk 4 / Chunk 5 / Chunk 6 / Chunk 7 / Chunk 8 / Chunk 9 は 2026-05-20 に書籍突合レビュー済 📕、Chunk 10 は新規実装かつ書籍 Chapter 13 p.358-359 例題突合済み 📕、Chunk 11 で **Phase 1 NTFS リーダ実用形完成**、Chunk 12 でディレクトリインデックス解析の基盤完成 + フィクサップ共有化リファクタ完成 📕、Chunk 13 / 2026-05-21 で NTFS リーダ実用形完成形 / M2 NTFSリーダα 100% 完了 📕、🎉🎉🎉🎉🎉🎉🎉 **Chunk 14 / 2026-05-21 で `NtfsFile` 高レベル統合型 + `iter_files` API 完成、Phase 1 NTFS リーダー実装完成 / 業務統合層 API 完成形到達**、🎉🎉🎉🎉🎉🎉🎉🎉 **Chunk 15 / 2026-05-21 で `wish-match` クレート新規誕生、業務統合層着手、お客様希望リスト駆動型復旧の基盤完成**、🎉🎉🎉🎉🎉🎉🎉🎉🎉 **Chunk 16 / 2026-05-21 で wish-match v1.0 完成、Glob / 日付範囲 / 論理結合（And/Or/Not）の 3 拡張、業務本番運用レベル到達、M3 希望突合エンジン 70% 達成**、🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 **Chunk 17 / 2026-05-21 で `recovery` クレート新規誕生、Phase 1 復旧パイプライン基盤完成、初の「ディスクへの書き込み」チャンク、read/write 境界厳格維持、SHA256 109/109 ground truth 完全一致、M3 希望突合エンジン 🎉 100% 完了 / M4 復旧+品質判定 40% 着手**、🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 **Chunk 18 / 2026-05-21 で `validators` クレート新規誕生、PNG/JPEG/PDF Validator + Validator trait + Arc<dyn Validator> registry + 3 値 ValidationStatus + 復旧パイプラインへの統合、保守的 Uncertain 設計、109 件全 Uncertain 業務観測、FR-QUAL-01/02/03 達成、M4 復旧+品質判定 40% → 🎉 70% 達成**、未レビュー残り 0）
+- **総実装行数**: 約 **8031**（Chunk 17 までの累積 7082 + Chunk 18 で +949 行: `crates/validators/` クレート新規誕生 — `src/lib.rs` 48 + `src/error.rs` 70 + `src/result.rs` 162 + `src/registry.rs` 164 + `src/formats/png.rs` 134 + `src/formats/jpeg.rs` 141 + `src/formats/pdf.rs` 148 + `tests/validators_integration.rs` 82 = 949、ほか `crates/recovery/` 内で options.rs / report.rs / engine.rs / tests/recovery_validation_integration.rs 改修）
+- **総単体テスト数**: 約 **228**（Chunk 17 までの 202 + Chunk 18 で validators 単体 26 件追加 — result 5 / registry 4 / error 3 / formats/png 4 / formats/jpeg 5 / formats/pdf 5）
+- **総結合テスト数**: **48**（全パス、Chunk 18 で validators 結合 2 件 + recovery 結合 3 件追加 — validators: ①基本マッチング ②サンプルファイルでの判定動作 / recovery: ①`validate_after_recovery: true` 時 `RecoveredEntry.validation` がセットされる ②サマリ集計 `validated_count + invalid_count + uncertain_count == recovered.len()`）
+- **総テスト数（workspace 全体）**: **289**（全パス、Chunk 17 完了時 257 → Chunk 18 で validators 単体 26 + 結合 2 + doctest 1 + recovery 結合 +3 = +32 で 289 件。core 5 + fs-common 5 + disk-io 11 + fs-ntfs 単体 140 + wish-match 単体 40 + 結合 40 + recovery 単体 17 + 結合 6 + doctest 1 + validators 単体 26 + 結合 2 + doctest 1 + その他）
 - **平均カバレッジ**: 未計測（モジュール完成時に計測予定）
+- **🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 validators 品質判定基盤完成 / PNG・JPEG・PDF Validator + 復旧パイプライン統合 / 業務観測「.txt 未登録 → Uncertain」/ 保守的 3 値判定 / M4 復旧+品質判定 70% 達成ハイライト（Chunk 18 / 2026-05-21）**: `crates/validators/` クレート新規誕生（8 新規ファイル、合計 +949 行）。**🎯 構造（8 ファイル分割、責務明確化）**: ①`Cargo.toml`（thiserror + serde (derive) のみ、dds-* 依存なし） / ②`src/lib.rs` 48 行（モジュール宣言 + 再エクスポート） / ③`src/error.rs` 70 行（`ValidatorError` 2 バリアント） / ④`src/result.rs` 162 行（`ValidationStatus` enum Valid/Invalid/Uncertain + `ValidationResult` + コンストラクタ + `summary()`） / ⑤`src/registry.rs` 164 行（`Validator` trait + `ValidatorRegistry`、**`Arc<dyn Validator>` で複数拡張子対応**、`with_defaults()` で PNG/JPEG/PDF を 4 拡張子マップ） / ⑥`src/formats/png.rs` 134 行（PNG signature 8 byte + IHDR チャンク + IEND チャンク検証） / ⑦`src/formats/jpeg.rs` 141 行（SOI 0xFFD8 + EOI 0xFFD9 + マーカープレフィックス、jpg/jpeg 2 拡張子マップ） / ⑧`src/formats/pdf.rs` 148 行（`%PDF-1.X`（X=0-7） + 末尾 1024 byte 内 `%%EOF`） / ⑨`tests/validators_integration.rs` 82 行（結合テスト 2 件）。**🎯 recovery クレート統合**: `Cargo.toml` に `dds-validators.workspace = true` 追加（recovery → validators 単方向）/ `options.rs` に `validate_after_recovery: bool` フィールド追加（デフォルト `true`、業務安全側） / `report.rs` に `RecoveredEntry.validation: Option<ValidationResult>` フィールド + `validated_count` / `invalid_count` / `uncertain_count` サマリ集計追加 / `engine.rs::recover_one` で `fs::write` 後に `ValidatorRegistry::with_defaults()` 経由で検証 / `tests/recovery_validation_integration.rs` 149 行（結合 2 件）。**🎯🎯 設計ポリシー（業務上重要）**: A. **保守的 3 値判定**（曖昧な場合は Uncertain、誤って Valid 判定して CS の信頼を失うリスク回避、「結果が Green と返ってきたら本当に開ける」信頼を守る） / B. **`Arc<dyn Validator>` で複数拡張子マップ**（1 つの Validator インスタンスを jpg + jpeg のように複数拡張子に登録可能、`with_defaults()` で PNG/JPEG（×2 拡張子）/PDF を一括登録） / C. **拡張子と中身の不一致検出**（PDF バイト列 + .png 拡張子 → Invalid、フォレンジック・偽装検出の入口） / D. **単方向依存**（validators → 他クレートなし、recovery → validators の一方向、grep で確認）。**🎯 業務観測（プロダクトデモ）**: `ntfs_directories.img.zst` で 109 件全 Uncertain 判定（"Validation breakdown: Valid: 0 / Invalid: 0 / Uncertain: 109 (no validator for .txt)"）— 「.txt 用 Validator なし」を CS 報告に直結する設計が実画像レベルで動作。Chunk 19 で PNG/JPEG/PDF フィクスチャ追加予定（Valid/Invalid 区別の実証）。**🎯 検証結果（tester 独立検証で全項目合格）**: `cargo check --workspace` OK / `cargo test -p dds-validators` **29 件 pass**（単体 26 + 結合 2 + doctest 1）/ `cargo test --workspace` **289 件 pass; 0 failed**（既存 257 + 新規 32）/ `cargo clippy --workspace --all-targets -- -D warnings` warning **0 件** / `cargo doc --workspace --no-deps` warning **0 件**。既存 257 件全 pass 継続（破壊なし）、Phase 1 中核 SHA256 検証 4 件 + Chunks 10-17 結合維持、ソース read-only 維持確認: `crates/validators/src/` に `unsafe` **0 件** + 書き込み API **0 件**、単方向依存（validators → 他クレートなし、recovery → validators の一方向）grep 確認。**関連 FR**: FR-QUAL-01（品質判定 3 値）→ **🎉 完成 [x]**（`ValidationStatus` Valid/Invalid/Uncertain + `ValidationResult` + `summary()`）/ FR-QUAL-02（PNG/JPEG/PDF Validator）→ **🎉 完成 [x]**（3 種実装、registry 経由で 4 拡張子マップ）/ FR-QUAL-03（復旧パイプラインへの品質判定統合）→ **🎉 完成 [x]**（`validate_after_recovery` フラグ + `RecoveredEntry.validation` + サマリ集計）/ FR-QA-01（ファイル形式検証）→ **基盤完成 [~]**（マジックバイト判定 + ヘッダ整合性）/ FR-QA-02（構造的整合性）→ **基盤完成 [~]**（PNG IHDR/IEND, JPEG SOI/EOI, PDF %PDF/%%EOF）/ FR-QA-06（プラグイン式バリデータ）→ **🎉 完成 [x]**（`Validator` trait + `Arc<dyn Validator>` registry）。**M4 復旧+品質判定: 40% → 🎉 70%**（品質判定基盤が復旧パイプラインに統合、validators v1.0 完成）、残り 30% は Chunk 19 で PNG/JPEG/PDF フィクスチャ追加 + Valid/Invalid 区別の実証 + DB 記録（FR-QA-05）+ 4 段階分類拡張、Phase 1 中核プロダクト価値の品質判定基盤完成、`validators` クレート v1.0 完成
 - **🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 Phase 1 復旧パイプライン基盤完成 / 初の「ディスクへの書き込み」チャンク / read/write 境界厳格維持 / SHA256 109/109 ground truth 完全一致 / M3 100% 完了 / M4 40% 着手ハイライト（Chunk 17 / 2026-05-21）**: `crates/recovery/` クレート新規誕生（5 新規ファイル + 結合テスト、合計 +1209 行）。**🎯 構造（5 ファイル分割、責務明確化）**: ①`src/error.rs` 50 行（`RecoveryError` enum 6 バリアント、`#[from]` 集約: `Io(#[from] std::io::Error)` / `Volume(#[from] VolumeError)`、固有 4 種: `InvalidOutputDir` / `PathTraversal` / `UnsanitizableFilename` / `UniqueFilenameExhausted`） / ②`src/options.rs` 84 行（テスト 3 件含、`RecoveryOptions` 5 フィールド + `ConflictStrategy` enum Rename/Overwrite/Skip + 業務安全側の `Default`） / ③`src/report.rs` 141 行（テスト 3 件含、`RecoveryReport` started_at/finished_at/total_matched/recovered/failed/skipped + `success_rate()` / `duration_ms()` / `total_bytes_written()` + `RecoveredEntry` / `FailedEntry` / `SkippedEntry`） / ④`src/sanitize.rs` 157 行（テスト 6 件含、`sanitize_filename` で禁止文字 `<>:"/\\|?*` / 制御文字 / 末尾 `.`空白 / **Windows 予約名 `CON/PRN/AUX/NUL/COM1-9/LPT1-9`** を `_` プレフィックスで回避（拡張子付きも判定、`con.txt` → `_con.txt`）+ `insert_deleted_marker(filename, record_index)` で `foo.txt` + 67 → `foo (deleted-#67).txt`） / ⑤`src/engine.rs` ~310 行（テスト 5 件 + `RecoveryEngine` 構造体 + `RecoveryEngine::new(output_dir)` / `with_options(...)` + `recover_files(&mut volume, &wishlist) -> Result<RecoveryReport, RecoveryError>` で `prepare_output_dir`（`create_dir_all` + canonicalize 検証）+ 全 `NtfsFile` 列挙 + `FileInfo` 変換 + `match_files` 突合 + 各マッチを `recover_one` で復旧（個別失敗で全体止めず Report 蓄積）+ `build_output_path`（NTFS パス分解 + 各セグメント `sanitize_filename` + **パストラバーサル検査** `segment.contains("..")` で部分一致もブロック + 削除なら `(deleted-#NN)` 挿入）+ `find_unique_path`（`MAX_RENAME_ATTEMPTS = 999` まで `foo (1).txt` 探索）+ `recover_one` で `volume.read_file_content` + `fs::create_dir_all(parent)` + `fs::write` + SHA256 計算）。**🎯🎯🎯 read/write 境界の厳格な維持（最重要、初の「ディスクへの書き込み」チャンクでも維持）**: ソース（NtfsVolume）= **read-only**（読み取り API のみ、書き込み API 0 件）/ 出力先（output_dir 配下）= write OK（recovery クレート内のみ）。書き込み API 監査（grep 確認）: fs-ntfs / wish-match / core / fs-common = **書き込み API 0 件**、disk-io = `OpenOptions::new().read(true)` 1 件のみ（read フラグのみ、read-only 制約の証跡）、recovery = `fs::write` / `fs::create_dir_all` 等（output_dir 配下のみ、業務出力）。**初の書き込みチャンクを追加しても顧客 HDD/SSD への影響は型レベル + 実装レベル両方で 0 件継続**、NFR-SEC-01（ソースデバイス書込禁止）が強化された。**🎯🎯 SHA256 109/109 ground truth 完全一致（プロダクト価値の数学的証明）**: `recovered_files_match_ground_truth_sha256` 結合テストで **`ntfs_directories` フィクスチャの全 109 ファイル全件 SHA256 一致**（root 直下 5 + dir1 階層 3 + dir2 配下 1 + many 配下 100）を実証。「データを取り出せた」だけでなく「ビット単位で正しく復元してディスクに書き込めた」ことの暗号学的証明。**🎯🎯 プロダクトデモ出力（`product_demo_end_to_end_recovery`、業務価値の見える化）**: "Matched: 30 / Recovered: 30 (success rate: 100.0%) / Failed: 0 / Skipped: 0 / Duration: 61 ms / Deleted files recovered: \file_003.txt -> deleted\file_003 (deleted-#67).txt sha256: ebfd49fbf290ab73... 等 5 件 / Total recovered: 30 files (2580 bytes) / Deleted recovered: 5 files"。30 ファイル全件復旧、success rate **100%**、**61ms** で完了、削除 5 件が `deleted/` サブディレクトリに `(deleted-#67)` 等の MFT エントリ番号入りで分離出力（CS が後で識別容易）、生存 25 件は `live/` サブディレクトリへ、各ファイルの SHA256 が記録、復旧後の検証可能性確保。**🎯 設計上のポイント**: A. read/write 境界の厳格な維持 / B. パストラバーサル防御（保守的、`segment.contains("..")` で `a..b` 部分一致もブロック） / C. Windows 予約名サニタイズ（拡張子付き判定、ディレクトリセグメントにも適用） / D. SHA256 整合性検証（`RecoveredEntry::sha256` フィールド Optional、ground truth 109/109 実証） / E. 業務シナリオの自動化（削除/生存ファイル `deleted/` `live/` 分離、`(deleted-#67)` MFT エントリ番号埋め込み、衝突時連番リネーム）/ F. 単方向依存（recovery → {wish-match, fs-ntfs, core}、逆依存なし grep 確認）。**🎯 検証結果（tester 独立検証）**: `cargo check --workspace` OK / `cargo test -p dds-recovery` **21 件 pass**（17 単体 + 3 結合 + 1 doctest）/ `cargo test --workspace` **257 件 pass; 0 failed**（既存 236 + 新規 21）/ `cargo clippy --workspace --all-targets -- -D warnings` warning 0件 / `cargo doc --workspace --no-deps` 14 ファイル生成成功。既存 236 件全 pass 継続（破壊なし）、Phase 1 中核 SHA256 検証 4 件 + Chunks 10-16 結合維持、ソース read-only 維持確認: fs-ntfs / wish-match / core / fs-common の書き込み API 0 件、disk-io の `OpenOptions::new().read(true)` 1 件のみ（read フラグのみ）。**関連 FR**: FR-REC-01（目標優先抽出）基盤完成 → **完成 [x]**（end-to-end で動作）/ FR-REC-02（出力先指定）→ **完成 [x]**（`RecoveryEngine::new(output_dir)`）/ FR-REC-03（衝突解決）→ **完成 [x]**（`ConflictStrategy` 3 種）/ FR-REC-04（データ整合性）→ **完成 [x] 維持**（SHA256 検証メカニズム、109/109 実証）/ NFR-SEC-01（ソースデバイス書込禁止）→ **強化**（recovery クレート追加後も維持確認）。**M3 希望突合エンジン: 70% → 🎉 100% 完了**（wish-match v1.0 + 復旧パイプラインで突合→抽出 end-to-end 動作）、**M4 復旧+品質判定: 0% → 🎉 40% 着手**（復旧基盤完成、品質判定は Chunk 18 で）、**Phase 1 中核プロダクト価値の業務基盤実装完成**、`recovery` クレート v1.0 完成
 - **🎉🎉🎉🎉🎉🎉🎉🎉 業務統合層着手 / お客様希望リスト駆動型復旧の基盤完成ハイライト（Chunk 15 / 2026-05-21）**: `crates/wish-match/` クレート新規誕生（5 新規ファイル、合計 574 行: `src/lib.rs` 33 行 + `src/error.rs` 85 行 + `src/file_info.rs` 88 行 + `src/wishlist.rs` 171 行 + `src/matcher.rs` 197 行）+ `crates/fs-ntfs/src/file.rs`（**+82 行拡張**: `NtfsFile::has_system_name_prefix(&self) -> bool` で `$` 始まり判定 + `impl From<&NtfsFile> for dds_wish_match::FileInfo` owned 型変換、`source_id = "NTFS#<record_index>"` + 単体テスト 5 件）+ `crates/fs-ntfs/Cargo.toml` に `dds-wish-match.workspace = true` 追加 + `crates/wish-match/Cargo.toml` 更新（`dds-core` 削除、`chrono` / `serde` (derive) / `serde_json` / `thiserror` 追加）+ `crates/fs-ntfs/tests/wish_match_integration.rs` 新規 208 行（結合テスト 4 件）。**🎯 主要構造体**: `FileInfo`（source_id / path / name / size / modified / extension / is_directory / is_deleted の 8 フィールド owned 型 + `new()` コンストラクタ）/ `Priority` enum（Critical=100 / High=75 / Normal=50 / Low=25）/ `WishItem` enum 7 バリアント（ExactPath / PathPrefix / Extension / FilenameContains / SizeRange / ModifiedAfter / ModifiedBefore）/ `Wish`（id / pattern / priority / description）/ `Wishlist`（id / name / items + builder pattern）。**🎯 マッチャー API**: `matches_item(file, item) -> bool` / `match_file(file, wishlist) -> Option<MatchResult<'a>>` / `match_files(files, wishlist) -> Vec<MatchResult<'a>>` / `MatchResult<'a>`（file / matched_wishes: `Vec<&'a Wish>` / total_score: u32）。**🎯 業務統合層の核心設計**: **単方向依存（fs-ntfs → wish-match）**: `wish-match/Cargo.toml` に `dds-fs-ntfs` / `dds-core` 参照なし、`fs-ntfs/Cargo.toml` に `dds-wish-match.workspace = true` を追加、`From<&NtfsFile> for FileInfo` は fs-ntfs 側に実装、業務層が技術層から独立する設計。**お客様視点の振る舞い検証**: 「お客様が `\dir1` を指定したら配下の 3 ファイル全部、`\dir1other` は除外」を assert で固定化、`path_prefix_does_not_match_partial_directory_name` テストが境界防衛線。**serde 派生で JSON 互換性確保**: `Wishlist` / `Wish` / `WishItem` / `Priority` すべて `Serialize` / `Deserialize` 派生、`wishlist_serializes_to_json` テストで `serde_json` ラウンドトリップ + `PartialEq` 完全一致を確認、将来の Tauri UI 連携用基盤。**PathPrefix 境界処理（業務要件の防衛線）**: `let normalized = if prefix.ends_with('\\') { prefix.clone() } else { format!("{}\\", prefix) };` + `file.path.to_ascii_lowercase().starts_with(&normalized.to_ascii_lowercase()) || file.path.eq_ignore_ascii_case(prefix)`、`PathPrefix("\\dir1")` は `\\dir1\\file.txt` にマッチするが `\\dir1other\\foo.txt` にはマッチしない。**🎯 業務シナリオ命名 vs 技術命名の質的転換**: 業務層は `matches_files_in_dir1_subdirectory_only` / `path_prefix_does_not_match_partial_directory_name` / `matches_deleted_files_with_txt_extension` / `product_demo_wish_match_with_priority` のように「お客様の行動を物語る」形になっており、技術層の `parses_valid_boot_sector_all_fields` / `mft_entry_zero_runlist_parses_in_deletions_image` とは質的に異なる。**書籍参照は不要**（業務要件の正確な表現が中心、Chunks 4-14 の NTFS 技術実装とは質的に異なる）。`cargo check --workspace`: OK / `cargo test -p dds-wish-match`: **20 passed; 0 failed** / `cargo test -p dds-fs-ntfs`: **140 単体 + 36 結合 = 176 passed**（既存 135+32 + 新規 5+4）/ `cargo test --workspace`: **200+ 件 pass**（core 5 + fs-common 5 + disk-io 11 + fs-ntfs 176 + wish-match 20 + その他）/ `cargo clippy --workspace --all-targets -- -D warnings`: warning 0 件（初回 3 件のエラーを修正済み）/ `cargo doc --workspace --no-deps`: 14 ファイル生成成功。既存 167 件全 pass 継続（破壊なし）、Phase 1 中核 SHA256 検証 4 件 + Chunks 10-14 結合維持、安全性: wish-match/fs-ntfs 共に `unsafe` / 書き込み API 0 件、単方向依存確認: wish-match に dds-fs-ntfs 参照なし。🎯 **行数 wish-match 574 + fs-ntfs +82 = +674 の超過は tester の判断で「合格扱い」**（業務統合層のテスト密度高で正当化、機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、product_demo 業務シナリオ pass）。🎯 **プロダクトデモ出力（業務価値の見える化）**: "Wishlist: Critical(100) PathPrefix \dir1\sub1\sub2 / High(75) FilenameContains \"file_root\" / Low(25) Extension \"txt\" / Top 15 matches: 1. [125] NTFS#74 -> \dir1\sub1\sub2\file_deeply.txt（matched: 最深部の重要書類 + テキスト全般）/ 2-6. [100] NTFS#64-68 -> \file_root_001-005.txt / 7-15. [25] NTFS#... -> \many\file_NNN.txt / Total matches: 109"。`\dir1\sub1\sub2\file_deeply.txt` が Critical(100) + Low(25) = **125 スコアで最高位**、業務価値（優先抽出）が動作することを実証。**関連 FR**: FR-REC-01（目標優先抽出）**基盤完成 [~]** / FR-WISH-01（希望リスト管理）**データ構造完成 [~]** / FR-WISH-02（パターン突合）**基本パターン完成 [~]**。**M3 希望突合エンジン: 0% → 10%** へ着手（業務統合層着手、Week 8-9 着手）、Chunks 4-14 NTFS 技術 → Chunk 15 業務統合層への質的転換、お客様の希望リスト駆動型復旧の基盤、end-to-end 動作実証
 - **🎉🎉🎉🎉🎉🎉🎉 Phase 1 NTFS リーダー実装完成 / 業務統合層 API 完成形ハイライト（Chunk 14 / 2026-05-21）**: `crates/fs-ntfs/src/file.rs`（**新規 440 行**、実装 314 + 単体テスト 125）+ `crates/fs-ntfs/src/volume.rs`（**+180 行拡張**、`iter_files` / `build_file` / `read_file_content` 追加 + Chunk 14 単体テスト 3 件）+ `crates/fs-ntfs/src/lib.rs`（`pub mod file` + `NtfsFile` / `NtfsFileIterator` / `FileContentRef` re-export）+ `crates/fs-ntfs/tests/ntfs_file_integration.rs`（**新規 237 行**、結合テスト 4 件）を追加し、Chunks 4-13 の API を **1 つの owned 型 `NtfsFile`** に統合。**🎯 `NtfsFile` 構造体（17 フィールド、完全 owned 型）**: `record_index: u64` / `path: String` / `name: String` / `parent: MftReference` / `is_directory` / `is_deleted` / `has_alternate_streams` / `is_compressed` / `is_encrypted` / `is_sparse`: bool / `created` / `modified` / `accessed` / `mft_modified`: `Option<DateTime<Utc>>` / `file_attributes: FileAttributes` / `content: FileContentRef` / `size: u64`。**🎯 `FileContentRef` enum**: `Resident(Vec<u8>)` / `NonResident { real_size, runs }` / `None` + `is_resident()` / `size()` メソッド。**🎯 メソッド**: `is_root()` / `is_system_metafile()` / `is_user_file()` / `extension() -> Option<String>` / `is_simple_deleted_user_file()`。**🎯 `NtfsFileIterator<'a, F>`**: `Iterator<Item = Result<NtfsFile, VolumeError>>` 実装で全ファイル列挙。**🎯 `NtfsVolume::iter_files(&mut self)`**: 全 NtfsFile 列挙、`build_file(&mut self, record_index)`: 単発構築、`read_file_content(&mut self, file)`: 分割借用で `read_runs_with` 呼び出し（`&mut self.read_clusters` でフィールドのみ借用、`self.cluster_size` は事前に Copy で取り出し）。**🎯 設計上のポイント**: **Owned 型優先**（`Vec<NtfsFile>` で集めて後処理可能、ライフタイムなし、業務統合層から扱いやすい根本理由）/ **エラー型 #[from] 集約**（新エラー型を作らず既存 `VolumeError` を再利用、`VolumeError::Runlist` 経由で `read_runs_with` のエラー伝播）/ **runlist 即時パース**（`build_file_for_record` 段階で runlist パース、`read_file_content` 時に再パースしない）/ **削除エントリ path フォールバック**（PathResolver 失敗時に `\<name>` 形式で部分復旧）/ **Win32+DOS 重複排除**（MFT エントリベースで一意、`find_best_file_name` が Win32 優先選択）/ **分割借用パターン**（`&mut self.read_clusters` でフィールドのみ借用）/ **type エイリアス `TimestampsAndAttrs`**（clippy::type_complexity 解消）。**🎯 SHA256 109/109 ground truth 完全一致**: `read_file_content_matches_ground_truth_sha256` で **109/109 ファイル全件 SHA256 一致**を実証（`ntfs_healthy_small` 30 件 + `ntfs_with_5_deletions_small` 30 件（うち削除 5 件全件 SHA256 取得成功）+ `ntfs_directories` 109 件）。**🎯 API 簡潔化 Before/After**: Chunk 13 の `iter_records` + 4 つの手動パース 15 行 → Chunk 14 の `iter_files` 5 行に短縮。`cargo check -p dds-fs-ntfs`: OK / `cargo test --lib -p dds-fs-ntfs`: **135 passed; 0 failed**（既存 125 + 新規 10）/ `cargo test -p dds-fs-ntfs`: **167 passed**（単体 135 + 結合 32）/ `cargo clippy -p dds-fs-ntfs --all-targets -- -D warnings`: warning 0件 / `cargo doc -p dds-fs-ntfs --no-deps`: 生成成功。既存 125 単体 + 28 結合 = 153 件全 pass 継続（破壊なし）。**Phase 1 中核 SHA256 検証 4 件 + Chunks 10-13 結合 14 件すべて pass**。安全性: `unsafe` / `from_be_bytes` / 書き込み API / `String::from_utf16_lossy` 全て 0 件。🎯 **行数 857 の超過は tester の判断で「合格扱い」**（機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、SHA256 109/109 ground truth 完全一致 + product_demo Live 25 / Deleted 5 確認すべて pass）。🎯 **プロダクトデモ出力（`product_demo_with_ntfs_file_api`）**: "Total MFT records: 108 / Recoverable (Deleted) files: 削除 5 件全件 SHA256 取得成功（`ebfd49fbf290ab73...` / `ef489d0e53fe7c69...` / `ba961428bb0e8c68...` / `e9b565c0ea54fac4...` / `e14cd1ec3ebd1465...`）/ Live files: 25 件 / API code reduction: iter_records + 4 manual parsers -> iter_files (1 line)"。**M2 NTFSリーダα 100% 維持**（Chunk 13 で達成済）、Chunk 14 は **API 完成形を到達する追加チャンクとして記録、品質ランク向上、Phase 1 NTFS リーダー実装完成**、業務統合層（wish-match、recovery、case-manager 等の Chunk 15+）の標準呼び出し口が確立
@@ -537,7 +654,7 @@ M0: 設計確定        [████████] 100% ✅ 完了
 M1: 基盤構築        [███░░░░░]  30% 🚧 進行中（Chunk 1-3/想定10前後 完了）
 M2: NTFSリーダα     [████████] 100% 🎉🎉🎉🎉🎉🎉🎉 完了（Chunks 4-14 完了。Chunk 13 で **NTFS リーダ実用形完成形に到達**、**Chunk 14 で `NtfsFile` 高レベル統合型 + `iter_files` API 完成により Phase 1 NTFS リーダー実装完成 / 業務統合層 API 完成形に到達**。Chunk 14: SHA256 109/109 ground truth 完全一致 + product_demo Live 25 / Deleted 5 確認すべて pass、API 簡潔化 15 行 → 5 行を実証。業務統合層（wish-match、recovery、case-manager 等の Chunk 15+）の標準呼び出し口が確立）
 M3: 希望突合エンジン  [████████] 100% 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 完了（Chunks 15-17 / 2026-05-21、wish-match v1.0 + 復旧パイプライン基盤の end-to-end 動作で完了。Chunk 15 で `wish-match` クレート新規誕生 + `NtfsFile → FileInfo` 変換層完成 + パターン突合 7 種 + 優先度スコアリング + JSON 互換 + end-to-end `product_demo_wish_match_with_priority` 動作実証、Chunk 16 で wish-match v1.0 完成: WishItem 13 バリアント（5 維持 + Glob 2 + 日付範囲 3 + 論理結合 And/Or/Not 3）+ globset 正規化 + vacuous truth + `Box<WishItem>` 含む JSON ラウンドトリップ完全対応、**Chunk 17 で `recovery` クレート新規誕生し復旧パイプライン基盤完成、end-to-end で「希望リスト → NTFS マッチ → 実ファイル復旧」が動作、SHA256 109/109 ground truth 完全一致、初の「ディスクへの書き込み」チャンクでも read/write 境界厳格維持**）
-M4: 復旧 + 品質判定  [███░░░░░]  40% 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 着手（Chunk 17 / 2026-05-21、復旧基盤完成。`crates/recovery/` クレート新規誕生、`RecoveryEngine::new(output_dir).recover_files(&mut volume, &wishlist)` で end-to-end 復旧、SHA256 109/109 完全一致、削除/生存ファイル `deleted/` `live/` 分離出力、`(deleted-#67)` MFT エントリ番号埋め込み、ConflictStrategy 3 種、パストラバーサル防御 + Windows 予約名サニタイズ。残り 60% は Chunk 18 品質判定基盤 `validators` クレート + Chunk 19 復旧結果レポート生成）
+M4: 復旧 + 品質判定  [██████░░]  70% 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 達成（Chunks 17-18 / 2026-05-21、復旧基盤 + 品質判定基盤完成。**Chunk 17 で `recovery` クレート新規誕生 + end-to-end 復旧 + SHA256 109/109 完全一致 + 削除/生存ファイル分離出力 + ConflictStrategy 3 種**、**Chunk 18 で `validators` クレート新規誕生、PNG/JPEG/PDF Validator + Validator trait + `Arc<dyn Validator>` registry + 3 値 ValidationStatus（Valid/Invalid/Uncertain）+ 復旧パイプラインへの統合（`validate_after_recovery` フラグ + `RecoveredEntry.validation` + サマリ集計）、保守的 Uncertain 設計、109 件全 Uncertain 業務観測、FR-QUAL-01/02/03 達成**。残り 30% は Chunk 19 で PNG/JPEG/PDF フィクスチャ追加 + Valid/Invalid 区別の実証 + DB 記録（FR-QA-05）+ 4 段階分類拡張）
 M5: NTFS-α リリース [░░░░░░░░]   0% ⏳ 未着手
 M6: exFAT/FAT32追加 [░░░░░░░░]   0% ⏳ 未着手
 M7: バリデータ拡充   [░░░░░░░░]   0% ⏳ 未着手
@@ -569,6 +686,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | 15 | dds-wish-match (新規) + dds-fs-ntfs | wish-match 業務統合基盤 + NtfsFile 拡張（Wishlist / Wish / WishItem 7 パターン + Priority スコアリング + Matcher + `From<&NtfsFile> for FileInfo`）🎉🎉🎉🎉🎉🎉🎉🎉 業務統合層着手 / お客様希望リスト駆動型復旧の基盤完成 | 674※※※※※ | 25 ✓ + 結合 4 ✓ | 未計測 | 2026-05-21 |
 | 16 | dds-wish-match + dds-fs-ntfs | wish-match 高度マッチング（Glob `PathGlob`/`FilenameGlob` + 日付範囲 `ModifiedRange`/`CreatedRange`/`AccessedRange` + 論理結合 `All`/`Any`/`Not`、WishItem 5→13 バリアント、`ModifiedAfter/Before` → `ModifiedRange` マイグレーション、`add_all`/`add_any` 便利メソッド、globset `literal_separator(true)` + NTFS `\` 正規化 + vacuous truth）🎉🎉🎉🎉🎉🎉🎉🎉🎉 wish-match v1.0 完成 / 業務本番運用レベル到達 / M3 希望突合エンジン 70% 達成 | 509※※※※※※ | 20 ✓ + 結合 4 ✓ | 未計測 | 2026-05-21 |
 | 17 | dds-recovery (新規) | 復旧パイプライン基盤（`RecoveryEngine` + `recover_files` end-to-end + `ConflictStrategy` 3種 + パストラバーサル防御 + Windows 予約名サニタイズ + 削除/生存ファイル分離出力 + `(deleted-#NN)` MFT エントリ番号埋め込み + SHA256 検証）🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 Phase 1 復旧パイプライン基盤完成 / 初の「ディスクへの書き込み」チャンク / read/write 境界厳格維持 / SHA256 109/109 ground truth 完全一致 / M3 希望突合エンジン 100% 完了 / M4 復旧+品質判定 40% 着手 | 1209※※※※※※※ | 17 ✓ + 結合 3 ✓ + doctest 1 ✓ | 未計測 | 2026-05-21 |
+| 18 | dds-validators (新規) + dds-recovery | validators 品質判定基盤（`Validator` trait + `ValidatorRegistry`（**`Arc<dyn Validator>` で複数拡張子マップ**）+ `ValidationStatus`（Valid/Invalid/Uncertain 3 値）+ `ValidationResult` + `summary()` + PNG/JPEG/PDF Validator 3 種 + 復旧パイプライン統合（`validate_after_recovery` フラグ + `RecoveredEntry.validation` + サマリ集計）+ 保守的 Uncertain 設計 + 拡張子と中身の不一致検出 + 単方向依存 recovery → validators）🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 validators 品質判定基盤完成 / 業務観測「.txt は Validator 未登録 → Uncertain」/ 保守的 3 値判定 / FR-QUAL-01/02/03 達成 / M4 復旧+品質判定 40% → 🎉 70% 達成 | 949※※※※※※※※ | 26 ✓ + 結合 2 ✓ + doctest 1 ✓（recovery 結合 +3 件 = 計 32 件追加） | 未計測 | 2026-05-21 |
 
 ※ Chunk 11 は合成 NTFS ビルダーの複雑性のため 220行上限を超過したが、tester が「機能・安全性・SHA256 維持すべてクリア」と判断し合格扱い。
 ※※ Chunk 12 は仕様上限 250 を超過（fixup.rs 80 + index.rs 326 = 406）したが、tester が「テスト密度由来、機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア」と判断し合格扱い。
@@ -577,6 +695,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 ※※※※※ Chunk 15 は仕様上限 200 を超過（wish-match 574 + fs-ntfs +82 + 結合テスト 208 = +674、wish-match クレート: lib.rs 33 + error.rs 85 + file_info.rs 88 + wishlist.rs 171 + matcher.rs 197）したが、tester が「業務統合層のテスト密度高で正当化、機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、product_demo 業務シナリオ pass、単方向依存（fs-ntfs → wish-match）確認」と判断し合格扱い。
 ※※※※※※ Chunk 16 は仕様上限 280 を超過（wishlist.rs +74 + matcher.rs +260 + 結合テスト +175 = +509）したが、tester が「業務本番運用レベルのテスト密度で正当化、機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、product_demo 複合シナリオ pass、破壊的変更（ModifiedAfter/Before 削除）マイグレーション完了 + コード参照 0 件、論理結合 vacuous truth + globset literal_separator(true) + NTFS `\` 正規化 + Box<WishItem> JSON ラウンドトリップ完全対応」と判断し合格扱い。
 ※※※※※※※ Chunk 17 は仕様上限を超過（recovery クレート新規誕生: error.rs 50 + options.rs 84 + report.rs 141 + sanitize.rs 157 + engine.rs ~310 + 結合テスト + common = 計 1209 行）したが、tester が「Phase 1 復旧パイプライン基盤完成のため正当化、機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、product_demo end-to-end 復旧 pass、SHA256 109/109 ground truth 完全一致、初の『ディスクへの書き込み』チャンクでも read/write 境界厳格維持（ソース read-only API 0 件継続、出力先 write のみ recovery クレート内に限定）、パストラバーサル防御 + Windows 予約名サニタイズ + 単方向依存確認」と判断し合格扱い。
+※※※※※※※※ Chunk 18 は仕様上限を超過（validators クレート新規誕生: lib.rs 48 + error.rs 70 + result.rs 162 + registry.rs 164 + formats/png.rs 134 + formats/jpeg.rs 141 + formats/pdf.rs 148 + tests 82 = 計 949 行）したが、tester が「validators 品質判定基盤完成のため正当化、機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、289 件全 pass、保守的 Uncertain 設計の確立、Arc<dyn Validator> による複数拡張子マップ、単方向依存（validators → 他クレートなし、recovery → validators の一方向）確認、`crates/validators/src/` に unsafe 0 件 + 書き込み API 0 件、clippy warning 0 件、doc warning 0 件、業務観測 109 件全 Uncertain プロダクトデモ pass」と判断し合格扱い。
 
 ### Chunk 1 詳細
 
@@ -2138,13 +2257,29 @@ Deleted recovered:  5 files
 - [x] **FR-REC-03b（衝突解決、本ドキュメント独自分類）**: ✅ **完成 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉**（Chunk 17 / dds-recovery）
   - **Chunk 17 で `ConflictStrategy` 3 種完成**（2026-05-21）: `Rename`（デフォルト、`foo.txt` → `foo (1).txt` → `foo (2).txt` 最大 999 回連番）/ `Overwrite`（強制上書き）/ `Skip`（既存ファイル保持、`SkippedEntry` に記録）。業務安全側として `Rename` がデフォルト
 
-### 品質判定 (FR-QA)
-- [ ] FR-QA-01: ファイル形式検証
-- [ ] FR-QA-02: 構造的整合性
+### 品質判定 (FR-QA / FR-QUAL)
+- [x] **FR-QUAL-01: 品質判定（3 値）** ✅ **完成 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉**（Chunk 18 / dds-validators）
+  - **Chunk 18 で `ValidationStatus` enum 完成**（2026-05-21、`crates/validators/src/result.rs` 162 行）: `Valid` / `Invalid` / `Uncertain` の 3 値 + `ValidationResult` 構造体（status / extension / reason）+ コンストラクタ + `summary()`（recovered 件数からの集計）
+  - **保守的設計**: 曖昧な場合は `Uncertain`（誤って Valid 判定して CS の信頼を失うリスク回避、「結果が Green と返ってきたら本当に開ける」という業務上の信頼を守る設計選択）
+- [x] **FR-QUAL-02: PNG / JPEG / PDF Validator** ✅ **完成 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉**（Chunk 18 / dds-validators）
+  - **Chunk 18 で 3 種フォーマット Validator 完成**（2026-05-21）:
+    - **PNG**（`src/formats/png.rs` 134 行）: PNG signature 8 byte + IHDR チャンク + IEND チャンク検証
+    - **JPEG**（`src/formats/jpeg.rs` 141 行）: SOI 0xFFD8 + EOI 0xFFD9 + マーカープレフィックス、jpg/jpeg 2 拡張子対応
+    - **PDF**（`src/formats/pdf.rs` 148 行）: `%PDF-1.X`（X=0-7）+ 末尾 1024 byte 内 `%%EOF`
+  - **`ValidatorRegistry::with_defaults()` で 4 拡張子を一括登録**（PNG → png / JPEG → jpg + jpeg / PDF → pdf）
+  - **拡張子と中身の不一致検出**（PDF バイト列 + .png 拡張子 → Invalid、業務観測の重要シグナル、フォレンジック・偽装検出の入口）
+- [x] **FR-QUAL-03: 復旧パイプラインへの品質判定統合** ✅ **完成 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉**（Chunk 18 / dds-recovery + dds-validators）
+  - **Chunk 18 で `recovery` クレートに品質判定が統合**（2026-05-21）: `RecoveryOptions.validate_after_recovery: bool`（デフォルト `true`、業務安全側）+ `RecoveredEntry.validation: Option<ValidationResult>` + サマリ集計 `validated_count` / `invalid_count` / `uncertain_count`
+  - **`engine.rs::recover_one` で `fs::write` 後に `ValidatorRegistry::with_defaults()` 経由で検証**、各 `RecoveredEntry` に判定結果を保存
+  - **業務観測**: `ntfs_directories.img.zst` で 109 件全 Uncertain 判定（"Validation breakdown: Valid: 0 / Invalid: 0 / Uncertain: 109 (no validator for .txt)"）— 「.txt 用 Validator なし」を CS 報告に直結する設計が実画像レベルで動作
+  - **単方向依存**: recovery → validators の一方向、validators 側に recovery 参照なし（grep 確認）
+- [~] **FR-QA-01: ファイル形式検証** **基盤完成**（Chunk 18 / dds-validators）— マジックバイト判定 + ヘッダ整合性（PNG/JPEG/PDF）。Chunk 19+ で他フォーマット拡張予定
+- [~] **FR-QA-02: 構造的整合性** **基盤完成**（Chunk 18 / dds-validators）— PNG IHDR/IEND, JPEG SOI/EOI, PDF %PDF/%%EOF。Chunk 19+ で xref テーブル、ZIP セントラルディレクトリ等の拡張予定
 - [ ] FR-QA-03: コンテンツレベル検証
-- [ ] FR-QA-04: 4段階分類
-- [ ] FR-QA-05: 判定結果のDB記録
-- [ ] FR-QA-06: プラグイン式バリデータ
+- [~] **FR-QA-04: 4段階分類** **基盤の 3 値設計**（Chunk 18 / dds-validators）— Valid/Invalid/Uncertain。Chunk 19+ で Green/Yellow/Orange/Red の 4 段階拡張予定
+- [ ] FR-QA-05: 判定結果のDB記録 — Chunk 19+ で SQLite quality_results テーブル統合予定
+- [x] **FR-QA-06: プラグイン式バリデータ** ✅ **完成 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉**（Chunk 18 / dds-validators）
+  - **`Validator` trait + `ValidatorRegistry`（`Arc<dyn Validator>`）で複数拡張子対応**（2026-05-21）、新規 Validator は trait 実装 + registry 登録で追加可能
 
 ### 達成度評価 (FR-ACH)
 - [ ] FR-ACH-01: 希望×結果マトリクス生成
@@ -2556,9 +2691,75 @@ Deleted recovered:  5 files
 
 ## 次の推奨アクション
 
-🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 **Phase 1 復旧パイプライン基盤完成 / 初の「ディスクへの書き込み」チャンク / read/write 境界厳格維持 / SHA256 109/109 ground truth 完全一致 / M3 希望突合エンジン 100% 完了 / M4 復旧+品質判定 40% 着手（Chunk 17 / 2026-05-21）**: Chunk 17 完了により、Chunk 15-16 の wish-match v1.0 業務本番運用レベル基盤の上に **`recovery` クレートが新規誕生**し、「希望リスト → NTFS マッチ → 実ファイル復旧」が **end-to-end で動作**、**SHA256 109/109 ground truth 完全一致**で実証、初の「ディスクへの書き込み」チャンクでも **read/write 境界厳格維持**（ソース read-only API 0 件継続、出力先 write のみ recovery クレート内に限定）。**M3「希望突合エンジン」が 70% → 🎉 100% 完了**、**M4「復旧+品質判定」が 0% → 🎉 40% 着手**。
+🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 **validators 品質判定基盤完成 / PNG・JPEG・PDF Validator + 復旧パイプライン統合 / 業務観測「.txt は Validator 未登録 → Uncertain」/ 保守的 3 値判定 / FR-QUAL-01/02/03 達成 / M4 復旧+品質判定 70% 達成（Chunk 18 / 2026-05-21）**: Chunk 18 完了により、Chunk 17 の `recovery` クレートの上に **`validators` クレートが新規誕生**し、**PNG / JPEG / PDF の 3 種フォーマット Validator + `Validator` trait + `ValidatorRegistry`（`Arc<dyn Validator>` で複数拡張子マップ）+ `ValidationStatus`（Valid/Invalid/Uncertain の 3 値）+ 復旧パイプラインへの統合（`validate_after_recovery` フラグ + `RecoveredEntry.validation` + サマリ集計）**が完成。**M4「復旧+品質判定」が 40% → 🎉 70%**、FR-QUAL-01 / FR-QUAL-02 / FR-QUAL-03 を達成。
 
-次のフェーズは **Chunk 18 品質判定基盤（`validators` クレート、PDF/DOCX 等のマジックナンバー検証、FR-QA-01〜06）→ M4 40%→80%、Chunk 19 復旧結果レポート生成（PDF/Excel/HTML、FR-REP-01〜05）**、および **case-manager クレート着手**（FR-CASE-01-05、業務統合層の続き）、**Tauri UI 着手準備**となる。
+次のフェーズは **Chunk 19 PNG/JPEG/PDF フィクスチャ追加 + Valid/Invalid 業務観測テスト（M4 70%→90%）+ DB 記録（FR-QA-05）+ 4 段階分類拡張**、および **case-manager クレート着手**（FR-CASE-01-05、業務統合層の続き）、**Tauri UI 着手準備**となる。
+
+### 第一推奨: Chunk 19（PNG/JPEG/PDF フィクスチャ追加 + Valid/Invalid 業務観測 + レポート生成）
+
+**Chunk 19**: Chunk 18 で完成した validators 基盤の上に、PNG/JPEG/PDF の実フィクスチャ（最小有効 + 破損バイト列）を追加し、Valid/Invalid 区別の業務観測テストを実証。同時に復旧結果レポート生成（PDF/Excel/HTML/CSV）に着手
+
+- **対象クレート**: `crates/validators/tests/` + `fixtures/files/`（新規）+ `crates/report/`（新規）
+- **対象ファイル（予定）**:
+  - `fixtures/files/valid_minimal.png`（最小有効 PNG）+ `corrupted_*.png`（IHDR 破損 / IEND 欠落 / signature 破損）
+  - `fixtures/files/valid_minimal.jpg` + `corrupted_*.jpg`（SOI 欠落 / EOI 欠落 / マーカー破損）
+  - `fixtures/files/valid_minimal.pdf` + `corrupted_*.pdf`（%PDF-1.X 欠落 / %%EOF 欠落）
+  - `crates/validators/tests/fixtures_integration.rs`（新規、Valid/Invalid 区別実証）
+  - `crates/recovery/tests/recovery_validation_integration.rs`（拡張、`validated_count + invalid_count + uncertain_count == recovered.len()` 整合性アサーション継続）
+  - `crates/report/src/lib.rs`（新規、`ReportGenerator` trait）
+- **目的**:
+  1. **Valid/Invalid 区別の実証**: フィクスチャレベルで PNG/JPEG/PDF の判定値遷移を業務観測
+  2. **整合性アサーション**: `validated_count + invalid_count + uncertain_count == recovered.len()` の不変条件を結合テストで継続維持
+  3. **DB 記録（FR-QA-05）**: SQLite quality_results テーブル統合
+  4. **4 段階分類拡張**: Green/Yellow/Orange/Red の 4 段階品質判定への進化
+- **関連 FR**: FR-QA-04（4 段階分類）/ FR-QA-05（DB 記録）/ FR-REP-01〜05（レポート）
+- **マイルストーン意義**: **M4「復旧 + 品質判定」進行 70% → 90%**、お客様への定量レポート（達成度マトリクス）が業務基盤として完成へ
+
+### 第二推奨（並行検討可）: case-manager クレート着手
+
+**case-manager**: 案件管理基盤、FR-CASE-01-05 の実装。Chunk 17-18 の `RecoveryEngine` + `validators` 基盤と独立して進行可能
+
+- **対象クレート**: `crates/case-manager/`（新規）
+- **対象ファイル（予定）**:
+  - `crates/case-manager/src/lib.rs`（新規、`Case` / `CaseRepository` / `CaseError`）
+  - `crates/case-manager/src/sqlite_repo.rs`（新規、SQLite 永続化、WAL モード）
+- **依存**: Chunk 1（dds-core）+ Chunk 15-16（`Wishlist` を案件に紐づける）+ Chunk 17-18（`RecoveryReport` + `ValidationResult` を案件に紐づける）
+- **マイルストーン意義**: **業務統合層の続き**、Phase 1 のプロダクト価値（業務基盤）が完成に近づく
+
+### 第三推奨（並行検討可）: Tauri UI 着手準備
+
+**Tauri UI**: TypeScript 5.x + React 18 + Tauri 2.x で UI 着手。Chunk 17-18 の `RecoveryEngine` + `validators` + `Wishlist` を Tauri command 経由で呼び出し
+
+- **対象ディレクトリ**: `app/` または `ui/`（新規）
+- **マイルストーン意義**: Phase 1 プロダクト価値の業務基盤実装完成（Chunks 17-18）を受けて、お客様 / CS への提示基盤を整備
+
+### 推奨優先順位（明示）
+
+1. **第一推奨**: **Chunk 19 PNG/JPEG/PDF フィクスチャ追加 + Valid/Invalid 業務観測 + レポート生成**（FR-QA-04/05 + FR-REP-01〜05）— **M4 復旧+品質判定 70% → 90% へ進行**
+2. **第二推奨（並行検討可）**: case-manager クレート着手（FR-CASE-01-05）— 業務統合層の続き、Chunk 18 と独立
+3. **第三推奨（並行検討可）**: Tauri UI 着手準備（TypeScript + React + Tauri 2.x）— Phase 1 プロダクト価値の業務基盤実装完成を受けた提示基盤整備
+4. **第四推奨（並行検討可）**: disk-io 統合（`RawDeviceDisk` で実 HDD/SSD 対応）— 本番案件への適用準備、業務統合層と独立
+
+### 旧推奨（記録保持、Chunk 18 完了済）
+
+#### Chunk 18（品質判定基盤 — `validators` クレート、PDF/DOCX 等のマジックナンバー検証、4 段階品質判定）— ✅ 完了 2026-05-21
+
+**Chunk 18**: Chunk 17 の復旧パイプライン上で、抽出ファイルに対する品質判定を実装。FR-QUAL-01/02/03 達成、**M4 を 40% → 70% へ進行**
+
+- **対象クレート**: `crates/validators/`（新規）
+- **対象ファイル**: lib.rs 48 + error.rs 70 + result.rs 162 + registry.rs 164 + formats/png.rs 134 + formats/jpeg.rs 141 + formats/pdf.rs 148 + tests/validators_integration.rs 82 = 949 行
+- **依存**: Chunk 17（復旧パイプライン）+ thiserror + serde (derive) のみ（dds-* 依存なし）
+- **完了基準達成**:
+  - validators 単体 26 + 結合 2 + doctest 1 = 29 件 pass
+  - recovery 結合 +3 件 = 計 32 件追加
+  - workspace 全体 289 件 pass; 0 failed
+  - clippy warning 0 件 / doc warning 0 件
+  - `crates/validators/src/` に unsafe 0 件 / 書き込み API 0 件
+  - 単方向依存（recovery → validators）grep 確認
+  - 業務観測 109 件全 Uncertain プロダクトデモ pass
+- **マイルストーン意義**: **M4「復旧 + 品質判定」40% → 🎉 70% 達成**、FR-QUAL-01/02/03 達成、validators v1.0 完成
+
+#### 旧推奨（記録保持、Chunk 17 完了済）— 以下は Chunk 17 完了時の推奨内容
 
 ### 第一推奨: Chunk 18（品質判定基盤 — `validators` クレート、PDF/DOCX 等のマジックナンバー検証、4 段階品質判定）
 
