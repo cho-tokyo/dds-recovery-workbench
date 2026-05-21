@@ -206,3 +206,176 @@ fn product_demo_wish_match_with_priority() {
         .iter()
         .any(|w| w.label.contains("最深部")));
 }
+
+// === Chunk 16 結合テスト ===
+
+#[test]
+fn many_files_glob_matches_all_100_files() {
+    // 業務シナリオ: お客様が「many フォルダの 3 桁数字ファイルを全部欲しい」と希望。
+    // `\many\file_0??.txt` で file_000.txt 〜 file_099.txt の 100 件マッチ。
+    let mut volume = open_fixture("ntfs_directories");
+    let wishlist = Wishlist::new().add(
+        Wish::new(
+            WishItem::PathGlob("\\many\\file_0??.txt".into()),
+            "many 配下の 3 桁数字ファイル",
+        )
+        .with_priority(Priority::High),
+    );
+    let file_infos = collect_user_file_infos(&mut volume);
+    let matches = match_files(&file_infos, &wishlist);
+
+    let unique: HashSet<&str> = matches.iter().map(|m| m.source_id.as_str()).collect();
+    assert_eq!(
+        unique.len(),
+        100,
+        "Expected 100 unique matches for \\many\\file_0??.txt, got {}",
+        unique.len()
+    );
+}
+
+#[test]
+fn business_scenario_dir1_txt_excluding_sub2() {
+    // 業務シナリオ: お客様が「\dir1 配下 .txt が欲しい、ただし sub2 の最深部は除く」と希望。
+    // 期待: \dir1\file_001.txt + \dir1\sub1\file_002.txt = 2 件
+    //       \dir1\sub1\sub2\file_deeply.txt は除外。
+    let mut volume = open_fixture("ntfs_directories");
+    let wishlist = Wishlist::new().add(
+        Wish::new(
+            WishItem::All(vec![
+                WishItem::PathPrefix("\\dir1".into()),
+                WishItem::Extension("txt".into()),
+                WishItem::Not(Box::new(WishItem::PathPrefix(
+                    "\\dir1\\sub1\\sub2".into(),
+                ))),
+            ]),
+            "dir1 配下の .txt (sub2 を除く)",
+        )
+        .with_priority(Priority::Critical),
+    );
+    let file_infos = collect_user_file_infos(&mut volume);
+    let matches = match_files(&file_infos, &wishlist);
+
+    assert_eq!(
+        matches.len(),
+        2,
+        "Expected 2 files in \\dir1 (excluding sub2), got {} ({:?})",
+        matches.len(),
+        matches.iter().map(|m| &m.source_id).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn product_demo_complex_wish_with_combinators() {
+    // プロダクトデモ: 論理結合 (All/Any/Not) + Glob + 既存パターンを組み合わせた複雑シナリオ。
+    //
+    //   Critical: \dir1 配下 OR ファイル名に "root" を含む、ただし \many 配下は除く  +100
+    //   High:     \many\file_0??.txt の glob にマッチする 3 桁数字ファイル          +75
+    //   Low:      .txt 全般                                                          +25
+    //
+    // 期待: dir1 配下のテキストファイル等が最高スコア 125 (Critical+Low) で並ぶ。
+    let mut volume = open_fixture("ntfs_directories");
+
+    let wishlist = Wishlist::new()
+        .add(
+            Wish::new(
+                WishItem::All(vec![
+                    WishItem::Any(vec![
+                        WishItem::PathPrefix("\\dir1".into()),
+                        WishItem::FilenameContains("root".into()),
+                    ]),
+                    WishItem::Not(Box::new(WishItem::PathPrefix("\\many".into()))),
+                ]),
+                "重要書類 (dir1 配下 OR root 命名、many は除外)",
+            )
+            .with_priority(Priority::Critical),
+        )
+        .add(
+            Wish::new(
+                WishItem::PathGlob("\\many\\file_0??.txt".into()),
+                "many 配下の 3 桁数字ファイル",
+            )
+            .with_priority(Priority::High),
+        )
+        .add(
+            Wish::new(WishItem::Extension("txt".into()), "テキスト全般")
+                .with_priority(Priority::Low),
+        );
+
+    // source_id → path 逆引き（println 用）。
+    let files: Vec<NtfsFile> = volume
+        .iter_files()
+        .filter_map(Result::ok)
+        .filter(|f| f.is_user_file() && !f.has_system_name_prefix())
+        .collect();
+    let path_by_source: std::collections::HashMap<String, String> = files
+        .iter()
+        .map(|f| (format!("NTFS#{}", f.record_index), f.path.clone()))
+        .collect();
+    let file_infos: Vec<FileInfo> = files.iter().map(FileInfo::from).collect();
+
+    let matches = match_files(&file_infos, &wishlist);
+
+    println!("\n=== Complex Wish Match Demo (Chunk 16) ===\n");
+    println!("Wishlist:");
+    for w in &wishlist.wishes {
+        println!(
+            "  {:?}({}): {}",
+            w.priority,
+            w.priority.score(),
+            w.label
+        );
+    }
+    println!("\nTop 15 matches (score-sorted):");
+    for (i, m) in matches.iter().enumerate().take(15) {
+        let path = path_by_source
+            .get(&m.source_id)
+            .map(String::as_str)
+            .unwrap_or("?");
+        let labels: Vec<&str> = m
+            .matched_wishes
+            .iter()
+            .map(|w| w.label.as_str())
+            .collect();
+        println!(
+            "  {:2}. [{:3}] {} -> {}  (matched: {})",
+            i + 1,
+            m.priority_score,
+            m.source_id,
+            path,
+            labels.join(" + ")
+        );
+    }
+    println!("\nTotal matches: {}", matches.len());
+
+    // 最高スコアは Critical(100) + Low(25) = 125 のはず（例: \dir1\file_001.txt）。
+    assert!(
+        matches[0].priority_score >= 125,
+        "Top score expected >= 125, got {}",
+        matches[0].priority_score
+    );
+}
+
+#[test]
+fn modified_range_filters_by_recent_date() {
+    // 業務シナリオ: お客様が「2020 年以降に更新されたファイルが欲しい」と希望。
+    // フィクスチャは 2026 年生成、全 109 ファイルが modified を持つ前提。
+    let mut volume = open_fixture("ntfs_directories");
+    let wishlist = Wishlist::new().add(
+        Wish::new(
+            WishItem::ModifiedRange {
+                after: Some("2020-01-01T00:00:00Z".parse().unwrap()),
+                before: None,
+            },
+            "2020 年以降に更新",
+        )
+        .with_priority(Priority::Normal),
+    );
+    let file_infos = collect_user_file_infos(&mut volume);
+    let matches = match_files(&file_infos, &wishlist);
+
+    assert!(
+        matches.len() >= 100,
+        "Expected >= 100 matches for ModifiedRange(after=2020), got {}",
+        matches.len()
+    );
+}

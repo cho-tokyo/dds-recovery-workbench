@@ -54,6 +54,7 @@ rayon = "1.10"
 # Patterns
 aho-corasick = "1.1"
 memchr = "2.7"
+globset = "0.4"
 
 # Memory mapping
 memmap2 = "0.9"

@@ -1,8 +1,13 @@
-//! Chunk 15: 希望リスト型 `Wishlist` / `Wish` / `WishItem` / `Priority`。
+//! Chunk 15-16: 希望リスト型 `Wishlist` / `Wish` / `WishItem` / `Priority`。
 //!
 //! お客様が「復旧したいファイル」を表現する基本データ構造。
 //! Tauri UI からの JSON 受け渡しを見据え、すべて `serde` 派生でシリアライズ可能。
-//! Phase 1 では基本パターンのみ。glob `*` / `**`、論理結合 `And` / `Or` / `Not` は Chunk 16+ で追加予定。
+//!
+//! - Chunk 15: 基本パターン（ExactPath / PathPrefix / Extension / FilenameContains / SizeRange）。
+//! - Chunk 16: Glob (`PathGlob` / `FilenameGlob`)、日付範囲 (`ModifiedRange` 等)、
+//!   論理結合 (`All` / `Any` / `Not`) を追加。お客様の複雑な希望
+//!   （「Documents の .docx **かつ** 2024 年以降、**ただし** ゴミ箱は除外」など）を表現可能に。
+//!
 //! 関連 FR: FR-WISH-01 (希望リスト管理), FR-WISH-02 (パターン突合)。
 
 use chrono::{DateTime, Utc};
@@ -35,8 +40,13 @@ impl Priority {
 }
 
 /// 個別の希望アイテム。1 つの `WishItem` は 1 つのマッチ規則を表現する。
+///
+/// Chunk 16 で 5 バリアント → 13 バリアントに拡張（既存 5 維持 + 新規 8: Glob 2 / 日付範囲 3 /
+/// 論理結合 3）。論理結合 (`All` / `Any` / `Not`) で
+/// 任意のネストが可能（例: `All(vec![PathPrefix(..), Not(Box::new(PathPrefix(..)))]`)）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum WishItem {
+    // === 基本パターン（Chunk 15） ===
     /// 完全一致するパス（大文字小文字非区別）。
     ExactPath(String),
     /// 指定パス配下（プレフィックス一致、大文字小文字非区別）。
@@ -53,10 +63,63 @@ pub enum WishItem {
         /// 上限（バイト）。
         max: Option<u64>,
     },
-    /// 指定日時より新しい更新日時のファイル。
-    ModifiedAfter(DateTime<Utc>),
-    /// 指定日時より古い更新日時のファイル。
-    ModifiedBefore(DateTime<Utc>),
+
+    // === Chunk 16 新規 ===
+    /// Glob パターンでパスマッチ（大文字小文字非区別、`\` と `/` を同等扱い）。
+    ///
+    /// 構文:
+    /// - `*` ... 任意の文字列（パス区切りを除く）
+    /// - `**` ... 任意の文字列（パス区切り含む、再帰的）
+    /// - `?` ... 任意の 1 文字
+    /// - `[abc]` ... a/b/c のいずれか
+    ///
+    /// 例:
+    /// - `"*.docx"` ... ルート直下の .docx
+    /// - `"\\**\\*.pdf"` ... 任意の階層下の .pdf すべて
+    /// - `"\\Users\\*\\Documents\\*.xlsx"` ... 中間 1 階層が任意
+    ///
+    /// 不正なパターンはマッチ時に `false` を返す（パニックしない寛容な設計）。
+    PathGlob(String),
+
+    /// Glob パターンでファイル名マッチ（パスは無視、ファイル名のみ対象）。
+    ///
+    /// 例: `"invoice_2025-??.xlsx"` で `invoice_2025-Q1.xlsx` にマッチ。
+    FilenameGlob(String),
+
+    /// 内容更新日時の範囲指定。`after` 以降かつ `before` 以前にマッチ（両端 inclusive）。
+    /// どちらも省略可（片方だけ指定で「以降のみ」「以前のみ」を表現）。
+    /// ファイル側の日付が `None` の場合は `false`（範囲条件には該当しない）。
+    ModifiedRange {
+        /// 下限（この日時以降）。
+        after: Option<DateTime<Utc>>,
+        /// 上限（この日時以前）。
+        before: Option<DateTime<Utc>>,
+    },
+
+    /// 作成日時の範囲指定。`ModifiedRange` と同様のセマンティクス。
+    CreatedRange {
+        /// 下限（この日時以降）。
+        after: Option<DateTime<Utc>>,
+        /// 上限（この日時以前）。
+        before: Option<DateTime<Utc>>,
+    },
+
+    /// アクセス日時の範囲指定。`ModifiedRange` と同様のセマンティクス。
+    AccessedRange {
+        /// 下限（この日時以降）。
+        after: Option<DateTime<Utc>>,
+        /// 上限（この日時以前）。
+        before: Option<DateTime<Utc>>,
+    },
+
+    /// 論理 AND: すべての子条件にマッチ。空 `Vec` は vacuous truth で `true` を返す。
+    All(Vec<WishItem>),
+
+    /// 論理 OR: いずれかの子条件にマッチ。空 `Vec` は `false` を返す。
+    Any(Vec<WishItem>),
+
+    /// 論理 NOT: 子条件にマッチ**しない**ことを要求。
+    Not(Box<WishItem>),
 }
 
 /// 単一の希望（マッチ規則 + 優先度 + 人間可読ラベル）。
@@ -115,6 +178,36 @@ impl Wishlist {
     /// 登録済み希望の件数。
     pub fn len(&self) -> usize {
         self.wishes.len()
+    }
+
+    /// AND 結合の希望を簡便に追加するヘルパー（Chunk 16）。
+    ///
+    /// 例:
+    /// ```ignore
+    /// Wishlist::new().add_all(Priority::High, "重要書類", vec![
+    ///     WishItem::PathPrefix("\\Documents".into()),
+    ///     WishItem::Extension("docx".into()),
+    /// ]);
+    /// ```
+    pub fn add_all(
+        self,
+        priority: Priority,
+        label: impl Into<String>,
+        items: Vec<WishItem>,
+    ) -> Self {
+        self.add(Wish::new(WishItem::All(items), label).with_priority(priority))
+    }
+
+    /// OR 結合の希望を簡便に追加するヘルパー（Chunk 16）。
+    ///
+    /// `add_all` の OR 版。複数のいずれかにマッチすれば良い場合に使う。
+    pub fn add_any(
+        self,
+        priority: Priority,
+        label: impl Into<String>,
+        items: Vec<WishItem>,
+    ) -> Self {
+        self.add(Wish::new(WishItem::Any(items), label).with_priority(priority))
     }
 }
 
