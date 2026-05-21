@@ -1,0 +1,670 @@
+{
+  "fixture_name": "ntfs_directories",
+  "fs_type": "NTFS",
+  "image_size_bytes": 31457280,
+  "generated_with": "gen_ntfs_directories.py",
+  "purpose": "Chunk 13: list_directory + PathResolver test fixture",
+  "structure_summary": {
+    "root_files": 5,
+    "dir1_hierarchy": 3,
+    "dir2": 1,
+    "many_files": 100,
+    "total": 109
+  },
+  "files": [
+    {
+      "path": "\\file_root_001.txt",
+      "size_bytes": 100,
+      "content_hash_sha256": "4e18e176c3fcde95d75a2698ab773c3aad785c994228f2609cc558ee5a5a59e6",
+      "is_deleted": false
+    },
+    {
+      "path": "\\file_root_002.txt",
+      "size_bytes": 100,
+      "content_hash_sha256": "5dcb89e26cda468579dcd5229387e0b3df652a10a3ecbdc8646af87bcaf45483",
+      "is_deleted": false
+    },
+    {
+      "path": "\\file_root_003.txt",
+      "size_bytes": 100,
+      "content_hash_sha256": "d89f8615ec00c8fff161310a324cc5d5c8a94a0bdcadf5946ce043a1415eb5ef",
+      "is_deleted": false
+    },
+    {
+      "path": "\\file_root_004.txt",
+      "size_bytes": 100,
+      "content_hash_sha256": "ad4fef38242c1c6c9f5f4e625b94e8d0ffad960a3f96d73de927d964c3164414",
+      "is_deleted": false
+    },
+    {
+      "path": "\\file_root_005.txt",
+      "size_bytes": 100,
+      "content_hash_sha256": "b11eecb7be7d78039bc74121f6fc495903e219e4cc27d2ca8658d7de45d9c499",
+      "is_deleted": false
+    },
+    {
+      "path": "\\dir1\\file_001.txt",
+      "size_bytes": 100,
+      "content_hash_sha256": "72b0684a459cdb23faa73812607b58bbe9c7e9ad6c98caf7168a5e577f6516c6",
+      "is_deleted": false
+    },
+    {
+      "path": "\\dir1\\sub1\\file_002.txt",
+      "size_bytes": 100,
+      "content_hash_sha256": "89ab0deaf1c786f5c730493b59c43db1a9bb17ea6cff71afe6d324a2b32c7bc6",
+      "is_deleted": false
+    },
+    {
+      "path": "\\dir1\\sub1\\sub2\\file_deeply.txt",
+      "size_bytes": 100,
+      "content_hash_sha256": "728b00bb089c5191fb32b8fe6f9c70a880f077c33cf6239114e87d728680cd1b",
+      "is_deleted": false
+    },
+    {
+      "path": "\\dir2\\file_003.txt",
+      "size_bytes": 100,
+      "content_hash_sha256": "cf3d7b19e31db2529a0339dd7d3a275969c797d4c23215c6c3db3e43b7b60233",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_000.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "1b72475473d572f02da210729968e233d762f3519d50d8de7eed38dea6efcc09",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_001.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "5dbb210ebd0ab5ff592a8b8e47125cd416e121b1a56960972488fdb57e81a3c4",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_002.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "b2e61b03d38ed1fe5f31a10bdd5f04f346a68fc109da87cb44cbe4ac23d94ce6",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_003.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "7eb3277cd110d1238273d331121e3726040a37b942df169e6360bd87f2f74a9c",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_004.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "f9da86ae1b782254a8b8ef05dbaaa8b3feadac94e8ef23b538414837e511bcbf",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_005.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "765bb203e8a42c8c96dd301aa20e4f95eee762d4463c0aa291f6295e111c4b7f",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_006.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "ceb205f56ddb8d369f562fa1a10c9a76094a2d29fdb6df4ee5ff59a0ab76ecec",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_007.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "56ccfb19c2c8c1f89f9270ba89f88d2df8ad5cace87263bf544ba58ae51b7999",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_008.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "8f5f41bd42911c0b65b5d3c5af3eefa50d57ce0c932ea6c7a0750bf709ec3e87",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_009.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "e0c5056107c0ac743c6af570675c0167d30fe58f7e47bd50f620b628a5afc7f2",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_010.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "0c3d1e8f2aa7fd978794974ad725f9fa623d6d9334acee799f16e14833f22de3",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_011.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "7e813a2f600f32828957ae07b65226b2a583d4c12f1bec7a41e49a155f7d941b",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_012.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "989fcbfe1c52a5ca4376752e3bf66770663683669e8824973baaed5529045639",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_013.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "6f10e4b8f39a8b60f7cf32b18e02d696bae879e384ee404b02494dbedb5fcb95",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_014.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "f8e6b3f1fd3eb08a2a1dda8884d48f56c1c4d4e69cb446355b130d4edc1265f0",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_015.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "92f5250c49e046d43caf20a9cb3ac71a96457fef564f26d1cac688d19a9994fe",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_016.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "fabdc7790e7e22def29ff52ee2e047ba666e9a1b1e4f661dd2ee7edfcaeb9f17",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_017.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "65f9aec6c78e086cecbb5efc46fd7c90f968aa60fda25bf40eea8d6499814467",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_018.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "03624c435dd3e23f8ea0faee077b15056176b2eff7420da6c371b48fa2779308",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_019.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "94de4f91abb3693319e46d8c11043572f90250582b69bd50ac595b876c94ce09",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_020.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "fe426d20fd2c060ae2f16a24b7808a8a52f04865aa8dd1769e7c16c1a9d63294",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_021.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "2c0a88ae80b70ce719d1fdf269f2890b2c7faa68d2549b28ec1d156de0132427",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_022.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "60e6600e9a63373a0d3e68db237d98d7200fac917a60e1a594284edbd5514f19",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_023.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "441bdf38e6b15718ba6ed77d27e5c8f169fd7f0150526826626bda735c5a0988",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_024.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "2a718d117a267e2abbc82b43e5dbbc10dea51d20c32396eaf89a3802fb10f47a",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_025.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "2fc69b20db2846049121094d752656f7b4d5c5730566836219582bf93589196b",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_026.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "22c69b5ed28bef2ab786417bac6a8d5cdc5099a1571e0fcb3b8f1822390f3db5",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_027.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "1b8d8839773e687ec7e7844a50a761dfe5179a27b705dc0dfd35b6bef374d22b",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_028.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "5b27ddb085ff1049c03874143b5db1654c0da6a587fa819c95c46a51080a12b6",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_029.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "e91c4447e90fc7aef45078641e3d3de2ad2774d00a79e06183d7f304f65f9048",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_030.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "eb90a9877114c4aaf35aaa4929774a72a0e0c2be7072cf6c776eb8a4a0c4ae37",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_031.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "fd3ee516559acf87b9db4889ee43d731c6dc0734a0d9aee1120e4b170c63700a",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_032.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "2e451bce767bdf6097f01f9d9e4410bdb5fbfb8e6e6483c6985ede24486795fa",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_033.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "4c7425adc00a54a30097bac56c29478d6429b02552c3c098b8e3c30154a5cd20",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_034.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "4ab5846d1f97fe1a0186886daf118908a26fad097445fa52fbbfc320ea75fba9",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_035.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "6479b38179dfdfe2cbf74492bddffdc2fb23a5b199086a08e8c977f83f8abd2f",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_036.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "b00b13bf9b1dbf4b6858637f9e8273ae76e9117ff23f1892ceceb486aa0184f8",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_037.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "2305d8f69e834daa2ca9cec91316ad7c95b51d61e86f69357a185713263e68d9",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_038.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "e93ba0df8969010928695b58529f31058b490097ecce4ea2db4f4d82002a49d7",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_039.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "17bf627750fb22e38261af68c9d029d920cc373821a459cf2bab3a02661a1d5f",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_040.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "fcedb4ab7fb05bc79343925567d27bf6cf0ec49e1211767b6ea1c9b3baad34b0",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_041.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "753ce946b6e0e6b72868bbeb2691c501fd13ab374d56af0ebff3c3db1c4f9296",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_042.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "2152d50f292bc25a3a69d158694fae5d9922a860f7dcff39d9c4930c013a99bc",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_043.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "3695e6fb910549c1680f75ae18eb0fbead167c29a7983294b0377a0e66bad672",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_044.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "5ca7fbbadac47aef4636a305f97a61d03d8f13ec411e172d6f2fd0917be55170",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_045.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "ce4388c95a2f128eea9c65fecb9450b888772fb08750b03b050ec7ea817a3ae1",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_046.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "c6b20ea1d7fa8b76294d6f7bbf4db9206e5527cb645cbd4c0bb0e8e6f8562620",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_047.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "5e6e4108326dbc87d9068b94914cf212a4869423d5608556dd41ca9f292c15b0",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_048.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "5f17c8df837d3efc4566ca624eeaaf7d0949815e9cff7b5482abb8c1e9333452",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_049.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "c564e3eea9f7bd8a4b84cd4d63bea57dfdb678e3a5f219484f715a95c711054e",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_050.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "f3c1ae5a79f3689235b129ab0a8a2a72ccde65104e9cee0b963dd958d17024d9",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_051.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "984302cc3e37b11cc57a98f19d2c821993afd06b9d67c7fe3c48fe8f7525fbb9",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_052.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "7f665b9696a94de2f98cf13b164b710d7cf4436139c7b8395468e35e9e96d7f0",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_053.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "0215b6fe27735f9f96f55459af5b3b18251ccabd439ff85367e22f6237d6c8a4",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_054.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "88f2cb3428c9d475ce386a3a6a600be1d7dbea8f9e2d9407f629906335b4e19d",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_055.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "8296f83885fd75fe24a7f83828c96766319923c00447ba184ff93dc15cd1fcee",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_056.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "1d16daf6d624a401ed816aa41702bb9b2955e0506b28d3857f5052f327e8c97b",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_057.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "fcafcdafd5cc242c35ac96e776555f6942056b5ab2964ef615a5bc978e63a6ee",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_058.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "3fe6083f366378d08a73fd4965b4b0ea9505b6b19ae32bfd9e0acf7985e4e6ee",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_059.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "985771310ef965b66a19f0b95ad20fbe8a585478d406e710823b55cb45c94989",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_060.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "744a9495a955ee6626ad158720810bc49b4f5e1c0c39ae06bb7f9a91dc131a9c",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_061.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "1c67fdc85c29f10f0d895546e5ea4ada4f3a4068033fad897ab8cab14854320d",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_062.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "3fbcea3d3ca641a3ce23cbb62dc1bd07ca55a9c09f8594a7b5e899ab577bd409",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_063.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "85de79ed22e3e6f84ab981609de4b49ab3d22a5097809034bdf777bac0a6063d",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_064.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "d2f6892c4e2bd0f20cef7932fd0a16185c8fd936ee96dac9a12822bb4dc0173c",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_065.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "0cc4f854bb0ab1527f350f1f28e6a67daa03537449b2aa7e6871ddd5a1066fe3",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_066.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "f93b14b8404fa0e478ec207cd23c2ef642e6419a10abe422d01622479a85165f",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_067.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "af7d3ece2fe628ea26231fd41baeac25c5ecc540c7f5fb50e1363f3042b9461d",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_068.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "df2289c877c4c82e6836513332f318576d50d61040dfbca567f064e86b64a8fd",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_069.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "671383a6c52faf080347730f3ab89f5a0a4a9696de82ad054e9e0e612f4d9bf6",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_070.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "c1288d87e312973caeb03d560e2f1b9d3b31d9cd8f9ee25150ecebbdbd017735",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_071.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "630aa5c9b1b7e65bdb1a4a1308c60acb3f60a5ff9019465575eefb2db07b21d3",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_072.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "4ebb60ec2fe4ca832b1a3a33fdb26b399bf1b5332d9e9a8baa5929fad6766722",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_073.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "17c4e4a3b16dca99a73bd3db1899f8a12410254f5076c4629f91f4eebb9fb237",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_074.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "828be45d76bbea71c22ee3a941edbf0eb0855752085cec99cb43849d41b1535b",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_075.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "972bd018b57423b34c1c0483fb71df6d29834e8a9a642bab166522a642ce23b8",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_076.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "fba75d41e77ffcdd51f384cd942ed0f97cb8a23883f54ef6b7f9534e77f1b596",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_077.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "e7671a4e1efb50d6729d361eabdf8f034d99e7105b6f86be8276e4761aae6979",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_078.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "ec06facef30cc35708c9fe2f887c8275a367ae486dec204f703ecc4f0dba276d",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_079.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "811668a188fc8427e3d1f53f06cc4c7becda06220081d7964663cd30627b6cc8",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_080.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "839a7e93891f2095b5ca62ebe5cd6a1984cb07f131f31646a00fc3598a74d715",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_081.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "8afd94568e51879bcf34af2e97f3127dbfbbf9ab727bf70d53696ededc8ee9ea",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_082.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "378ca8011be159948ca6d473994a146793f4eabd42a55a7d2f258a67ff73b558",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_083.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "f96faf776c7242ecdc5f8da175800e15db6721c2a78e68fd00515c03012ddceb",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_084.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "1a5d70391ba59ea19da8ad5aeb9710a76cfcb56e82611aa60fc504681bd247b4",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_085.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "baf02fc621a736712a8a91a17b9db3783c81e785fa6e5018f8642837e08c2f39",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_086.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "9fb6beaac883b1c56b56f4114d7619a098bf52c320725ffae95c5f0c0b8e2436",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_087.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "32905f0695330f97a199748346350d9bd865e978d91ce0fc9f5207a694c83c10",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_088.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "ba656383cde165d10063bd3dc4495ac0b1af629ddc01aa2e31b54d56e45ce2ed",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_089.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "b4048b959544caaf24048564b0a527d451d86e82f2f410f68f186ac93cee91dd",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_090.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "a041f65c2cdb7cc8dfa4232c6cb6fdfdcceda45b84ef134f1adb8eb29b311c2a",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_091.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "0d504ef1f4814785347c6fe2f5b5f9a86913cfaf120fdc5bf25ec894b8642e92",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_092.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "0c8038a86fef4991e15aa39541cf79b344e7b4a289f44f1943928edf3a33c7c4",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_093.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "b7c705cdf94a4b4fa499df00df6087994dc0f26f75d590188a2d149a8270ceef",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_094.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "b062e9dcef2442befad467e8b826b0952fda149770f89c9ed5c4557a61090de0",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_095.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "6805ea4573bba5014c7da25f9ffb02b267dc0362ba33b63c721335a63d4fc83f",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_096.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "1b844c730eed06773c989718cc94634a724c0fd346a81f3527d7551afbbb62e9",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_097.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "3163a0cba363adf57f43e00d852ac54bbaf13d1521b16ffb1e85ea980ead949a",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_098.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "3b89adc8dede5c4043c54d31e6d67dcde074ec5b2d21010234d8be17dbdd75d1",
+      "is_deleted": false
+    },
+    {
+      "path": "\\many\\file_099.txt",
+      "size_bytes": 50,
+      "content_hash_sha256": "ea3c78ec4d692233e297578e095f0f2839de47e5a6c2ec5de03f71b78b701ded",
+      "is_deleted": false
+    }
+  ]
+}

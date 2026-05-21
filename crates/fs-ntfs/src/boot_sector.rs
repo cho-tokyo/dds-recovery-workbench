@@ -38,23 +38,40 @@ pub struct BootSector {
 pub enum BootSectorError {
     /// バッファサイズが 512 バイト未満。
     #[error("Buffer too small: got {got}, need at least 512")]
-    BufferTooSmall { #[allow(missing_docs)] got: usize },
+    BufferTooSmall {
+        #[allow(missing_docs)]
+        got: usize,
+    },
     /// OEM ID が `"NTFS    "` と一致しない。
     #[error("Invalid OEM ID: expected 'NTFS    ', got {got:?}")]
-    InvalidOemId { #[allow(missing_docs)] got: [u8; 8] },
+    InvalidOemId {
+        #[allow(missing_docs)]
+        got: [u8; 8],
+    },
     /// 末尾シグネチャが `0xAA55` ではない。
     #[error("Invalid boot signature: expected 0xAA55, got 0x{got:04X}")]
-    InvalidSignature { #[allow(missing_docs)] got: u16 },
+    InvalidSignature {
+        #[allow(missing_docs)]
+        got: u16,
+    },
     /// `bytes_per_sector` が 2 の累乗でない、または 256〜4096 の範囲外。
     #[error("Invalid bytes per sector: {got}")]
-    InvalidBytesPerSector { #[allow(missing_docs)] got: u16 },
+    InvalidBytesPerSector {
+        #[allow(missing_docs)]
+        got: u16,
+    },
     /// `sectors_per_cluster` が 2 の累乗でない、または 1〜128 の範囲外。
     #[error("Invalid sectors per cluster: {got}")]
-    InvalidSectorsPerCluster { #[allow(missing_docs)] got: u8 },
+    InvalidSectorsPerCluster {
+        #[allow(missing_docs)]
+        got: u8,
+    },
 }
 
 #[inline]
-fn is_pow2(v: u32) -> bool { v != 0 && (v & (v - 1)) == 0 }
+fn is_pow2(v: u32) -> bool {
+    v != 0 && (v & (v - 1)) == 0
+}
 
 /// 512 バイト以上のスライスから NTFS ブートセクタを解析します（先頭 512 B のみ参照）。
 /// 関連 FR: FR-LIVE-01。失敗時は [`BootSectorError`] を返します。
@@ -75,11 +92,15 @@ pub fn parse_boot_sector(bytes: &[u8]) -> Result<BootSector, BootSectorError> {
     if !is_pow2(bytes_per_sector.into())
         || !(MIN_BYTES_PER_SECTOR..=MAX_BYTES_PER_SECTOR).contains(&bytes_per_sector)
     {
-        return Err(BootSectorError::InvalidBytesPerSector { got: bytes_per_sector });
+        return Err(BootSectorError::InvalidBytesPerSector {
+            got: bytes_per_sector,
+        });
     }
     let sectors_per_cluster = b[0x0D];
     if !is_pow2(sectors_per_cluster.into()) || sectors_per_cluster > MAX_SECTORS_PER_CLUSTER {
-        return Err(BootSectorError::InvalidSectorsPerCluster { got: sectors_per_cluster });
+        return Err(BootSectorError::InvalidSectorsPerCluster {
+            got: sectors_per_cluster,
+        });
     }
     let u64le = |s: &[u8]| u64::from_le_bytes(s.try_into().expect("len 8"));
     Ok(BootSector {
@@ -137,13 +158,16 @@ mod tests {
         b[0..3].copy_from_slice(&[0xEB, 0x52, 0x90]);
         b[3..11].copy_from_slice(b"NTFS    ");
         b[0x0B..0x0D].copy_from_slice(&512u16.to_le_bytes());
-        b[0x0D] = 8; b[0x15] = 0xF8; b[0x44] = 1;
+        b[0x0D] = 8;
+        b[0x15] = 0xF8;
+        b[0x44] = 1;
         b[0x28..0x30].copy_from_slice(&40_960u64.to_le_bytes());
         b[0x30..0x38].copy_from_slice(&4u64.to_le_bytes());
         b[0x38..0x40].copy_from_slice(&20u64.to_le_bytes());
         b[0x40] = (-10i8) as u8;
         b[0x48..0x50].copy_from_slice(&0x0123_4567_89AB_CDEFu64.to_le_bytes());
-        b[0x1FE] = 0x55; b[0x1FF] = 0xAA;
+        b[0x1FE] = 0x55;
+        b[0x1FF] = 0xAA;
         b
     }
 
@@ -165,32 +189,43 @@ mod tests {
 
     #[test]
     fn rejects_short_buffer() {
-        assert_eq!(parse_boot_sector(&[0u8; 100]).unwrap_err(), BootSectorError::BufferTooSmall { got: 100 });
+        assert_eq!(
+            parse_boot_sector(&[0u8; 100]).unwrap_err(),
+            BootSectorError::BufferTooSmall { got: 100 }
+        );
     }
 
     #[test]
     fn rejects_invalid_oem_id_and_signature() {
         let mut b = make_valid_boot_sector();
         b[3..11].copy_from_slice(b"FAT32   ");
-        assert!(matches!(parse_boot_sector(&b).unwrap_err(),
-            BootSectorError::InvalidOemId { .. }));
+        assert!(matches!(
+            parse_boot_sector(&b).unwrap_err(),
+            BootSectorError::InvalidOemId { .. }
+        ));
         b = make_valid_boot_sector();
         b[0x1FE] = 0;
         b[0x1FF] = 0;
-        assert_eq!(parse_boot_sector(&b).unwrap_err(),
-            BootSectorError::InvalidSignature { got: 0 });
+        assert_eq!(
+            parse_boot_sector(&b).unwrap_err(),
+            BootSectorError::InvalidSignature { got: 0 }
+        );
     }
 
     #[test]
     fn rejects_zero_bps_and_zero_spc() {
         let mut b = make_valid_boot_sector();
         b[0x0B..0x0D].copy_from_slice(&0u16.to_le_bytes());
-        assert!(matches!(parse_boot_sector(&b).unwrap_err(),
-            BootSectorError::InvalidBytesPerSector { got: 0 }));
+        assert!(matches!(
+            parse_boot_sector(&b).unwrap_err(),
+            BootSectorError::InvalidBytesPerSector { got: 0 }
+        ));
         b = make_valid_boot_sector();
         b[0x0D] = 0;
-        assert!(matches!(parse_boot_sector(&b).unwrap_err(),
-            BootSectorError::InvalidSectorsPerCluster { got: 0 }));
+        assert!(matches!(
+            parse_boot_sector(&b).unwrap_err(),
+            BootSectorError::InvalidSectorsPerCluster { got: 0 }
+        ));
     }
 
     #[test]
@@ -199,17 +234,30 @@ mod tests {
         let mut b = make_valid_boot_sector();
         for (v, exp) in [(-10i8, 1024u32), (-12, 4096), (1, 4096), (2, 8192)] {
             b[0x40] = v as u8;
-            assert_eq!(parse_boot_sector(&b).unwrap().mft_record_size_bytes(), exp, "v={v}");
+            assert_eq!(
+                parse_boot_sector(&b).unwrap().mft_record_size_bytes(),
+                exp,
+                "v={v}"
+            );
         }
     }
 
     #[test]
     fn cluster_size_various_combinations() {
-        for (bps, spc, exp) in [(512u16, 1u8, 512u32), (512, 8, 4096), (4096, 1, 4096), (1024, 4, 4096)] {
+        for (bps, spc, exp) in [
+            (512u16, 1u8, 512u32),
+            (512, 8, 4096),
+            (4096, 1, 4096),
+            (1024, 4, 4096),
+        ] {
             let mut b = make_valid_boot_sector();
             b[0x0B..0x0D].copy_from_slice(&bps.to_le_bytes());
             b[0x0D] = spc;
-            assert_eq!(parse_boot_sector(&b).unwrap().cluster_size_bytes(), exp, "bps={bps} spc={spc}");
+            assert_eq!(
+                parse_boot_sector(&b).unwrap().cluster_size_bytes(),
+                exp,
+                "bps={bps} spc={spc}"
+            );
         }
     }
 
@@ -222,15 +270,28 @@ mod tests {
         b[0x28..0x30].copy_from_slice(&2_056_256u64.to_le_bytes());
         b[0x30..0x38].copy_from_slice(&342_709u64.to_le_bytes());
         b[0x38..0x40].copy_from_slice(&514_064u64.to_le_bytes());
-        b[0x40] = 1; b[0x44] = 4;
+        b[0x40] = 1;
+        b[0x44] = 4;
         b[0x48..0x50].copy_from_slice(&0x0450_2284_5022_7C94u64.to_le_bytes());
         let bs = parse_boot_sector(&b).expect("parse");
         assert_eq!((bs.bytes_per_sector, bs.sectors_per_cluster), (512, 2));
-        assert_eq!((bs.total_sectors, bs.mft_lcn, bs.mft_mirror_lcn), (2_056_256, 342_709, 514_064));
-        assert_eq!((bs.clusters_per_mft_record, bs.clusters_per_index_record), (1, 4));
+        assert_eq!(
+            (bs.total_sectors, bs.mft_lcn, bs.mft_mirror_lcn),
+            (2_056_256, 342_709, 514_064)
+        );
+        assert_eq!(
+            (bs.clusters_per_mft_record, bs.clusters_per_index_record),
+            (1, 4)
+        );
         assert_eq!(bs.volume_serial, 0x0450_2284_5022_7C94);
-        assert_eq!((bs.cluster_size_bytes(), bs.mft_record_size_bytes(), bs.index_record_size_bytes()),
-            (1024, 1024, 4096));
+        assert_eq!(
+            (
+                bs.cluster_size_bytes(),
+                bs.mft_record_size_bytes(),
+                bs.index_record_size_bytes()
+            ),
+            (1024, 1024, 4096)
+        );
     }
 
     #[test]
@@ -241,7 +302,11 @@ mod tests {
         b[0x0D] = 2;
         for (v, exp) in [(4i8, 4096u32), (-12, 4096), (-10, 1024)] {
             b[0x44] = v as u8;
-            assert_eq!(parse_boot_sector(&b).unwrap().index_record_size_bytes(), exp, "v={v}");
+            assert_eq!(
+                parse_boot_sector(&b).unwrap().index_record_size_bytes(),
+                exp,
+                "v={v}"
+            );
         }
     }
 
@@ -252,7 +317,14 @@ mod tests {
         b[0x0B..0x0D].copy_from_slice(&4096u16.to_le_bytes());
         b[0x0D] = 1;
         let bs = parse_boot_sector(&b).expect("parse");
-        assert_eq!((bs.bytes_per_sector, bs.sectors_per_cluster, bs.cluster_size_bytes()), (4096, 1, 4096));
+        assert_eq!(
+            (
+                bs.bytes_per_sector,
+                bs.sectors_per_cluster,
+                bs.cluster_size_bytes()
+            ),
+            (4096, 1, 4096)
+        );
     }
 
     #[test]
@@ -260,9 +332,11 @@ mod tests {
         for bad in [1000u16, 100, 8192] {
             let mut b = make_valid_boot_sector();
             b[0x0B..0x0D].copy_from_slice(&bad.to_le_bytes());
-            assert!(matches!(parse_boot_sector(&b).unwrap_err(),
+            assert!(
+                matches!(parse_boot_sector(&b).unwrap_err(),
                 BootSectorError::InvalidBytesPerSector { got } if got == bad),
-                "bad bps={bad} should be rejected");
+                "bad bps={bad} should be rejected"
+            );
         }
     }
 
@@ -272,9 +346,11 @@ mod tests {
         for bad in [3u8, 192, 130] {
             let mut b = make_valid_boot_sector();
             b[0x0D] = bad;
-            assert!(matches!(parse_boot_sector(&b).unwrap_err(),
+            assert!(
+                matches!(parse_boot_sector(&b).unwrap_err(),
                 BootSectorError::InvalidSectorsPerCluster { got } if got == bad),
-                "bad spc={bad} should be rejected");
+                "bad spc={bad} should be rejected"
+            );
         }
     }
 }

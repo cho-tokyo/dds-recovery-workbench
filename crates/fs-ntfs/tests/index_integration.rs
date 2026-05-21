@@ -17,7 +17,10 @@ fn make_image_reader(
         let start = (lcn * cluster_size) as usize;
         let end = start + (count * cluster_size) as usize;
         if end > img.len() {
-            Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "oob"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "oob",
+            ))
         } else {
             Ok(img[start..end].to_vec())
         }
@@ -62,13 +65,19 @@ fn root_directory_index_root_lists_user_files() {
     println!("Total entries (incl. terminal): {}", entries.len());
     println!("User files in $INDEX_ROOT: {}", user_files.len());
     println!("has_children: {}", index_root.node_header.has_children());
-    println!("First few names: {:?}", user_files.iter().take(5).collect::<Vec<_>>());
+    println!(
+        "First few names: {:?}",
+        user_files.iter().take(5).collect::<Vec<_>>()
+    );
 
     // 小規模なら 30 件すべて $INDEX_ROOT 内、大きければ has_children=true。
     if !index_root.node_header.has_children() {
         assert_eq!(user_files.len(), 30, "small dir should hold all in root");
     } else {
-        assert!(user_files.len() <= 30, "some entries may be in $INDEX_ALLOCATION");
+        assert!(
+            user_files.len() <= 30,
+            "some entries may be in $INDEX_ALLOCATION"
+        );
     }
 }
 
@@ -147,22 +156,37 @@ fn deleted_files_appear_or_disappear_in_index() {
     }
 
     println!("\n=== Index vs MFT walk: ntfs_with_5_deletions_small ===");
-    println!("Files visible via $INDEX_ROOT (live mode): {}", in_index.len());
-    println!("Files visible via MFT walk (recovery mode): {}", in_mft.len());
-    println!("Deleted files (MFT only):                 {}", deleted_in_mft.len());
+    println!(
+        "Files visible via $INDEX_ROOT (live mode): {}",
+        in_index.len()
+    );
+    println!(
+        "Files visible via MFT walk (recovery mode): {}",
+        in_mft.len()
+    );
+    println!(
+        "Deleted files (MFT only):                 {}",
+        deleted_in_mft.len()
+    );
     let only_in_mft: Vec<_> = in_mft.difference(&in_index).cloned().collect();
     println!("Names in MFT but not in index:            {only_in_mft:?}");
 
     // 業務上の主張: 削除ファイルは MFT に残り、インデックスには無い。
-    assert!(in_mft.len() >= in_index.len(),
-        "MFT walk must surface at least as many names as live index");
+    assert!(
+        in_mft.len() >= in_index.len(),
+        "MFT walk must surface at least as many names as live index"
+    );
     // 5 件の削除分が「MFT のみに見える」差として観測される。
-    assert!(deleted_in_mft.len() >= 5,
+    assert!(
+        deleted_in_mft.len() >= 5,
         "expected >=5 deleted file_*.txt in MFT, got {}: {deleted_in_mft:?}",
-        deleted_in_mft.len());
+        deleted_in_mft.len()
+    );
     // 削除されたファイルはインデックスから消えている（NTFS の正規動作）。
     for d in &deleted_in_mft {
-        assert!(!in_index.contains(d),
-            "deleted file {d} should not appear in $INDEX_ROOT (live view)");
+        assert!(
+            !in_index.contains(d),
+            "deleted file {d} should not appear in $INDEX_ROOT (live view)"
+        );
     }
 }

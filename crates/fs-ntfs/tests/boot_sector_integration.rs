@@ -10,7 +10,10 @@ fn parses_healthy_small_fixture_boot_sector() {
     let bs = parse_boot_sector(&img[..512]).expect("parse");
     assert!(bs.bytes_per_sector >= 512, "bps={}", bs.bytes_per_sector);
     let cs = bs.cluster_size_bytes();
-    assert!((512..=65536).contains(&cs), "cluster size {cs} out of typical range");
+    assert!(
+        (512..=65536).contains(&cs),
+        "cluster size {cs} out of typical range"
+    );
     assert!(bs.mft_lcn > 0, "mft_lcn must be > 0");
 }
 
@@ -24,6 +27,9 @@ fn cluster_size_within_typical_range_for_fixtures() {
             (512..=65536).contains(&cs),
             "fixture {name}: cluster size {cs} out of typical range"
         );
-        assert!(bs.mft_record_size_bytes() >= 512, "fixture {name}: mft record too small");
+        assert!(
+            bs.mft_record_size_bytes() >= 512,
+            "fixture {name}: mft record too small"
+        );
     }
 }

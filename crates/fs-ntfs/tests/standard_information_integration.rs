@@ -27,10 +27,11 @@ fn reads_standard_information_from_healthy_records() {
     let mut si_found = 0usize;
     let mut sample_created: Option<chrono::DateTime<chrono::Utc>> = None;
     for idx in 0..50 {
-        let Some(entry) = read_record(&img, idx) else { continue };
+        let Some(entry) = read_record(&img, idx) else {
+            continue;
+        };
         let first = entry.header.first_attribute_offset as usize;
-        let Some(attr) =
-            find_attribute(&entry.data, first, AttributeType::StandardInformation)
+        let Some(attr) = find_attribute(&entry.data, first, AttributeType::StandardInformation)
         else {
             continue;
         };
@@ -54,13 +55,14 @@ fn reads_standard_information_from_deleted_records() {
     let mut deleted_si = 0usize;
     let mut sample_created: Option<chrono::DateTime<chrono::Utc>> = None;
     for idx in 0..100 {
-        let Some(entry) = read_record(&img, idx) else { continue };
+        let Some(entry) = read_record(&img, idx) else {
+            continue;
+        };
         if !entry.header.is_deleted() {
             continue;
         }
         let first = entry.header.first_attribute_offset as usize;
-        let Some(attr) =
-            find_attribute(&entry.data, first, AttributeType::StandardInformation)
+        let Some(attr) = find_attribute(&entry.data, first, AttributeType::StandardInformation)
         else {
             continue;
         };
@@ -75,6 +77,9 @@ fn reads_standard_information_from_deleted_records() {
             }
         }
     }
-    assert!(deleted_si >= 1, "expected $SI readable from at least one deleted entry");
+    assert!(
+        deleted_si >= 1,
+        "expected $SI readable from at least one deleted entry"
+    );
     println!("deleted: deleted_si={deleted_si}, sample_created={sample_created:?}");
 }

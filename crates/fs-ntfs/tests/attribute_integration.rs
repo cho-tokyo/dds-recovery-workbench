@@ -7,7 +7,8 @@ fn collect_attribute_types_for_record(img: &[u8], record_index: usize) -> Vec<At
     let bs = parse_boot_sector(&img[..512]).expect("boot");
     let mft_off = bs.mft_byte_offset() as usize;
     let rec_size = bs.mft_record_size_bytes() as usize;
-    let entry_bytes = &img[mft_off + record_index * rec_size..mft_off + (record_index + 1) * rec_size];
+    let entry_bytes =
+        &img[mft_off + record_index * rec_size..mft_off + (record_index + 1) * rec_size];
     let entry = parse_mft_entry(entry_bytes).expect("mft");
     let mut types = Vec::new();
     let mut cursor = entry.header.first_attribute_offset as usize;

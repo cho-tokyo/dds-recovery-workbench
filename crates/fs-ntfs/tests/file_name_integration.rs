@@ -20,9 +20,13 @@ fn read_record(img: &[u8], idx: usize) -> Option<dds_fs_ntfs::MftEntry> {
 fn collect_user_files(img: &[u8]) -> Vec<(usize, bool, String)> {
     let mut out = Vec::new();
     for idx in 0..256 {
-        let Some(entry) = read_record(img, idx) else { continue };
+        let Some(entry) = read_record(img, idx) else {
+            continue;
+        };
         let first = entry.header.first_attribute_offset as usize;
-        let Some(name) = find_best_file_name(&entry.data, first) else { continue };
+        let Some(name) = find_best_file_name(&entry.data, first) else {
+            continue;
+        };
         if name.filename.starts_with('$') {
             continue;
         }

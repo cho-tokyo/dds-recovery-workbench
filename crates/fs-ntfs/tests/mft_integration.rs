@@ -12,7 +12,10 @@ fn parses_first_mft_record_from_healthy_image() {
     let entry_bytes = &img[mft_offset..mft_offset + mft_size];
     let entry = parse_mft_entry(entry_bytes).expect("parse mft entry");
     assert!(entry.header.is_in_use(), "$MFT entry 0 must be in use");
-    assert!(!entry.header.is_directory(), "$MFT itself is not a directory");
+    assert!(
+        !entry.header.is_directory(),
+        "$MFT itself is not a directory"
+    );
     if let Some(n) = entry.header.mft_record_number {
         assert_eq!(n, 0);
     }

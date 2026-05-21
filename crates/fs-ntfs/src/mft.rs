@@ -24,9 +24,12 @@ pub struct MftEntryHeader {
     pub sequence_number: u16,
     /// このエントリを参照するディレクトリエントリ数（ハードリンク含む）。別名リンクが作成されるたびに +1 される。値 0 は通常削除済み（未参照）。
     pub hard_link_count: u16,
-    pub first_attribute_offset: u16, pub flags: u16,
-    pub used_size: u32, pub allocated_size: u32,
-    pub base_record_reference: u64, pub next_attribute_id: u16,
+    pub first_attribute_offset: u16,
+    pub flags: u16,
+    pub used_size: u32,
+    pub allocated_size: u32,
+    pub base_record_reference: u64,
+    pub next_attribute_id: u16,
     /// 自身の MFT レコード番号（XP+）。offset 0x2C が 0 なら `None`。
     pub mft_record_number: Option<u32>,
 }
@@ -67,18 +70,28 @@ pub enum MftError {
 /// MFT エントリ（FILE レコード）1 件をパースし、フィクサップ（sector_size=512）を適用して返す。関連 FR: FR-LIVE-01, FR-LIVE-05。
 pub fn parse_mft_entry(bytes: &[u8]) -> Result<MftEntry, MftError> {
     if bytes.len() < MIN_HEADER_SIZE {
-        return Err(MftError::BufferTooSmall { got: bytes.len(), need: MIN_HEADER_SIZE });
+        return Err(MftError::BufferTooSmall {
+            got: bytes.len(),
+            need: MIN_HEADER_SIZE,
+        });
     }
     let magic: [u8; 4] = bytes[0..4].try_into().expect("len 4");
-    if &magic == MAGIC_BAAD { return Err(MftError::BadEntry); }
-    if &magic != MAGIC_FILE { return Err(MftError::InvalidMagic { got: magic }); }
+    if &magic == MAGIC_BAAD {
+        return Err(MftError::BadEntry);
+    }
+    if &magic != MAGIC_FILE {
+        return Err(MftError::InvalidMagic { got: magic });
+    }
     let u16le = |o: usize| u16::from_le_bytes([bytes[o], bytes[o + 1]]);
     let u32le = |o: usize| u32::from_le_bytes(bytes[o..o + 4].try_into().expect("len 4"));
     let u64le = |o: usize| u64::from_le_bytes(bytes[o..o + 8].try_into().expect("len 8"));
     let (usa_offset, usa_size) = (u16le(0x04), u16le(0x06));
     let (used_size, allocated_size) = (u32le(0x18), u32le(0x1C));
     if used_size > allocated_size {
-        return Err(MftError::UsedExceedsAllocated { used: used_size, allocated: allocated_size });
+        return Err(MftError::UsedExceedsAllocated {
+            used: used_size,
+            allocated: allocated_size,
+        });
     }
     // Carrier 著書記載の整合性ルール: USA size = ceil(allocated_size / sector_size) + 1。
     // 不一致は破損疑い。allocated_size=0 の場合は他チェックに委ねる。
@@ -90,12 +103,22 @@ pub fn parse_mft_entry(bytes: &[u8]) -> Result<MftEntry, MftError> {
     }
     let rec_no_raw = u32le(0x2C);
     let header = MftEntryHeader {
-        usa_offset, usa_size, lsn: u64le(0x08),
-        sequence_number: u16le(0x10), hard_link_count: u16le(0x12),
-        first_attribute_offset: u16le(0x14), flags: u16le(0x16),
-        used_size, allocated_size,
-        base_record_reference: u64le(0x20), next_attribute_id: u16le(0x28),
-        mft_record_number: if rec_no_raw == 0 { None } else { Some(rec_no_raw) },
+        usa_offset,
+        usa_size,
+        lsn: u64le(0x08),
+        sequence_number: u16le(0x10),
+        hard_link_count: u16le(0x12),
+        first_attribute_offset: u16le(0x14),
+        flags: u16le(0x16),
+        used_size,
+        allocated_size,
+        base_record_reference: u64le(0x20),
+        next_attribute_id: u16le(0x28),
+        mft_record_number: if rec_no_raw == 0 {
+            None
+        } else {
+            Some(rec_no_raw)
+        },
     };
     // MFT 固有の事前検証: usa_offset はヘッダ最小サイズ (48) 以上である必要がある。
     // 共有 fixup モジュールは汎用なのでこのチェックは呼び出し側責務。
@@ -109,13 +132,21 @@ pub fn parse_mft_entry(bytes: &[u8]) -> Result<MftEntry, MftError> {
 
 impl MftEntryHeader {
     /// 使用中なら true（`flags & 0x0001 != 0`）。関連 FR: FR-LIVE-05。
-    pub fn is_in_use(&self) -> bool { self.flags & FLAG_IN_USE != 0 }
+    pub fn is_in_use(&self) -> bool {
+        self.flags & FLAG_IN_USE != 0
+    }
     /// 削除済みなら true。関連 FR: FR-LIVE-05。
-    pub fn is_deleted(&self) -> bool { !self.is_in_use() }
+    pub fn is_deleted(&self) -> bool {
+        !self.is_in_use()
+    }
     /// ディレクトリなら true。関連 FR: FR-LIVE-01。
-    pub fn is_directory(&self) -> bool { self.flags & FLAG_DIR != 0 }
+    pub fn is_directory(&self) -> bool {
+        self.flags & FLAG_DIR != 0
+    }
     /// ベースレコードなら true（拡張レコードでない）。関連 FR: FR-LIVE-01。
-    pub fn is_base_record(&self) -> bool { self.base_record_reference == 0 }
+    pub fn is_base_record(&self) -> bool {
+        self.base_record_reference == 0
+    }
 }
 
 #[cfg(test)]
@@ -124,23 +155,34 @@ mod tests {
 
     fn build_valid_mft_entry(flags: u16, usn: u16, fx0: u16, fx1: u16) -> Vec<u8> {
         let mut b = vec![0u8; 1024];
-        let put16 = |b: &mut Vec<u8>, o: usize, v: u16| b[o..o + 2].copy_from_slice(&v.to_le_bytes());
-        let put32 = |b: &mut Vec<u8>, o: usize, v: u32| b[o..o + 4].copy_from_slice(&v.to_le_bytes());
+        let put16 =
+            |b: &mut Vec<u8>, o: usize, v: u16| b[o..o + 2].copy_from_slice(&v.to_le_bytes());
+        let put32 =
+            |b: &mut Vec<u8>, o: usize, v: u32| b[o..o + 4].copy_from_slice(&v.to_le_bytes());
         b[0..4].copy_from_slice(b"FILE");
-        put16(&mut b, 0x04, 0x30); put16(&mut b, 0x06, 3);
+        put16(&mut b, 0x04, 0x30);
+        put16(&mut b, 0x06, 3);
         b[0x08..0x10].copy_from_slice(&0xDEAD_BEEF_CAFE_BABEu64.to_le_bytes());
-        put16(&mut b, 0x10, 5); put16(&mut b, 0x12, 1);
-        put16(&mut b, 0x14, 0x38); put16(&mut b, 0x16, flags);
-        put32(&mut b, 0x18, 512); put32(&mut b, 0x1C, 1024);
-        put16(&mut b, 0x28, 7); put32(&mut b, 0x2C, 42);
-        put16(&mut b, 0x30, usn); put16(&mut b, 0x32, fx0); put16(&mut b, 0x34, fx1);
-        put16(&mut b, 0x1FE, usn); put16(&mut b, 0x3FE, usn);
+        put16(&mut b, 0x10, 5);
+        put16(&mut b, 0x12, 1);
+        put16(&mut b, 0x14, 0x38);
+        put16(&mut b, 0x16, flags);
+        put32(&mut b, 0x18, 512);
+        put32(&mut b, 0x1C, 1024);
+        put16(&mut b, 0x28, 7);
+        put32(&mut b, 0x2C, 42);
+        put16(&mut b, 0x30, usn);
+        put16(&mut b, 0x32, fx0);
+        put16(&mut b, 0x34, fx1);
+        put16(&mut b, 0x1FE, usn);
+        put16(&mut b, 0x3FE, usn);
         b
     }
 
     #[test]
     fn parses_valid_header_fields() {
-        let e = parse_mft_entry(&build_valid_mft_entry(FLAG_IN_USE, 0x1234, 0xAABB, 0xCCDD)).unwrap();
+        let e =
+            parse_mft_entry(&build_valid_mft_entry(FLAG_IN_USE, 0x1234, 0xAABB, 0xCCDD)).unwrap();
         assert_eq!((e.header.usa_offset, e.header.usa_size), (0x30, 3));
         assert_eq!(e.header.lsn, 0xDEAD_BEEF_CAFE_BABE);
         assert_eq!((e.header.sequence_number, e.header.hard_link_count), (5, 1));
@@ -162,7 +204,10 @@ mod tests {
     fn invalid_magic_rejected() {
         let mut buf = build_valid_mft_entry(FLAG_IN_USE, 0x1234, 0, 0);
         buf[0..4].copy_from_slice(b"XXXX");
-        assert!(matches!(parse_mft_entry(&buf).unwrap_err(), MftError::InvalidMagic { .. }));
+        assert!(matches!(
+            parse_mft_entry(&buf).unwrap_err(),
+            MftError::InvalidMagic { .. }
+        ));
     }
     #[test]
     fn flags_in_use_deleted_directory() {
@@ -170,12 +215,14 @@ mod tests {
         assert!(iu.header.is_in_use() && !iu.header.is_deleted() && !iu.header.is_directory());
         let d = parse_mft_entry(&build_valid_mft_entry(0, 0x1234, 0, 0)).unwrap();
         assert!(d.header.is_deleted() && !d.header.is_in_use());
-        let dir = parse_mft_entry(&build_valid_mft_entry(FLAG_IN_USE | FLAG_DIR, 0x1234, 0, 0)).unwrap();
+        let dir =
+            parse_mft_entry(&build_valid_mft_entry(FLAG_IN_USE | FLAG_DIR, 0x1234, 0, 0)).unwrap();
         assert!(dir.header.is_in_use() && dir.header.is_directory());
     }
     #[test]
     fn fixup_applied_restores_sector_tails() {
-        let e = parse_mft_entry(&build_valid_mft_entry(FLAG_IN_USE, 0x1234, 0xAABB, 0xCCDD)).unwrap();
+        let e =
+            parse_mft_entry(&build_valid_mft_entry(FLAG_IN_USE, 0x1234, 0xAABB, 0xCCDD)).unwrap();
         assert_eq!(&e.data[0x1FE..0x200], &0xAABBu16.to_le_bytes());
         assert_eq!(&e.data[0x3FE..0x400], &0xCCDDu16.to_le_bytes());
     }
@@ -186,26 +233,38 @@ mod tests {
         // Chunk 12 リファクタ後: `MftError::Fixup(FixupError::FixupMismatch { .. })` で伝播。
         assert!(matches!(
             parse_mft_entry(&buf).unwrap_err(),
-            MftError::Fixup(FixupError::FixupMismatch { sector: 1, expected: 0x1234, got: 0x9999 })
+            MftError::Fixup(FixupError::FixupMismatch {
+                sector: 1,
+                expected: 0x1234,
+                got: 0x9999
+            })
         ));
     }
     #[test]
     fn used_exceeds_allocated_rejected() {
         let mut buf = build_valid_mft_entry(FLAG_IN_USE, 0x1234, 0xAABB, 0xCCDD);
         buf[0x18..0x1C].copy_from_slice(&2048u32.to_le_bytes());
-        assert!(matches!(parse_mft_entry(&buf).unwrap_err(),
-            MftError::UsedExceedsAllocated { used: 2048, allocated: 1024 }));
+        assert!(matches!(
+            parse_mft_entry(&buf).unwrap_err(),
+            MftError::UsedExceedsAllocated {
+                used: 2048,
+                allocated: 1024
+            }
+        ));
     }
     #[test]
     fn buffer_too_small_rejected() {
-        assert!(matches!(parse_mft_entry(&[0u8; 10]).unwrap_err(),
-            MftError::BufferTooSmall { got: 10, need: 48 }));
+        assert!(matches!(
+            parse_mft_entry(&[0u8; 10]).unwrap_err(),
+            MftError::BufferTooSmall { got: 10, need: 48 }
+        ));
     }
 
     #[test]
     fn book_example_signature_0x0058_applies_fixup() {
         // Carrier Ch.13 例: USN=0x0058, USA size=3, record=1024, sector=512, fixup=0x0000 x2。
-        let e = parse_mft_entry(&build_valid_mft_entry(FLAG_IN_USE, 0x0058, 0x0000, 0x0000)).unwrap();
+        let e =
+            parse_mft_entry(&build_valid_mft_entry(FLAG_IN_USE, 0x0058, 0x0000, 0x0000)).unwrap();
         assert_eq!(&e.data[0x1FE..0x200], &[0x00, 0x00]);
         assert_eq!(&e.data[0x3FE..0x400], &[0x00, 0x00]);
         assert_eq!(e.header.usa_size, 3);
@@ -215,7 +274,10 @@ mod tests {
         // allocated_size=1024 なら正しい usa_size は 3。10 は破損疑い → InvalidUsaSize。
         let mut buf = build_valid_mft_entry(FLAG_IN_USE, 0x1234, 0, 0);
         buf[0x06..0x08].copy_from_slice(&10u16.to_le_bytes());
-        assert!(matches!(parse_mft_entry(&buf).unwrap_err(), MftError::InvalidUsaSize { size: 10 }));
+        assert!(matches!(
+            parse_mft_entry(&buf).unwrap_err(),
+            MftError::InvalidUsaSize { size: 10 }
+        ));
     }
     #[test]
     fn parses_2kb_entry_with_four_fixups() {
@@ -243,7 +305,8 @@ mod tests {
     #[test]
     fn usn_zero_is_accepted() {
         // USN=0 は未割り当てエントリで普通に起こる。全セクタ末尾も 0 なら正常に fixup される。
-        let e = parse_mft_entry(&build_valid_mft_entry(FLAG_IN_USE, 0x0000, 0xAABB, 0xCCDD)).unwrap();
+        let e =
+            parse_mft_entry(&build_valid_mft_entry(FLAG_IN_USE, 0x0000, 0xAABB, 0xCCDD)).unwrap();
         assert_eq!(&e.data[0x1FE..0x200], &0xAABBu16.to_le_bytes());
         assert_eq!(&e.data[0x3FE..0x400], &0xCCDDu16.to_le_bytes());
     }
@@ -255,7 +318,11 @@ mod tests {
         buf[0x3FE..0x400].copy_from_slice(&0xDEADu16.to_le_bytes());
         assert!(matches!(
             parse_mft_entry(&buf).unwrap_err(),
-            MftError::Fixup(FixupError::FixupMismatch { sector: 1, expected: 0x1234, got: 0xDEAD })
+            MftError::Fixup(FixupError::FixupMismatch {
+                sector: 1,
+                expected: 0x1234,
+                got: 0xDEAD
+            })
         ));
     }
 }
