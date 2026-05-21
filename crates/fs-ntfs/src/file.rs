@@ -114,6 +114,35 @@ impl NtfsFile {
     pub fn is_simple_deleted_user_file(&self) -> bool {
         self.is_deleted && self.is_user_file() && !self.is_compressed && !self.is_encrypted
     }
+    /// 名前が `$` で始まるか（システムファイルまたはゴミ箱内ファイル）。
+    ///
+    /// 注意: `$RECYCLE.BIN` 配下の削除済みユーザファイル（`$I*` / `$R*` 命名）も該当する。
+    /// このメソッドだけで「ユーザファイル除外」してはいけない。業務統合層がオプトインで
+    /// 使うフィルタ。関連 FR: FR-LIVE-05 (削除エントリ可視化)。
+    pub fn has_system_name_prefix(&self) -> bool {
+        self.name.starts_with('$')
+    }
+}
+
+impl From<&NtfsFile> for dds_wish_match::FileInfo {
+    /// `NtfsFile` を FS 非依存の [`dds_wish_match::FileInfo`] に変換する。
+    ///
+    /// `source_id` には `"NTFS#<record_index>"` 形式の識別子を設定し、復旧フェーズで
+    /// 原本 MFT エントリを再特定できるようにする。関連 FR: FR-REC-01 (目標優先抽出)。
+    fn from(file: &NtfsFile) -> Self {
+        dds_wish_match::FileInfo {
+            path: file.path.clone(),
+            name: file.name.clone(),
+            extension: file.extension(),
+            size: file.size,
+            created: file.created,
+            modified: file.modified,
+            accessed: file.accessed,
+            is_deleted: file.is_deleted,
+            is_directory: file.is_directory,
+            source_id: format!("NTFS#{}", file.record_index),
+        }
+    }
 }
 
 /// 指定 MFT エントリから [`NtfsFile`] を構築する内部ヘルパ。
@@ -316,6 +345,7 @@ where
 mod tests {
     use super::*;
     use crate::attributes::FileAttributes as FA;
+    use chrono::TimeZone;
 
     fn make_file(
         record_index: u64,
@@ -436,5 +466,57 @@ mod tests {
         }
         .is_resident());
         assert!(!FileContentRef::None.is_resident());
+    }
+
+    // Chunk 15: NtfsFile 業務統合層向け拡張のテスト ----------------------------
+
+    #[test]
+    fn has_system_name_prefix_true_for_mft() {
+        let f = make_file(0, "$MFT", false, false, false, false);
+        assert!(f.has_system_name_prefix());
+    }
+
+    #[test]
+    fn has_system_name_prefix_true_for_recycle_bin_entries() {
+        // $RECYCLE.BIN 配下の削除済みファイル命名規約 ($I* / $R*) も該当。
+        let f_i = make_file(200, "$IABC123.docx", false, false, false, false);
+        let f_r = make_file(201, "$RABC123.docx", false, false, false, false);
+        assert!(f_i.has_system_name_prefix());
+        assert!(f_r.has_system_name_prefix());
+    }
+
+    #[test]
+    fn has_system_name_prefix_false_for_normal_files() {
+        let f = make_file(100, "report.docx", false, false, false, false);
+        assert!(!f.has_system_name_prefix());
+    }
+
+    #[test]
+    fn from_ntfs_file_to_file_info_preserves_all_fields() {
+        let mut ntfs = make_file(67, "report.docx", false, false, false, false);
+        ntfs.path = "\\Users\\Chou\\report.docx".to_string();
+        ntfs.size = 4096;
+        let ts = chrono::Utc.with_ymd_and_hms(2026, 5, 19, 12, 0, 0).unwrap();
+        ntfs.created = Some(ts);
+        ntfs.modified = Some(ts);
+        ntfs.accessed = Some(ts);
+        let fi: dds_wish_match::FileInfo = (&ntfs).into();
+        assert_eq!(fi.path, "\\Users\\Chou\\report.docx");
+        assert_eq!(fi.name, "report.docx");
+        assert_eq!(fi.extension, Some("docx".to_string()));
+        assert_eq!(fi.size, 4096);
+        assert_eq!(fi.created, Some(ts));
+        assert_eq!(fi.modified, Some(ts));
+        assert_eq!(fi.accessed, Some(ts));
+        assert!(!fi.is_deleted);
+        assert!(!fi.is_directory);
+    }
+
+    #[test]
+    fn from_ntfs_file_sets_correct_source_id() {
+        let ntfs = make_file(67, "foo.txt", false, true, false, false);
+        let fi: dds_wish_match::FileInfo = (&ntfs).into();
+        assert_eq!(fi.source_id, "NTFS#67");
+        assert!(fi.is_deleted);
     }
 }

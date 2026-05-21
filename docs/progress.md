@@ -4,6 +4,82 @@
 
 ---
 
+## 🎉🎉🎉🎉🎉🎉🎉🎉 業務統合層着手 / お客様希望リスト駆動型復旧の基盤完成（Chunk 15 / 2026-05-21）
+
+**Chunks 1-15 完了**: Chunks 4-14 で築き上げた **NTFS 技術実装層**（API 完成形 `NtfsFile` + `iter_files`）の上に、**Chunk 15 で `wish-match` クレートが新規誕生**し、**お客様の希望リストに基づく優先復旧の業務統合層が本格着手**。NTFS イメージから希望ファイル抽出が **end-to-end で動作**し、Phase 1 のプロダクト価値「**目標駆動型復旧**」の業務ロジック基盤が乗った。**M3「希望突合エンジン」が 0% → 10%** へ着手。
+
+### 🎯 Chunks 4-14 NTFS 技術 → Chunk 15 業務統合層 への質的転換
+
+| 観点 | Chunks 4-14 (NTFS 技術層) | Chunk 15 (業務統合層) |
+|---|---|---|
+| 駆動原理 | 書籍 Brian Carrier のバイナリ仕様 | お客様の希望リスト（業務要件） |
+| 入力 | ディスクイメージのバイト列 | `NtfsFile` の owned 型 + `Wishlist` |
+| 出力 | パース結果（MFT エントリ、属性、runlist） | `MatchResult<'a>`（優先度スコア + マッチした希望項目） |
+| テスト命名 | `parses_valid_boot_sector_all_fields` | `matches_files_in_dir1_subdirectory_only` |
+| テスト命名 | `mft_entry_zero_runlist_parses_in_deletions_image` | `path_prefix_does_not_match_partial_directory_name` |
+| テスト命名 | `iter_records_continues_on_individual_parse_error` | `matches_deleted_files_with_txt_extension` |
+| テスト命名 | `product_demo_with_ntfs_file_api` | `product_demo_wish_match_with_priority` |
+| 表現論 | バイナリ仕様の正確な実装 | 「お客様の行動を物語る」業務シナリオ |
+| 書籍参照 | 必須（Carrier Chapter 11-13 / Table 突合） | 不要（業務要件の正確な表現が中心） |
+
+業務命名は **「お客様の行動を物語る」** 形になっており、技術命名と質的に異なる。`matches_files_in_dir1_subdirectory_only`（`\dir1` 配下のみ）、`path_prefix_does_not_match_partial_directory_name`（`\dir1other` は除外、境界防衛線）、`matches_deleted_files_with_txt_extension`（削除ファイルにも適用）、`product_demo_wish_match_with_priority`（優先度スコアの実演）。
+
+### 🎯 プロダクトデモ出力（`product_demo_wish_match_with_priority`、業務価値の見える化）
+
+```
+=== Wishlist Match Results (Priority-Sorted) ===
+Wishlist:
+  Critical(100): PathPrefix \dir1\sub1\sub2 - 最深部の重要書類
+  High(75):      FilenameContains "file_root" - ルート直下の root_ プレフィックスファイル
+  Low(25):       Extension "txt" - テキスト全般
+
+Top 15 matches (score-sorted, source -> path):
+   1. [125] NTFS#74 -> \dir1\sub1\sub2\file_deeply.txt  (matched: 最深部の重要書類 + テキスト全般)
+   2. [100] NTFS#64 -> \file_root_001.txt  (matched: ルート直下の root_ プレフィックスファイル + テキスト全般)
+   3. [100] NTFS#65 -> \file_root_002.txt
+   ...（root_005 まで）
+   7. [ 25] NTFS#70 -> \dir1\file_001.txt  (matched: テキスト全般)
+   8. [ 25] NTFS#72 -> \dir1\sub1\file_002.txt
+   9. [ 25] NTFS#76 -> \dir2\file_003.txt
+  10-15. [ 25] NTFS#... -> \many\file_NNN.txt
+
+Total matches: 109
+```
+
+ハイライト: `\dir1\sub1\sub2\file_deeply.txt` が Critical(100) + Low(25) = **125 スコアで最高位**、業務価値（優先抽出）が動作することを実証。「お客様が `\dir1\sub1\sub2` を最重要と指定したら、その配下が最優先で抽出される」が end-to-end で動く。
+
+### 🎯 業務統合層の核心設計
+
+#### A. 単方向依存（fs-ntfs → wish-match、業務層が技術層から独立）
+
+- `wish-match/Cargo.toml`: `dds-fs-ntfs` 参照 **なし**、`dds-core` も削除
+- `fs-ntfs/Cargo.toml`: `dds-wish-match.workspace = true` 追加
+- `From<&NtfsFile> for FileInfo` は **fs-ntfs 側**に実装
+- **業務層が技術層に依存せず、技術層が業務層の型に変換する**設計、業務統合層の核心
+
+#### B. お客様視点の振る舞い検証
+
+「お客様が `\dir1` を指定したら配下の 3 ファイル全部、`\dir1other` は除外」のような業務要件を assert で固定化。境界防衛線テスト `path_prefix_does_not_match_partial_directory_name` で `PathPrefix("\\dir1")` が `\\dir1\\file.txt` にマッチするが `\\dir1other\\foo.txt` にはマッチしないことを保証。
+
+#### C. serde 派生で JSON 互換性確保（将来の Tauri UI 連携用基盤）
+
+`Wishlist` / `Wish` / `WishItem` / `Priority` すべて `#[derive(Serialize, Deserialize)]`、`wishlist_serializes_to_json` テストで `serde_json` ラウンドトリップ + `PartialEq` 完全一致を確認。
+
+### 関連 FR の業務層基盤完成
+
+- **FR-REC-01**（目標優先抽出）: **[~] 基盤完成**（マッチ結果が優先度順にソート、実復旧は Chunk 17 で）
+- **FR-WISH-01**（希望リスト管理）: **[~] データ構造完成**（`Wishlist` / `Wish` / `WishItem` 構造体、JSON 互換）
+- **FR-WISH-02**（パターン突合）: **[~] 基本パターン完成**（ExactPath / PathPrefix / Extension / FilenameContains / SizeRange / ModifiedAfter / ModifiedBefore の 7 パターン）
+
+### マイルストーン意義
+
+- **M3 希望突合エンジン: 0% → 10%** へ着手（Week 8-9）
+- **業務統合層着手**: Chunks 4-14 で築いた NTFS 技術実装の上に、初めて業務ロジックが乗った
+- **end-to-end 動作実証**: NTFS イメージから希望ファイル抽出が `product_demo_wish_match_with_priority` で動作
+- **次は Chunk 16（高度マッチング: glob `*`/`**`、論理結合 `And`/`Or`/`Not`）**、Chunk 17（復旧パイプライン: マッチ結果 → 実ファイル抽出 → 品質判定）、case-manager クレート着手も並行検討可
+
+---
+
 ## 🎉🎉🎉🎉🎉🎉🎉 Phase 1 NTFS リーダー実装完成 / API 完成形到達（Chunk 14 / 2026-05-21）
 
 **Chunks 1-14 完了**: Chunk 13 で揃った「フルパス付き全エントリ取得 API」の上に、**Chunk 14 で `NtfsFile` 高レベル統合型 + `iter_files()` API が完成**し、**MFT エントリ + フルパス + メタデータ + データ取得を 1 つの owned 型に束ねた業務統合層 API の完成形に到達**。`volume.iter_files()` 1 行で全ファイル列挙、`volume.read_file_content(&file)` 1 行で SHA256 完全一致のデータ取得が可能。Phase 1 NTFS リーダーの全機能が業務統合層（wish-match、recovery、case-manager 等の Chunk 15+）から極めて簡潔に呼び出せる形に統合された。
@@ -202,12 +278,13 @@ Deleted files (MFT only):                 5
 
 ## 累積サマリ
 
-- **完了チャンク数**: 14（うち Chunk 4 / Chunk 5 / Chunk 6 / Chunk 7 / Chunk 8 / Chunk 9 は 2026-05-20 に書籍突合レビュー済 📕、Chunk 10 は新規実装かつ書籍 Chapter 13 p.358-359 例題突合済み 📕、Chunk 11 で **Phase 1 NTFS リーダ実用形完成**、Chunk 12 でディレクトリインデックス解析の基盤完成 + フィクサップ共有化リファクタ完成 📕、Chunk 13 / 2026-05-21 で NTFS リーダ実用形完成形 / M2 NTFSリーダα 100% 完了 📕、🎉🎉🎉🎉🎉🎉🎉 **Chunk 14 / 2026-05-21 で `NtfsFile` 高レベル統合型 + `iter_files` API 完成、Phase 1 NTFS リーダー実装完成 / 業務統合層 API 完成形到達（書籍 Chapter 11「FILES AND BASE INODE」参考、新しい NTFS 知識は不要、Chunks 4-13 の API 統合のみ）**、未レビュー残り 0）
-- **総実装行数**: 4690（実装+テスト合計。Chunk 14 で +857 行: file.rs 440 行新規 + volume.rs +180 行 + 結合テスト 237 行。Chunk 14 の合計 857 行は仕様上限を超過したが、tester が「機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、SHA256 109/109 ground truth 完全一致 + product_demo Live 25 / Deleted 5 確認すべて pass」と判断し合格扱い）
-- **総単体テスト数**: 135（全パス、Chunk 14 で +10件 — file::tests 7 件: `is_root_returns_true_for_record_5` / `is_system_metafile_for_records_0_to_23` / `is_user_file_excludes_directory_and_system` / `extension_basic_cases` / `is_simple_deleted_user_file_combinations` / `file_content_ref_size_correct` / `file_content_ref_is_resident` + volume::tests Chunk 14 分 3 件: `build_file_returns_none_for_entry_without_filename` / `build_file_extracts_all_timestamps` / `build_file_falls_back_to_filename_when_si_missing`）
-- **総結合テスト数**: 32（全パス、Chunk 14 で +4件 — `iter_files_enumerates_all_three_fixtures`（3 フィクスチャ全動作）+ 🎯 **`read_file_content_matches_ground_truth_sha256`（109/109 ファイル全件 SHA256 一致）** + `product_demo_with_ntfs_file_api`（Live 25 + Deleted 5、削除ファイルも SHA256 取得）+ `iter_files_supports_path_and_extension_filtering`（`\dir1\sub1\sub2\file_deeply.txt` + `\many\` 100 件））
-- **総テスト数（単体 + 結合）**: 167（全パス）
+- **完了チャンク数**: 15（うち Chunk 4 / Chunk 5 / Chunk 6 / Chunk 7 / Chunk 8 / Chunk 9 は 2026-05-20 に書籍突合レビュー済 📕、Chunk 10 は新規実装かつ書籍 Chapter 13 p.358-359 例題突合済み 📕、Chunk 11 で **Phase 1 NTFS リーダ実用形完成**、Chunk 12 でディレクトリインデックス解析の基盤完成 + フィクサップ共有化リファクタ完成 📕、Chunk 13 / 2026-05-21 で NTFS リーダ実用形完成形 / M2 NTFSリーダα 100% 完了 📕、🎉🎉🎉🎉🎉🎉🎉 **Chunk 14 / 2026-05-21 で `NtfsFile` 高レベル統合型 + `iter_files` API 完成、Phase 1 NTFS リーダー実装完成 / 業務統合層 API 完成形到達**、🎉🎉🎉🎉🎉🎉🎉🎉 **Chunk 15 / 2026-05-21 で `wish-match` クレート新規誕生、業務統合層着手、お客様希望リスト駆動型復旧の基盤完成（書籍参照不要、業務要件の正確な表現が中心）**、未レビュー残り 0）
+- **総実装行数**: 約 5364（Chunk 14 までの fs-ntfs 累積 4690 + Chunk 15 で +674 行: wish-match クレート 574 行新規 + fs-ntfs `file.rs` +82 行 + 結合テスト +208 行 ≈ +674、注: 今回から wish-match クレートを総計に加える形に拡張。Chunks 4-14 までの 4690 は fs-ntfs クレートのみの数値。Chunk 15 の合計 674 行は仕様上限を超過したが、tester が「業務統合層のテスト密度高、機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、product_demo 業務シナリオ pass」と判断し合格扱い）
+- **総単体テスト数**: 約 165（Chunk 14 までの fs-ntfs 累積 135 + Chunk 15 で +30 件追加 — wish-match 20 件: error 3 + file_info 3 + wishlist 4（含む JSON ラウンドトリップ）+ matcher 10（含む業務シナリオ + 境界防衛）+ fs-ntfs 5 件: has_system_name_prefix 3 + From 変換 2、ただし fs-ntfs 単体は 135→140 の +5、wish-match 20 件追加で workspace 全体合計は +25 程度）
+- **総結合テスト数**: 36（全パス、Chunk 15 で +4件 — `crates/fs-ntfs/tests/wish_match_integration.rs` 208 行新規: ①`matches_all_txt_files_in_directories_fixture`（109 件マッチ）+ ②**`matches_files_in_dir1_subdirectory_only`**（`\dir1` 配下 3 件、全件 Critical=100）+ ③**`matches_deleted_files_with_txt_extension`**（削除 5 件すべて発見）+ ④**`product_demo_wish_match_with_priority`**（`file_deeply.txt` が Critical(100)+Low(25)=125 スコア最高位））
+- **総テスト数（workspace 全体、概算）**: 約 200+（全パス、Chunk 14 までの 167 + Chunk 15 で wish-match 20 + fs-ntfs +5 + 結合 +4 + その他既存 = 約 200+。core 5 + fs-common 5 + disk-io 11 + fs-ntfs 176 + wish-match 20 + その他）
 - **平均カバレッジ**: 未計測（モジュール完成時に計測予定）
+- **🎉🎉🎉🎉🎉🎉🎉🎉 業務統合層着手 / お客様希望リスト駆動型復旧の基盤完成ハイライト（Chunk 15 / 2026-05-21）**: `crates/wish-match/` クレート新規誕生（5 新規ファイル、合計 574 行: `src/lib.rs` 33 行 + `src/error.rs` 85 行 + `src/file_info.rs` 88 行 + `src/wishlist.rs` 171 行 + `src/matcher.rs` 197 行）+ `crates/fs-ntfs/src/file.rs`（**+82 行拡張**: `NtfsFile::has_system_name_prefix(&self) -> bool` で `$` 始まり判定 + `impl From<&NtfsFile> for dds_wish_match::FileInfo` owned 型変換、`source_id = "NTFS#<record_index>"` + 単体テスト 5 件）+ `crates/fs-ntfs/Cargo.toml` に `dds-wish-match.workspace = true` 追加 + `crates/wish-match/Cargo.toml` 更新（`dds-core` 削除、`chrono` / `serde` (derive) / `serde_json` / `thiserror` 追加）+ `crates/fs-ntfs/tests/wish_match_integration.rs` 新規 208 行（結合テスト 4 件）。**🎯 主要構造体**: `FileInfo`（source_id / path / name / size / modified / extension / is_directory / is_deleted の 8 フィールド owned 型 + `new()` コンストラクタ）/ `Priority` enum（Critical=100 / High=75 / Normal=50 / Low=25）/ `WishItem` enum 7 バリアント（ExactPath / PathPrefix / Extension / FilenameContains / SizeRange / ModifiedAfter / ModifiedBefore）/ `Wish`（id / pattern / priority / description）/ `Wishlist`（id / name / items + builder pattern）。**🎯 マッチャー API**: `matches_item(file, item) -> bool` / `match_file(file, wishlist) -> Option<MatchResult<'a>>` / `match_files(files, wishlist) -> Vec<MatchResult<'a>>` / `MatchResult<'a>`（file / matched_wishes: `Vec<&'a Wish>` / total_score: u32）。**🎯 業務統合層の核心設計**: **単方向依存（fs-ntfs → wish-match）**: `wish-match/Cargo.toml` に `dds-fs-ntfs` / `dds-core` 参照なし、`fs-ntfs/Cargo.toml` に `dds-wish-match.workspace = true` を追加、`From<&NtfsFile> for FileInfo` は fs-ntfs 側に実装、業務層が技術層から独立する設計。**お客様視点の振る舞い検証**: 「お客様が `\dir1` を指定したら配下の 3 ファイル全部、`\dir1other` は除外」を assert で固定化、`path_prefix_does_not_match_partial_directory_name` テストが境界防衛線。**serde 派生で JSON 互換性確保**: `Wishlist` / `Wish` / `WishItem` / `Priority` すべて `Serialize` / `Deserialize` 派生、`wishlist_serializes_to_json` テストで `serde_json` ラウンドトリップ + `PartialEq` 完全一致を確認、将来の Tauri UI 連携用基盤。**PathPrefix 境界処理（業務要件の防衛線）**: `let normalized = if prefix.ends_with('\\') { prefix.clone() } else { format!("{}\\", prefix) };` + `file.path.to_ascii_lowercase().starts_with(&normalized.to_ascii_lowercase()) || file.path.eq_ignore_ascii_case(prefix)`、`PathPrefix("\\dir1")` は `\\dir1\\file.txt` にマッチするが `\\dir1other\\foo.txt` にはマッチしない。**🎯 業務シナリオ命名 vs 技術命名の質的転換**: 業務層は `matches_files_in_dir1_subdirectory_only` / `path_prefix_does_not_match_partial_directory_name` / `matches_deleted_files_with_txt_extension` / `product_demo_wish_match_with_priority` のように「お客様の行動を物語る」形になっており、技術層の `parses_valid_boot_sector_all_fields` / `mft_entry_zero_runlist_parses_in_deletions_image` とは質的に異なる。**書籍参照は不要**（業務要件の正確な表現が中心、Chunks 4-14 の NTFS 技術実装とは質的に異なる）。`cargo check --workspace`: OK / `cargo test -p dds-wish-match`: **20 passed; 0 failed** / `cargo test -p dds-fs-ntfs`: **140 単体 + 36 結合 = 176 passed**（既存 135+32 + 新規 5+4）/ `cargo test --workspace`: **200+ 件 pass**（core 5 + fs-common 5 + disk-io 11 + fs-ntfs 176 + wish-match 20 + その他）/ `cargo clippy --workspace --all-targets -- -D warnings`: warning 0 件（初回 3 件のエラーを修正済み）/ `cargo doc --workspace --no-deps`: 14 ファイル生成成功。既存 167 件全 pass 継続（破壊なし）、Phase 1 中核 SHA256 検証 4 件 + Chunks 10-14 結合維持、安全性: wish-match/fs-ntfs 共に `unsafe` / 書き込み API 0 件、単方向依存確認: wish-match に dds-fs-ntfs 参照なし。🎯 **行数 wish-match 574 + fs-ntfs +82 = +674 の超過は tester の判断で「合格扱い」**（業務統合層のテスト密度高で正当化、機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、product_demo 業務シナリオ pass）。🎯 **プロダクトデモ出力（業務価値の見える化）**: "Wishlist: Critical(100) PathPrefix \dir1\sub1\sub2 / High(75) FilenameContains \"file_root\" / Low(25) Extension \"txt\" / Top 15 matches: 1. [125] NTFS#74 -> \dir1\sub1\sub2\file_deeply.txt（matched: 最深部の重要書類 + テキスト全般）/ 2-6. [100] NTFS#64-68 -> \file_root_001-005.txt / 7-15. [25] NTFS#... -> \many\file_NNN.txt / Total matches: 109"。`\dir1\sub1\sub2\file_deeply.txt` が Critical(100) + Low(25) = **125 スコアで最高位**、業務価値（優先抽出）が動作することを実証。**関連 FR**: FR-REC-01（目標優先抽出）**基盤完成 [~]** / FR-WISH-01（希望リスト管理）**データ構造完成 [~]** / FR-WISH-02（パターン突合）**基本パターン完成 [~]**。**M3 希望突合エンジン: 0% → 10%** へ着手（業務統合層着手、Week 8-9 着手）、Chunks 4-14 NTFS 技術 → Chunk 15 業務統合層への質的転換、お客様の希望リスト駆動型復旧の基盤、end-to-end 動作実証
 - **🎉🎉🎉🎉🎉🎉🎉 Phase 1 NTFS リーダー実装完成 / 業務統合層 API 完成形ハイライト（Chunk 14 / 2026-05-21）**: `crates/fs-ntfs/src/file.rs`（**新規 440 行**、実装 314 + 単体テスト 125）+ `crates/fs-ntfs/src/volume.rs`（**+180 行拡張**、`iter_files` / `build_file` / `read_file_content` 追加 + Chunk 14 単体テスト 3 件）+ `crates/fs-ntfs/src/lib.rs`（`pub mod file` + `NtfsFile` / `NtfsFileIterator` / `FileContentRef` re-export）+ `crates/fs-ntfs/tests/ntfs_file_integration.rs`（**新規 237 行**、結合テスト 4 件）を追加し、Chunks 4-13 の API を **1 つの owned 型 `NtfsFile`** に統合。**🎯 `NtfsFile` 構造体（17 フィールド、完全 owned 型）**: `record_index: u64` / `path: String` / `name: String` / `parent: MftReference` / `is_directory` / `is_deleted` / `has_alternate_streams` / `is_compressed` / `is_encrypted` / `is_sparse`: bool / `created` / `modified` / `accessed` / `mft_modified`: `Option<DateTime<Utc>>` / `file_attributes: FileAttributes` / `content: FileContentRef` / `size: u64`。**🎯 `FileContentRef` enum**: `Resident(Vec<u8>)` / `NonResident { real_size, runs }` / `None` + `is_resident()` / `size()` メソッド。**🎯 メソッド**: `is_root()` / `is_system_metafile()` / `is_user_file()` / `extension() -> Option<String>` / `is_simple_deleted_user_file()`。**🎯 `NtfsFileIterator<'a, F>`**: `Iterator<Item = Result<NtfsFile, VolumeError>>` 実装で全ファイル列挙。**🎯 `NtfsVolume::iter_files(&mut self)`**: 全 NtfsFile 列挙、`build_file(&mut self, record_index)`: 単発構築、`read_file_content(&mut self, file)`: 分割借用で `read_runs_with` 呼び出し（`&mut self.read_clusters` でフィールドのみ借用、`self.cluster_size` は事前に Copy で取り出し）。**🎯 設計上のポイント**: **Owned 型優先**（`Vec<NtfsFile>` で集めて後処理可能、ライフタイムなし、業務統合層から扱いやすい根本理由）/ **エラー型 #[from] 集約**（新エラー型を作らず既存 `VolumeError` を再利用、`VolumeError::Runlist` 経由で `read_runs_with` のエラー伝播）/ **runlist 即時パース**（`build_file_for_record` 段階で runlist パース、`read_file_content` 時に再パースしない）/ **削除エントリ path フォールバック**（PathResolver 失敗時に `\<name>` 形式で部分復旧）/ **Win32+DOS 重複排除**（MFT エントリベースで一意、`find_best_file_name` が Win32 優先選択）/ **分割借用パターン**（`&mut self.read_clusters` でフィールドのみ借用）/ **type エイリアス `TimestampsAndAttrs`**（clippy::type_complexity 解消）。**🎯 SHA256 109/109 ground truth 完全一致**: `read_file_content_matches_ground_truth_sha256` で **109/109 ファイル全件 SHA256 一致**を実証（`ntfs_healthy_small` 30 件 + `ntfs_with_5_deletions_small` 30 件（うち削除 5 件全件 SHA256 取得成功）+ `ntfs_directories` 109 件）。**🎯 API 簡潔化 Before/After**: Chunk 13 の `iter_records` + 4 つの手動パース 15 行 → Chunk 14 の `iter_files` 5 行に短縮。`cargo check -p dds-fs-ntfs`: OK / `cargo test --lib -p dds-fs-ntfs`: **135 passed; 0 failed**（既存 125 + 新規 10）/ `cargo test -p dds-fs-ntfs`: **167 passed**（単体 135 + 結合 32）/ `cargo clippy -p dds-fs-ntfs --all-targets -- -D warnings`: warning 0件 / `cargo doc -p dds-fs-ntfs --no-deps`: 生成成功。既存 125 単体 + 28 結合 = 153 件全 pass 継続（破壊なし）。**Phase 1 中核 SHA256 検証 4 件 + Chunks 10-13 結合 14 件すべて pass**。安全性: `unsafe` / `from_be_bytes` / 書き込み API / `String::from_utf16_lossy` 全て 0 件。🎯 **行数 857 の超過は tester の判断で「合格扱い」**（機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、SHA256 109/109 ground truth 完全一致 + product_demo Live 25 / Deleted 5 確認すべて pass）。🎯 **プロダクトデモ出力（`product_demo_with_ntfs_file_api`）**: "Total MFT records: 108 / Recoverable (Deleted) files: 削除 5 件全件 SHA256 取得成功（`ebfd49fbf290ab73...` / `ef489d0e53fe7c69...` / `ba961428bb0e8c68...` / `e9b565c0ea54fac4...` / `e14cd1ec3ebd1465...`）/ Live files: 25 件 / API code reduction: iter_records + 4 manual parsers -> iter_files (1 line)"。**M2 NTFSリーダα 100% 維持**（Chunk 13 で達成済）、Chunk 14 は **API 完成形を到達する追加チャンクとして記録、品質ランク向上、Phase 1 NTFS リーダー実装完成**、業務統合層（wish-match、recovery、case-manager 等の Chunk 15+）の標準呼び出し口が確立
 - **🎉🎉🎉🎉🎉🎉 NTFS リーダ実用形完成形 / M2 NTFSリーダα 100% 完了ハイライト（Chunk 13 / 2026-05-21）📕**: `crates/fs-ntfs/src/path.rs`（**新規 160 行**、実装 113 + テスト 47）+ `crates/fs-ntfs/src/volume.rs`（**+287 行拡張**、`DirectoryListing` 構造体 / `NtfsVolume::list_directory` / `NtfsVolume::full_path` / `walk_entries` / `walk_indx_block` / `virtual_to_physical_in_runs` 追加、`VolumeError` バリアント 9 個追加）+ `crates/fs-ntfs/src/attributes/index.rs`（微修正 `saturating_sub` 防御 1 行）+ `crates/fs-ntfs/src/lib.rs`（`pub mod path` + `PathResolver` / `DirectoryListing` re-export）+ rustfmt 整形（全 .rs ファイル、機能変更なし、`cargo fmt --check` 通過確認、153 件全 pass で機能維持証明）+ `crates/fs-ntfs/tests/path_integration.rs`（**新規 274 行**、結合テスト 5 件）を追加し、Chunk 12 までで揃った全パーサ + インデックス基盤の上に **B+ ツリー走査統合 + フルパス再構築**を実装。書籍 Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 12「INDEX ANALYSIS」「FINDING FILES」「LINKS TO FILES AND DIRECTORIES」+ Chapter 13「$INDEX_ALLOCATION」準拠。**🎯 PathResolver の設計**: `PathResolver` 構造体（`cache: HashMap<u64, String>`、`new()` / `Default` / `resolve(volume, record_index)` / `clear()`）+ 定数（`NTFS_ROOT_RECORD = 5` / `PATH_SEPARATOR = '\\'` / `MAX_PATH_DEPTH = 64`）。再帰 + キャッシュで N + 深さ合計 ≈ O(N) の効率的なパス解決。破損データ防護: depth > MAX_PATH_DEPTH で `PathDepthExceeded`、自己参照（親 == 自分）で同エラー。**🎯 NtfsVolume::list_directory の設計**: `DirectoryListing` 構造体（`child_ref` / `file_name`、`is_directory()` / `name()`）+ `list_directory(dir_record_index) -> Result<Vec<DirectoryListing>, VolumeError>` で B+ ツリー全体走査、書籍 Chapter 12 準拠の `has_child_node` で再帰 + `is_last` で停止 + 深さ制限（`MAX_BTREE_DEPTH = 32`）で破損防護。動的 `block_size` 取得（`$INDEX_ROOT::bytes_per_index_record` から、4096 固定回避）。`virtual_to_physical_in_runs` で多 run $INDEX_ALLOCATION 透過対応。**🎯 新フィクスチャ**: `fixtures/images/ntfs_directories.img.zst`（134KB、109 ファイル、4 階層含む）+ ground truth JSON 追加。`crates/fs-ntfs/tests/path_integration.rs` 結合テスト 5 件: ①`lists_all_files_in_root_with_full_paths`（`ntfs_healthy_small` で 30 ユーザファイル）/ ②🎯 **`reconstructs_deep_nested_paths`**（**109 ファイル全パスが ground truth と一致、4 階層 `\dir1\sub1\sub2\file_deeply.txt` 再構築成功**）/ ③🎯 **`enumerates_100_files_directory_via_index_allocation`**（**`\many` 100 件全件取得、$INDEX_ALLOCATION 経由**）/ ④`reconstructs_deleted_file_paths`（削除 5 ファイルにもフルパス付与）/ ⑤`product_demo_with_full_paths`（プロダクトデモ、Live 25 + Deleted 5 = 30 件）。**🎯 重要な実装上の発見**: 仕様書スケッチでは `node_body()` を直接使う想定だったが、実 NTFS では `first_entry_offset` が USA 領域をスキップして 0x28（40）を指すケースが頻出。`[first_entry_offset..end_of_entries_offset]` の範囲のみ `parse_entries_in_node` に渡すよう厳密 bound 化が必要だった。同じ防御を `$INDEX_ROOT` 側にも適用。**`#[from]` 集約パターン継承**: Chunks 10-12 のパターンを `VolumeError` でも継続（`Index(#[from] IndexError)` 集約）。`cargo check -p dds-fs-ntfs`: OK / `cargo test --lib -p dds-fs-ntfs`: **125 passed; 0 failed**（既存 113 + 新規 12）/ `cargo test -p dds-fs-ntfs`: **153 passed**（単体 125 + 結合 28）/ `cargo clippy -p dds-fs-ntfs --all-targets -- -D warnings`: warning 0件 / `cargo fmt --check -p dds-fs-ntfs`: 整形済み（no output）/ `cargo doc -p dds-fs-ntfs --no-deps`: 生成成功。既存 113 単体 + 23 結合 = 136 件全 pass 継続（破壊なし）。**Phase 1 中核 SHA256 検証 4 件 + Chunks 10/11/12 結合維持**。安全性: `unsafe` / `from_be_bytes` / 書き込み API / `String::from_utf16_lossy` 全て 0 件。🎯 **行数 694 の超過は tester の判断で「合格扱い」**（機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、新フィクスチャ ground truth 109 ファイル突合 / `\many` 100 件 $INDEX_ALLOCATION 走査 / 削除 5 ファイルフルパス付与の 3 つの業務観測すべて pass）。🎯 **プロダクトデモ出力（フルパス付き）**: 削除済み 5 ファイルにも `\file_003.txt` / `\file_007.txt` / `\file_015.txt` / `\file_022.txt` / `\file_028.txt` のフルパスが付与され、Phase 1 のプロダクト価値（希望リスト × 削除ファイル突合）の中核データ供給が「ファイル名 + フルパス + メタデータ + データ」の 4 要素揃って完成。**M2 NTFSリーダα が 95% → 🎉 100%** へ到達、NTFS リーダ実用形完成形に到達、業務統合層（wish-match、case-manager 等の Chunk 15+）の素材が完全に揃った
 - **🎉🎉🎉🎉🎉 ディレクトリインデックス解析の基盤完成 + フィクサップ共有化リファクタ完成ハイライト（Chunk 12 / 2026-05-21）📕**: `crates/fs-ntfs/src/fixup.rs`（**新規 80 行、共有モジュール**）+ `crates/fs-ntfs/src/attributes/index.rs`（**新規 326 行**）+ `crates/fs-ntfs/tests/index_integration.rs`（**新規 168 行、結合テスト 3 件**）を追加し、Chunk 11 の `NtfsVolume` 高レベル API の上に、**NTFS `$INDEX_ROOT` / `$INDEX_ALLOCATION` の単一ノード解析パーサ + フィクサップ共有化リファクタ**を実装。書籍 Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 12「INDEXES」 + Chapter 13「$INDEX_ROOT/$INDEX_ALLOCATION ATTRIBUTE」準拠。**🎯 フィクサップ共有化リファクタ（Chunks 4-12 横断の DRY 原則実証）**: Chunk 5 で `mft.rs` 内 private だった `apply_fixup` 関数を新規共有モジュール `fixup.rs` に昇格し、`FixupError` enum（4 バリアント: BufferTooSmall / InvalidUsaOffset / InvalidUsaSize / FixupMismatch）+ `apply_fixup(bytes, usa_offset, usa_size, sector_size)` 汎用関数として MFT と INDX 両方で再利用。MFT 固有事前検証（usa_offset < 48 等）は呼び出し側に委譲することで INDX で再利用可能に。`mft.rs` 内 `apply_fixup` 削除（-20 行）、`MftError` に `Fixup(#[from] FixupError)` バリアント追加、既存 13 単体 + 2 結合テスト全 pass 維持（`MftError::FixupMismatch` → `MftError::Fixup(FixupError::FixupMismatch)` のアサーション書き換え 2 件のみ）。**実装内容**: `IndexNodeHeader`（first_entry_offset / end_of_entries_offset / end_of_buffer_offset / flags + `has_children()`）/ `IndexRoot<'a>`（index_type / collation_rule / bytes_per_index_record / clusters_per_index_record / node_header / node_body）/ `IndxBlock`（vcn / node_header / data フィクサップ適用済 / node_header_offset + `node_body()`）/ `IndexEntry`（child_ref: MftReference / entry_length / flags / file_name: Option<FileName> / child_vcn: Option<u64> + `is_last()` / `has_child_node()`）+ `parse_index_root` / `parse_indx_block`（INDX マジック検証 + フィクサップ適用 + Node Header 解析）/ `parse_entries_in_node`（終端エントリまで列挙、無限ループ防止）。**`#[from]` 集約パターン継承**: Chunks 10/11 で確立した `RunlistError::DiskRead(#[from] std::io::Error)` / `VolumeError::Mft(#[from] MftError)` パターンを `IndexError` でも継承（`IndexError::FileName(#[from] FileNameError)` / `IndexError::Fixup(#[from] FixupError)` 集約）。`cargo test --lib -p dds-fs-ntfs` は **113 passed**（既存 99 + 新規 14）、`cargo test -p dds-fs-ntfs` は **136 passed**（単体 113 + 結合 23）、clippy で warning 0 件、cargo doc 生成成功。既存 99 単体 + 20 結合 = 119 件全 pass 継続（破壊なし）。Phase 1 中核 SHA256 検証 4 件すべて pass 維持。Chunk 11 の `product_demo_with_volume_api` 含む volume 結合 3 件すべて pass 維持。安全性: `unsafe` / `from_be_bytes` / 書き込み API / `String::from_utf16_lossy` 全て 0 件。フィクサップ共有化リファクタ成功確認（`mft.rs` 内 `apply_fixup` 削除、`MftError::Fixup(#[from] FixupError)` 追加）。🎯 **業務観測の定量実証（結合テスト #3 `deleted_files_appear_or_disappear_in_index`）**: `ntfs_with_5_deletions_small` で「ライブモード（$INDEX_ROOT 単独）= 1 ファイル / MFT 直接走査（復旧モード）= 30 ファイル全件 / 削除ファイル = 5 件、すべて MFT 経由のみ可視」を観測。**「削除復旧には MFT 直接走査が必須」というプロダクト方針が定量的に裏付けられた**。Phase 1 のプロダクト価値の戦略選択を実フィクスチャで実証。**責務分離**: 単一ノード内エントリ列挙までに専念、B+ ツリー走査は Chunk 13 に委譲（責務明確化）。🎯 **行数 406 の超過は tester の判断で「合格扱い」**（テスト密度由来、機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア）。**M2 NTFSリーダα が 90% → 95%** へ押し上げ、ディレクトリインデックス解析の基盤完成
@@ -225,7 +302,7 @@ Deleted files (MFT only):                 5
 - **品質向上ハイライト（Chunk 6 書籍突合レビュー / 2026-05-20）📕**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13「NTFS Data Structures」Table 13.2「first 16 bytes of an attribute」/ Table 13.3「resident attribute」/ Table 13.4「non-resident attribute」に基づき `crates/fs-ntfs/src/attribute.rs` を独立レビュー。**既存実装は書籍 Table 13.2/13.3/13.4 と完全一致**しており、構造体定義・フィールド名・enum バリアントすべて過不足なしであることを確認（Table 13.2 共通ヘッダ全7フィールド完全対応 / Table 13.3 常駐追加 content_size + content_offset 完全対応 + Linux NTFS Docs 由来の indexed フィールドも保持 / Table 13.4 非常駐追加 全8フィールド完全対応 / 属性タイプ enum 全 15 種（0x10〜0x100）+ Unknown + End 完全網羅）。**実装本体への変更は不要**と判定し、書籍突合の意義を「既存実装が書籍仕様と一致していることの検証」と「書籍例題の再現テスト追加によるリグレッション防止」に集約。`attribute.rs` を 199行 → **272行（+73行、実装 116 + 単体テスト 156）**に拡張し単体テスト 4 件を追加: ①書籍 356 ページ $STANDARD_INFORMATION 常駐例題の数学的再現（type=0x10, length=0x60, content_size=0x48, content_offset=0x18、サニティ式 0x18+0x48=0x60 を assertion） / ②書籍 358 ページ $DATA 非常駐例題（type=0x80, starting_vcn=0, last_vcn=0x20EF=8431, runlist_offset=0x40, allocated/real/initialized=0x83C000=8634368 トリプル一致） / ③全 15 種属性タイプ + Unknown 3 種（0x42/0xFF/0x200）+ End ラウンドトリップ網羅（計 19 ケース） / ④フラグ組合せ 5 パターン（compressed/encrypted/sparse/混合）の生値保持＋ビット個別判定。`cargo test --lib -p dds-fs-ntfs` は **63 passed**（既存 59 + 新規 4）、`cargo test -p dds-fs-ntfs` は **77 passed**（単体 63 + 結合 14）、clippy で warning 0件、cargo doc 生成成功。書籍逐語コピー 0 件を Grep で確認（Table 名 3 件 + 連続英単語塊チェックで全て未検出）、`docs/specs/ntfs-references/notes.md` に「## 8. Attribute Header（属性ヘッダ）」セクション追加（既存「## 8. 参考リソース」を「## 9. 参考リソース」へ繰り下げ、195 → 289 行、+94 行）。NTFS 入口部分（Boot Sector + MFT エントリ + 属性ヘッダ）の 3 チャンク全てが書籍突合済みの商用レベル品質に到達
 - **品質向上ハイライト（Chunk 5 書籍突合レビュー / 2026-05-20）📕**: Brian Carrier「File System Forensic Analysis」(2005, ISBN 9780321374752) Chapter 13「NTFS Data Structures」Fixup Values セクションに基づき `crates/fs-ntfs/src/mft.rs` を独立レビュー。既存実装は書籍仕様と**基本的に整合**していることを確認した上で、**USA size 整合性検証**（`usa_size == ceil(allocated_size / sector_size) + 1`）を追加し破損データの早期検出を強化。書籍例題（USN=0x0058、record=1024、sector=512）の数学的再現テスト、マルチセクタ拡張（2KB レコード）、部分破損検出（書籍が言及する "one sector damaged" シナリオ）、USN=0 エッジケースの単体テスト 5 件を追加。書籍からの逐語コピーは 0 件（Grep 確認済）、参照は章番号・Table 番号のみ。実装は商用レベル品質に到達
 - **品質向上ハイライト（Chunk 4 書籍突合レビュー / 2026-05-20）📕**: 同書 Chapter 13 Table 13.18「Data structure for the boot sector」に基づき `crates/fs-ntfs/src/boot_sector.rs` を独立レビュー。既存実装は書籍仕様の全フィールドを**完全カバー**していたことを確認した上で、**`index_record_size_bytes()` メソッド追加**（MFT と同じ符号付きエンコーディング、DRY 共有ヘルパ `compute_record_size_bytes` を抽出）、**`bytes_per_sector` の 2の累乗 + 256〜4096 範囲チェック**、**`sectors_per_cluster` の 2の累乗 + 1〜128 範囲チェック**を追加。書籍 381 ページ例題（OEM="NTFS    ", bps=512, spc=2, total_sectors=2056256, mft_lcn=342709, mft_mirror_lcn=514064, cpmr=1, cpir=4, serial=0x04502284_50227C94）の数学的再現テスト、Index record size 符号付きエンコーディング、4Kn ドライブ（bps=4096）、非2の累乗 bps/spc 拒否の単体テスト 5 件を追加。書籍からの逐語コピーは 0 件（Grep 確認済）、参照は章番号・Table 番号のみ。NTFS 入口部分（Boot Sector）が商用レベル品質に到達
-- **最終更新日**: 2026-05-21（Chunk 14 完了 / Phase 1 NTFS リーダー実装完成 / 業務統合層 API 完成形到達）
+- **最終更新日**: 2026-05-21（Chunk 15 完了 / 業務統合層着手 / お客様希望リスト駆動型復旧の基盤完成 / M3 希望突合エンジン 0% → 10%）
 
 ---
 
@@ -235,7 +312,7 @@ Deleted files (MFT only):                 5
 M0: 設計確定        [████████] 100% ✅ 完了
 M1: 基盤構築        [███░░░░░]  30% 🚧 進行中（Chunk 1-3/想定10前後 完了）
 M2: NTFSリーダα     [████████] 100% 🎉🎉🎉🎉🎉🎉🎉 完了（Chunks 4-14 完了。Chunk 13 で **NTFS リーダ実用形完成形に到達**、**Chunk 14 で `NtfsFile` 高レベル統合型 + `iter_files` API 完成により Phase 1 NTFS リーダー実装完成 / 業務統合層 API 完成形に到達**。Chunk 14: SHA256 109/109 ground truth 完全一致 + product_demo Live 25 / Deleted 5 確認すべて pass、API 簡潔化 15 行 → 5 行を実証。業務統合層（wish-match、recovery、case-manager 等の Chunk 15+）の標準呼び出し口が確立）
-M3: 希望突合エンジン  [░░░░░░░░]   0% ⏳ 未着手
+M3: 希望突合エンジン  [█░░░░░░░]  10% 🎉🎉🎉🎉🎉🎉🎉🎉 着手（Chunk 15 / 2026-05-21、業務統合層着手の最初のチャンク、`wish-match` クレート新規誕生 + `NtfsFile → FileInfo` 変換層完成 + パターン突合 7 種 + 優先度スコアリング基盤完成 + JSON 互換、お客様希望リスト駆動型復旧の基盤完成、end-to-end `product_demo_wish_match_with_priority` 動作実証、`\dir1\sub1\sub2\file_deeply.txt` が Critical+Low=125 スコア最高位を実演、次は Chunk 16 高度マッチング glob + 論理結合 / Chunk 17 復旧パイプライン統合）
 M4: 復旧 + 品質判定  [░░░░░░░░]   0% ⏳ 未着手
 M5: NTFS-α リリース [░░░░░░░░]   0% ⏳ 未着手
 M6: exFAT/FAT32追加 [░░░░░░░░]   0% ⏳ 未着手
@@ -265,11 +342,13 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | 12 | dds-fs-ntfs | NTFS `$INDEX_ROOT` / `$INDEX_ALLOCATION` 単一ノード解析 + フィクサップ共有化リファクタ 🎉 ディレクトリインデックス基盤完成 📕 | 406※※ | 14 ✓ + 結合 3 ✓ | 未計測 | 2026-05-21 |
 | 13 | dds-fs-ntfs | NtfsVolume::list_directory + PathResolver（B+ ツリー走査統合 + フルパス再構築）🎉🎉🎉🎉🎉🎉 NTFS リーダ実用形完成形 / M2 NTFSリーダα 100% 完了 📕 | 694※※※ | 12 ✓ + 結合 5 ✓ | 未計測 | 2026-05-21 |
 | 14 | dds-fs-ntfs | NtfsFile 高レベル統合型 + iter_files API（path + name + meta + content を 1 owned 型に統合）🎉🎉🎉🎉🎉🎉🎉 Phase 1 NTFS リーダー実装完成 / 業務統合層 API 完成形到達 | 857※※※※ | 10 ✓ + 結合 4 ✓ | 未計測 | 2026-05-21 |
+| 15 | dds-wish-match (新規) + dds-fs-ntfs | wish-match 業務統合基盤 + NtfsFile 拡張（Wishlist / Wish / WishItem 7 パターン + Priority スコアリング + Matcher + `From<&NtfsFile> for FileInfo`）🎉🎉🎉🎉🎉🎉🎉🎉 業務統合層着手 / お客様希望リスト駆動型復旧の基盤完成 | 674※※※※※ | 25 ✓ + 結合 4 ✓ | 未計測 | 2026-05-21 |
 
 ※ Chunk 11 は合成 NTFS ビルダーの複雑性のため 220行上限を超過したが、tester が「機能・安全性・SHA256 維持すべてクリア」と判断し合格扱い。
 ※※ Chunk 12 は仕様上限 250 を超過（fixup.rs 80 + index.rs 326 = 406）したが、tester が「テスト密度由来、機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア」と判断し合格扱い。
 ※※※ Chunk 13 は仕様上限 250 を超過（path.rs 160 + volume.rs +287 + 結合テスト 274 = 694）したが、tester が「機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、新フィクスチャ ground truth 109 ファイル突合 / `\many` 100 件 $INDEX_ALLOCATION 走査 / 削除 5 ファイルフルパス付与の 3 つの業務観測すべて pass」と判断し合格扱い。
 ※※※※ Chunk 14 は仕様上限 250 を超過（file.rs 440 + volume.rs +180 + 結合テスト 237 = 857）したが、tester が「機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、SHA256 109/109 ground truth 完全一致 + product_demo Live 25 / Deleted 5 確認すべて pass」と判断し合格扱い。
+※※※※※ Chunk 15 は仕様上限 200 を超過（wish-match 574 + fs-ntfs +82 + 結合テスト 208 = +674、wish-match クレート: lib.rs 33 + error.rs 85 + file_info.rs 88 + wishlist.rs 171 + matcher.rs 197）したが、tester が「業務統合層のテスト密度高で正当化、機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、product_demo 業務シナリオ pass、単方向依存（fs-ntfs → wish-match）確認」と判断し合格扱い。
 
 ### Chunk 1 詳細
 
@@ -1335,6 +1414,160 @@ let files: Vec<NtfsFile> = volume.iter_files()
 
 - **完了判定**: 完全完了（実装+単体テスト 620 行 + 結合テスト 237 行 = 計 857 行 ※SHA256 109/109 + product_demo 全 pass による上限超過、tester 合格判定 / 単体テスト 10 件全パス / 結合テスト 4 件全パス / rustdoc 完備 / clippy clean / unsafe・書き込み API 不在を維持 / 既存 153 テスト全 pass 継続 / Phase 1 中核 SHA256 検証 4 件 pass 維持）
 
+### Chunk 15 詳細 🎉🎉🎉🎉🎉🎉🎉🎉 業務統合層着手 / お客様希望リスト駆動型復旧の基盤完成
+
+- **対象クレート**: `crates/wish-match/`（**新規誕生**）+ `crates/fs-ntfs/`（拡張）
+- **完了日**: 2026-05-21
+- **担当**: builder（実装+テスト 656 行）→ tester（独立検証、200+ 件 pass）→ progress-tracker
+- **参考 FR**: FR-REC-01 / FR-WISH-01 / FR-WISH-02
+- **書籍参照**: **不要**（業務要件の正確な表現が中心、Chunks 4-14 の NTFS 技術実装とは質的に異なる）
+
+#### 実装内容
+
+##### Part A: NtfsFile 業務統合層拡張（5 分作業）
+
+`crates/fs-ntfs/src/file.rs`（**+82 行拡張**）:
+
+- `NtfsFile::has_system_name_prefix(&self) -> bool` — `$` 始まり判定（`$RECYCLE.BIN` 等のオプトインフィルタ）
+- `impl From<&NtfsFile> for dds_wish_match::FileInfo` — owned 型変換、`source_id = "NTFS#<record_index>"`
+- 単体テスト 5 件追加
+
+`crates/fs-ntfs/Cargo.toml`:
+
+- `dds-wish-match.workspace = true` 追加
+
+##### Part B: wish-match クレート本実装（574 行新規）
+
+`crates/wish-match/Cargo.toml` 更新:
+
+- `dds-core` 依存削除（業務層は core にも依存しない設計）
+- 追加: `chrono` / `serde` (derive) / `serde_json` / `thiserror`
+
+5 新規ファイル:
+
+- `src/lib.rs`（33 行）— モジュール宣言 + re-export
+- `src/error.rs`（85 行）— `WishMatchError` 4 バリアント + 単体テスト 3 件
+- `src/file_info.rs`（88 行）— `FileInfo`（source_id / path / name / size / modified / extension / is_directory / is_deleted の 8 フィールド owned 型）+ `new()` コンストラクタ + 単体テスト 3 件
+- `src/wishlist.rs`（171 行）— `Priority`（Critical=100 / High=75 / Normal=50 / Low=25）/ `WishItem` enum 7 バリアント / `Wish` / `Wishlist` builder pattern + 単体テスト 4 件
+- `src/matcher.rs`（197 行）— `matches_item` / `match_file` / `match_files` / `MatchResult<'a>` + 単体テスト 10 件
+
+合計 574 行（仕様 300 行超過、業務統合層のテスト密度高で合格判定）
+
+#### 設計上のポイント（Chunks 4-14 と質的に異なる業務層特有）
+
+##### A. 業務シナリオを物語るテスト命名（質的転換）
+
+| 業務層（Chunk 15） | NTFS 技術層（Chunks 4-14） |
+|---|---|
+| `matches_files_in_dir1_subdirectory_only` | `parses_valid_boot_sector_all_fields` |
+| `path_prefix_does_not_match_partial_directory_name` | `mft_entry_zero_runlist_parses_in_deletions_image` |
+| `matches_deleted_files_with_txt_extension` | `iter_records_continues_on_individual_parse_error` |
+| `product_demo_wish_match_with_priority` | `product_demo_with_ntfs_file_api` |
+
+業務命名は **「お客様の行動を物語る」** 形になっており、技術命名と質的に異なる。
+
+##### B. お客様視点の振る舞い検証
+
+「お客様が `\dir1` を指定したら配下の 3 ファイル全部、`\dir1other` は除外」のような業務要件を assert で固定化。
+
+##### C. serde 派生で JSON 互換性確保
+
+`Wishlist` / `Wish` / `WishItem` / `Priority` すべて `#[derive(Serialize, Deserialize)]`、`wishlist_serializes_to_json` テストで `serde_json` ラウンドトリップ + `PartialEq` 完全一致を確認。将来の Tauri UI 連携用基盤。
+
+##### D. 単方向依存（fs-ntfs → wish-match）
+
+- `wish-match/Cargo.toml`: `dds-fs-ntfs` 参照 **なし**、`dds-core` も削除
+- `fs-ntfs/Cargo.toml`: `dds-wish-match.workspace = true` 追加
+- `From<&NtfsFile> for FileInfo` は **fs-ntfs 側**に実装
+- 業務層が技術層から独立する設計、業務統合層の核心
+
+##### E. PathPrefix 境界処理（業務要件の防衛線）
+
+```rust
+let normalized = if prefix.ends_with('\\') { prefix.clone() } else { format!("{}\\", prefix) };
+file.path.to_ascii_lowercase().starts_with(&normalized.to_ascii_lowercase())
+|| file.path.eq_ignore_ascii_case(prefix)
+```
+
+`PathPrefix("\\dir1")` は `\\dir1\\file.txt` にマッチするが `\\dir1other\\foo.txt` にはマッチしない。`path_prefix_does_not_match_partial_directory_name` テストが境界防衛線。
+
+#### 追加テスト 25 + 4 件（合計 29 件）
+
+##### wish-match 単体 20 件
+
+- error: 3 件
+- file_info: 3 件
+- wishlist: 4 件（含む JSON ラウンドトリップ `wishlist_serializes_to_json`）
+- matcher: 10 件（含む業務シナリオ + 境界防衛）
+
+##### fs-ntfs 単体 5 件
+
+- `has_system_name_prefix` 3 件、`From<&NtfsFile> for FileInfo` 変換 2 件
+
+##### fs-ntfs 結合 4 件（`tests/wish_match_integration.rs`、208 行）
+
+1. `matches_all_txt_files_in_directories_fixture` — 109 件マッチ
+2. 🎯 **`matches_files_in_dir1_subdirectory_only`** — `\dir1` 配下 3 件、全件 Critical=100
+3. 🎯 **`matches_deleted_files_with_txt_extension`** — 削除 5 件すべて発見
+4. 🎯 **`product_demo_wish_match_with_priority`** — `file_deeply.txt` が Critical(100)+Low(25)=**125 スコア最高位**
+
+#### 検証結果（tester 独立検証）
+
+- 実装+テスト行数: wish-match 574 + fs-ntfs +82 + 結合テスト 208 = **+674 行**（仕様 200 行超過、tester 業務統合層のテスト密度高で合格判定）
+- `cargo check --workspace` … OK
+- `cargo test -p dds-wish-match` … **20 passed; 0 failed**
+- `cargo test -p dds-fs-ntfs` … **140 単体 + 36 結合 = 176 passed**（既存 135+32 + 新規 5+4）
+- `cargo test --workspace` 全体 … **200+ 件 pass**（core 5 + fs-common 5 + disk-io 11 + fs-ntfs 176 + wish-match 20 + その他 = 200+）
+- `cargo clippy --workspace --all-targets -- -D warnings` … warning 0 件（初回 3 件のエラーを修正済み）
+- `cargo doc --workspace --no-deps` … 14 ファイル生成成功
+- 既存 167 件全 pass 継続（破壊なし）
+- **Phase 1 中核 SHA256 検証 4 件 + Chunks 10-14 結合維持**
+- 安全性: wish-match/fs-ntfs 共に `unsafe` / 書き込み API 0 件
+- **単方向依存確認**: wish-match に dds-fs-ntfs 参照なし
+
+#### 🎯 プロダクトデモ出力（業務価値の見える化）
+
+`cargo test -p dds-fs-ntfs --test wish_match_integration product_demo_wish_match_with_priority -- --nocapture` の実出力:
+
+```
+=== Wishlist Match Results (Priority-Sorted) ===
+Wishlist:
+  Critical(100): PathPrefix \dir1\sub1\sub2 - 最深部の重要書類
+  High(75):      FilenameContains "file_root" - ルート直下の root_ プレフィックスファイル
+  Low(25):       Extension "txt" - テキスト全般
+
+Top 15 matches (score-sorted, source -> path):
+   1. [125] NTFS#74 -> \dir1\sub1\sub2\file_deeply.txt  (matched: 最深部の重要書類 + テキスト全般)
+   2. [100] NTFS#64 -> \file_root_001.txt  (matched: ルート直下の root_ プレフィックスファイル + テキスト全般)
+   3. [100] NTFS#65 -> \file_root_002.txt
+   ...（root_005 まで）
+   7. [ 25] NTFS#70 -> \dir1\file_001.txt  (matched: テキスト全般)
+   8. [ 25] NTFS#72 -> \dir1\sub1\file_002.txt
+   9. [ 25] NTFS#76 -> \dir2\file_003.txt
+  10-15. [ 25] NTFS#... -> \many\file_NNN.txt
+
+Total matches: 109
+```
+
+ハイライト: `\dir1\sub1\sub2\file_deeply.txt` が Critical(100) + Low(25) = **125 スコアで最高位**、業務価値（優先抽出）が動作することを実証。「お客様が `\dir1\sub1\sub2` を最重要と指定したら、その配下が最優先で抽出される」が end-to-end で動く。
+
+#### 関連 FR
+
+- **FR-REC-01（目標優先抽出）**: [~] **基盤完成**（マッチ結果が優先度順にソート、実復旧は Chunk 17 で）
+- **FR-WISH-01（希望リスト管理）**: [~] **データ構造完成**（`Wishlist` / `Wish` / `WishItem` 構造体、JSON 互換）
+- **FR-WISH-02（パターン突合）**: [~] **基本パターン完成**（ExactPath / PathPrefix / Extension / FilenameContains / SizeRange / ModifiedAfter / ModifiedBefore の 7 パターン）
+
+#### 🎉🎉🎉🎉🎉🎉🎉🎉 マイルストーン意義（業務統合層着手）
+
+- **M3 希望突合エンジン: 0% → 10%** へ着手（Week 8-9 着手）
+- **Chunks 4-14 NTFS 技術 → Chunk 15 業務統合層への質的転換**: 駆動原理（書籍 → 希望リスト）、入力（バイト列 → owned 型）、出力（パース結果 → MatchResult）、テスト命名（バイナリ仕様 → お客様の行動）すべてが業務層の表現論に切り替わった
+- **お客様希望リスト駆動型復旧の基盤**: Phase 1 のプロダクト価値「目標駆動型復旧」の業務ロジック基盤が乗った
+- **end-to-end 動作実証**: NTFS イメージから希望ファイル抽出が `product_demo_wish_match_with_priority` で動作、`file_deeply.txt` 125 スコア最高位を実演
+- **単方向依存設計**: 業務層（wish-match）が技術層（fs-ntfs）に依存せず、技術層が業務層の型に変換する設計
+- **次は Chunk 16 高度マッチング（glob `*`/`**`、論理結合 `And`/`Or`/`Not`） / Chunk 17 復旧パイプライン（マッチ結果 → 実ファイル抽出 → 品質判定） / case-manager 着手も並行検討可**
+
+- **完了判定**: 完全完了（wish-match 574 + fs-ntfs +82 + 結合テスト 208 = 計 674 行 ※業務統合層のテスト密度高で上限超過、tester 合格判定 / 単体テスト 25 件全パス / 結合テスト 4 件全パス / rustdoc 完備 / clippy clean / unsafe・書き込み API 不在を維持 / 既存 167 テスト全 pass 継続 / Phase 1 中核 SHA256 検証 4 件 pass 維持 / 単方向依存確認）
+
 ---
 
 ## FR要件達成マトリクス
@@ -1405,25 +1638,33 @@ let files: Vec<NtfsFile> = volume.iter_files()
 - [ ] FR-LIVE-07: バックアップメタ活用
 
 ### 希望リスト・突合 (FR-WISH)
-- [~] **FR-WISH-01: 希望項目の入力フォーム** 🚧 **データ基盤確立**（Chunk 7-8 / dds-fs-ntfs）
+- [~] **FR-WISH-01: 希望項目の入力フォーム** 🎉🎉🎉🎉🎉🎉🎉🎉 **データ構造完成**（Chunk 7-8, 15 / dds-fs-ntfs + dds-wish-match）
   - 「日付範囲指定」による希望リスト × 復旧候補の突合に必要なタイムスタンプデータが NTFS 側から取得可能になった（$STANDARD_INFORMATION から created / modified / mft_modified / accessed の 4 種を抽出）
   - 削除エントリのタイムスタンプも実画像レベルで取得実証済（フィクスチャ生成時刻と一致）
   - **ファイル名による突合に必要なデータも揃った**（Chunk 8、$FILE_NAME パース完了、日本語ファイル名・絵文字対応）。希望リストに「ファイル名」「拡張子」を入れた突合が技術的に可能
-  - 残作業: 希望項目入力フォーム本体（UI）、希望条件のデータ型定義、突合ロジック（FR-WISH-04/05）
-- [ ] FR-WISH-02: 優先度設定
+  - **Chunk 15 で `Wishlist` / `Wish` / `WishItem` データ構造完成 🎉🎉🎉🎉🎉🎉🎉🎉**（2026-05-21、`crates/wish-match/src/wishlist.rs` 171 行）: `Wishlist`（id / name / items + builder pattern）+ `Wish`（id / pattern / priority / description）+ `WishItem` enum 7 バリアント（ExactPath / PathPrefix / Extension / FilenameContains / SizeRange / ModifiedAfter / ModifiedBefore）+ `Priority`（Critical=100 / High=75 / Normal=50 / Low=25）。すべて `#[derive(Serialize, Deserialize)]` で JSON 互換、将来の Tauri UI 連携用基盤、`wishlist_serializes_to_json` テストで `serde_json` ラウンドトリップ + `PartialEq` 完全一致を確認
+  - 残作業: 希望項目入力フォーム本体（UI、フロントエンド実装）、一括インポート（FR-WISH-03、JSON/CSV から `Wishlist` への変換）
+- [~] **FR-WISH-02: 優先度設定 / パターン突合基本** 🎉🎉🎉🎉🎉🎉🎉🎉 **基本パターン完成**（Chunk 15 / dds-wish-match）
+  - **Chunk 15 で 7 パターン + 4 優先度 + マッチャー API 完成 🎉🎉🎉🎉🎉🎉🎉🎉**（2026-05-21、`crates/wish-match/src/matcher.rs` 197 行 + `src/wishlist.rs` 171 行）: `WishItem` 7 バリアント（ExactPath 完全一致 / PathPrefix 接頭辞 / Extension 拡張子 / FilenameContains 部分一致 / SizeRange サイズ範囲 / ModifiedAfter 修正後 / ModifiedBefore 修正前）+ `Priority`（Critical=100 / High=75 / Normal=50 / Low=25）+ `matches_item(file, item) -> bool` / `match_file(file, wishlist) -> Option<MatchResult<'a>>` / `match_files(files, wishlist) -> Vec<MatchResult<'a>>` / `MatchResult<'a>`（file / matched_wishes: Vec<&'a Wish> / total_score: u32）
+  - **PathPrefix 境界処理（業務要件の防衛線）**: `PathPrefix("\\dir1")` は `\\dir1\\file.txt` にマッチするが `\\dir1other\\foo.txt` にはマッチしない、`path_prefix_does_not_match_partial_directory_name` テストが境界防衛線
+  - **業務シナリオ実証**: `matches_files_in_dir1_subdirectory_only`（`\dir1` 配下 3 件 Critical=100）/ `matches_deleted_files_with_txt_extension`（削除 5 件すべて発見）/ `product_demo_wish_match_with_priority`（`\dir1\sub1\sub2\file_deeply.txt` が Critical(100)+Low(25)=125 スコア最高位）
+  - 残作業: 高度マッチング（glob `*`/`**`、論理結合 `And`/`Or`/`Not`、Chunk 16）
 - [ ] FR-WISH-03: 一括インポート
-- [ ] FR-WISH-04: 突合実行
+- [~] **FR-WISH-04: 突合実行** 🎉 **基本マッチング完成**（Chunk 15 / dds-wish-match）
+  - **Chunk 15 で `match_files(files, wishlist) -> Vec<MatchResult<'a>>` API 完成**: 全ファイル × 全希望項目の突合をスコアソートで返却、`product_demo_wish_match_with_priority` 結合テストで 109 件マッチ + 優先度順ソート実証
+  - 残作業: 高度突合（glob・論理結合）、復旧パイプライン統合（Chunk 17）
 - [ ] FR-WISH-05: マッチ信頼度算出
 - [ ] FR-WISH-06: 発見可能性レポート
 - [ ] FR-WISH-07: 未発見項目の理由提示
 - [ ] FR-WISH-08: お客様承認フロー
 
 ### 復旧 (FR-REC)
-- [x] **FR-REC-01: 目標優先抽出** ✅ **完全達成 🎉🎉**（Chunk 9-10, 14 / dds-fs-ntfs）
+- [x] **FR-REC-01: 目標優先抽出** ✅ **基盤完成 🎉🎉🎉🎉🎉🎉🎉🎉**（Chunk 9-10, 14, 15 / dds-fs-ntfs + dds-wish-match）
   - ファイル単位の選別 + 内容取得が可能（$FILE_NAME によるファイル名突合 + $DATA 常駐 + 非常駐 runlist 経由の内容取得）
   - **Chunk 10 で runlist パースが実装され、大ファイル（クラスタチェーン経由）にも適用可能となった**。ファイルサイズに関わらず内容取得が可能、Phase 1 のプロダクト価値（希望リストに合致した優先抽出）の技術基盤が完成
   - **Chunk 14 で `NtfsFile::is_user_file()` / `extension()` / `is_simple_deleted_user_file()` フィルタが業務層で使える形に整備 🎉🎉🎉**（2026-05-21）: `iter_files().filter(|f| f.is_user_file()).filter(|f| f.extension() == Some("docx".into()))` のような流暢な書き方で希望条件フィルタが可能、`iter_files_supports_path_and_extension_filtering` 結合テストで実証
-  - 残作業: 希望リストとの突合に応じた優先抽出ロジック自体は wish-match クレートで実装予定（本要件の下位レイヤは完了）
+  - **Chunk 15 で wish-match 基盤完成、優先度順ソート動作 🎉🎉🎉🎉🎉🎉🎉🎉**（2026-05-21、`crates/wish-match/src/matcher.rs` 197 行）: `Priority`（Critical=100 / High=75 / Normal=50 / Low=25）+ `MatchResult.total_score` で複数希望項目のスコア合算 + `match_files` で優先度順ソート。`product_demo_wish_match_with_priority` で `\dir1\sub1\sub2\file_deeply.txt` が Critical(100)+Low(25)=**125 スコア最高位**を実証、「お客様が指定した最重要項目が最優先で抽出される」業務価値が end-to-end で動作
+  - 残作業: 実復旧パイプライン統合（マッチ結果 → 実ファイル抽出 → 品質判定）は Chunk 17 で実装予定
 - [ ] FR-REC-02: ノンマッチ抽出オプション
 - [ ] FR-REC-03: 出力先指定
 - [x] **FR-REC-04: データ整合性** ✅ **完全達成 🎯🎯🎯**（Chunk 9, 14 / dds-fs-ntfs）
@@ -1853,40 +2094,54 @@ let files: Vec<NtfsFile> = volume.iter_files()
 
 ## 次の推奨アクション
 
-🎉🎉🎉🎉🎉🎉🎉 **Phase 1 NTFS リーダー実装完成 / 業務統合層 API 完成形到達（Chunk 14 / 2026-05-21）**: Chunk 14 完了により、Chunks 1-13 までで揃った全 API の上に **`NtfsFile` 高レベル統合型 + `iter_files` API が完成**し、**MFT エントリ + フルパス + メタデータ + データ取得を 1 つの owned 型に束ねた業務統合層 API の完成形に到達**。`volume.iter_files()` 1 行で全ファイル列挙、`volume.read_file_content(&file)` 1 行で SHA256 完全一致のデータ取得が可能。**SHA256 109/109 ground truth 完全一致**を実証、API 簡潔化 15 行 → 5 行を達成。**M2 NTFSリーダα 100% 維持**（Chunk 13 で達成済、Chunk 14 は API 完成形を到達する追加チャンクとして記録、品質ランク向上）。
+🎉🎉🎉🎉🎉🎉🎉🎉 **業務統合層着手 / お客様希望リスト駆動型復旧の基盤完成（Chunk 15 / 2026-05-21）**: Chunk 15 完了により、Chunks 4-14 で築き上げた NTFS 技術実装層の上に、**`wish-match` クレートが新規誕生**し、**お客様の希望リストに基づく優先復旧の業務統合層が本格着手**。NTFS イメージから希望ファイル抽出が **end-to-end で動作**（`product_demo_wish_match_with_priority` で `\dir1\sub1\sub2\file_deeply.txt` が Critical(100)+Low(25)=125 スコア最高位を実演）、**M3「希望突合エンジン」が 0% → 10%** へ着手。Chunks 4-14 NTFS 技術 → Chunk 15 業務統合層への質的転換達成。
 
-次のフェーズは **業務統合層への本格着手（Chunk 15: wish-match 基盤）+ 突合エンジン / 復旧パイプライン統合（Chunk 16+）**、および **disk-io 統合（`RawDeviceDisk` で実 HDD/SSD 対応）** となる。Chunk 14 で標準呼び出し口が確立されたため、業務統合層は `NtfsFile` を入力として直接受け取れる。
+次のフェーズは **Chunk 16 高度マッチング（glob `*`/`**`、論理結合 `And`/`Or`/`Not`）+ Chunk 17 復旧パイプライン統合（マッチ結果 → 実ファイル抽出 → 品質判定）**、および **case-manager クレート着手**（業務統合層の続き）、**disk-io 統合（`RawDeviceDisk` で実 HDD/SSD 対応）** となる。
 
-### 第一推奨: Chunk 15（wish-match 基盤 — 希望リスト管理 + パターン定義、業務統合層着手の最初のチャンク）
+### 第一推奨: Chunk 16（高度マッチング — glob `*`/`**` + 論理結合 `And`/`Or`/`Not`）
 
-**Chunk 15**: M2 完了 + Chunk 14 API 完成形を受けて、**業務統合層着手の最初のチャンク**。Phase 1 のプロダクト価値（希望リスト × 削除ファイル突合）の業務統合層実装に着手。希望リスト管理 + パターン定義（拡張子・パス・日付範囲・サイズ範囲・ファイル名キーワード）を提供
+**Chunk 16**: Chunk 15 で完成した 7 パターン基盤の上に、高度マッチング機能を追加。FR-WISH-02 / FR-WISH-04 / FR-WISH-05 の本格化
 
-- **対象クレート**: `crates/wish-match/`（新規）
+- **対象クレート**: `crates/wish-match/`（既存に追加）
 - **対象ファイル（予定）**:
-  - `crates/wish-match/src/lib.rs`（新規、`WishItem` 構造体 / `WishList` 構造体 / `WishPattern` enum）
-  - `crates/wish-match/src/pattern.rs`（新規、パターン定義: extension / path_glob / date_range / size_range / name_keyword）
-  - `crates/wish-match/Cargo.toml`（新規、`dds-fs-ntfs` の `NtfsFile` 入力を受けられる構造）
-  - `crates/wish-match/tests/wish_pattern_integration.rs`（新規、結合テスト）
+  - `crates/wish-match/src/wishlist.rs`（既存に追加、`WishItem::Glob(String)` バリアント追加）
+  - `crates/wish-match/src/wishlist.rs`（既存に追加、`WishItem::And(Vec<WishItem>)` / `WishItem::Or(Vec<WishItem>)` / `WishItem::Not(Box<WishItem>)` バリアント追加）
+  - `crates/wish-match/src/matcher.rs`（既存に追加、glob マッチング実装 + 論理結合の再帰評価）
+  - `crates/wish-match/tests/advanced_matching_integration.rs`（新規）
 - **目的**:
-  1. **希望項目入力データ型**: `WishItem`（id / name / pattern / priority / status）を定義、FR-WISH-01「希望項目の入力フォーム」のデータ基盤
-  2. **パターン定義**: 拡張子・パス・日付範囲・サイズ範囲・ファイル名キーワードの 5 種パターン enum、`NtfsFile` を入力に取って match 判定可能
-  3. **基本マッチング**: `wish_item.matches(&ntfs_file) -> bool` の 1 行 API で突合ロジックの起点を提供
-- **依存**: Chunk 1（dds-core エラー型）、Chunk 14（`NtfsFile` 入力受取）
+  1. **glob マッチング**: `*.docx` / `\Users\*\Documents\**\*.xlsx` 等の glob パターン対応（`globset` crate 採用検討）
+  2. **論理結合**: `And` / `Or` / `Not` の再帰評価で複雑な希望条件を表現可能に
+  3. **業務シナリオ拡張**: 「Word 文書 OR Excel 文書、ただし `\temp\` 配下は除外」のような自然言語的な業務要件を表現
+- **依存**: Chunk 15（wish-match 基盤）
 - **推定行数**: 約 200 行（実装 ~140 + テスト ~60）
-- **マイルストーン意義**: **M3「希望突合エンジン」（Week 8-9）への着手**、Phase 1 のプロダクト価値提供を業務統合層で実現する最初の一歩。Chunk 14 で確立された `NtfsFile` 標準呼び出し口を初めて消費する例
+- **マイルストーン意義**: **M3「希望突合エンジン」を 10% → 30% 程度に押し上げ**、業務統合層の表現力を本格化、Phase 1 のプロダクト価値（希望リストの自由度）が業務レベルで完成に近づく
 
-### 第二推奨: Chunk 16+（突合エンジン + 復旧パイプライン統合）
+### 第二推奨: Chunk 17（復旧パイプライン — マッチ結果 → 実ファイル抽出 → 品質判定）
 
-**Chunk 16+**: Chunk 15 の wish-match 基盤の上に、突合エンジン（FR-WISH-04/05）+ 復旧パイプライン（FR-REC 系）+ case-manager 案件管理（FR-CASE 系）を順次実装
+**Chunk 17**: Chunk 15-16 の wish-match 基盤の上に、復旧パイプライン本体を実装。`MatchResult` を入力として優先度順に実ファイル抽出 + SHA256 検証 + 品質判定を統合。FR-REC 系 / FR-QA 系の本格着手
 
-- **対象クレート**:
-  - `crates/wish-match/`（突合エンジン拡張、`WishMatcher::match_all(&wishlist, &files) -> MatchReport`、FR-WISH-04/05/06）
-  - `crates/recovery/`（復旧パイプライン、希望マッチに応じた優先抽出 + SHA256 検証、FR-REC-01/02/04）
-  - `crates/case-manager/`（案件管理基盤、FR-CASE-01-05）
-- **依存**: Chunk 14（`NtfsFile`）+ Chunk 15（wish-match 基盤）
-- **マイルストーン意義**: M3「希望突合エンジン」+ M4「復旧 + 品質判定」（Week 10-12）への展開、Phase 1 のプロダクト価値が完成
+- **対象クレート**: `crates/recovery/`（新規）
+- **対象ファイル（予定）**:
+  - `crates/recovery/src/lib.rs`（新規、`RecoveryPipeline` / `RecoveryReport` / `RecoveryError`）
+  - `crates/recovery/src/extractor.rs`（新規、`NtfsFile` + `MatchResult` → 出力先ディレクトリへの抽出）
+  - `crates/recovery/src/verifier.rs`（新規、SHA256 検証 + Quality 判定 stub）
+  - `crates/recovery/tests/recovery_integration.rs`（新規、フィクスチャ + wishlist でフル復旧 E2E）
+- **依存**: Chunk 14（`NtfsFile`）+ Chunk 15-16（wish-match）
+- **マイルストーン意義**: **M3「希望突合エンジン」 + M4「復旧 + 品質判定」（Week 10-12）への展開**、Phase 1 のプロダクト価値が完成（希望リスト → 実ファイル抽出 → SHA256 検証 → 出力先分離の安全要件 NFR-REL-01 まで end-to-end）
 
-### 第三推奨（並行検討可）: disk-io 統合（`RawDeviceDisk` で実 HDD/SSD 対応）
+### 第三推奨（並行検討可）: case-manager クレート着手
+
+**case-manager**: 案件管理基盤、FR-CASE-01-05 の実装。Chunk 15 の wish-match 基盤と独立して進行可能
+
+- **対象クレート**: `crates/case-manager/`（新規）
+- **対象ファイル（予定）**:
+  - `crates/case-manager/src/lib.rs`（新規、`Case` / `CaseRepository` / `CaseError`）
+  - `crates/case-manager/src/sqlite_repo.rs`（新規、SQLite 永続化 stub）
+  - `crates/case-manager/tests/case_integration.rs`（新規）
+- **依存**: Chunk 1（dds-core）+ Chunk 15（`Wishlist` を案件に紐づける）
+- **マイルストーン意義**: **業務統合層の続き**、Phase 1 のプロダクト価値（業務基盤）が完成に近づく
+
+### 第四推奨（並行検討可）: disk-io 統合（`RawDeviceDisk` で実 HDD/SSD 対応）
 
 **disk-io 統合**: `dds-disk-io` `RawDeviceDisk`（Windows 実物理ドライブ `\\.\PhysicalDriveN` 経由の read-only アクセス）+ `NtfsVolume` への `ReadOnlyDisk` アダプタ
 
@@ -1901,12 +2156,14 @@ let files: Vec<NtfsFile> = volume.iter_files()
 
 ### 推奨優先順位（明示）
 
-1. **第一推奨**: **Chunk 15 wish-match 基盤**（希望リスト管理 + パターン定義）— **業務統合層着手の最初のチャンク**、Chunk 14 で確立した `NtfsFile` 標準呼び出し口の最初の消費例
-2. **第二推奨**: Chunk 16+ 突合エンジン + 復旧パイプライン統合（wish-match / recovery / case-manager 拡張）— M3/M4 への進行
-3. **第三推奨（並行検討可）**: disk-io 統合（`RawDeviceDisk` で実 HDD/SSD 対応）— 本番案件への適用準備、Chunk 15 と独立して進行可能
+1. **第一推奨**: **Chunk 16 高度マッチング**（glob `*`/`**` + 論理結合 `And`/`Or`/`Not`）— Chunk 15 で完成した 7 パターン基盤の上に表現力を本格化、M3 を 10% → 30% へ
+2. **第二推奨**: Chunk 17 復旧パイプライン（`recovery` クレート、マッチ結果 → 実ファイル抽出 → SHA256 検証 → Quality 判定 stub）— M3/M4 への進行
+3. **第三推奨（並行検討可）**: case-manager クレート着手（FR-CASE-01-05）— 業務統合層の続き、Chunk 15 と独立
+4. **第四推奨（並行検討可）**: disk-io 統合（`RawDeviceDisk` で実 HDD/SSD 対応）— 本番案件への適用準備、業務統合層と独立
 
 ### 過去の達成
 
+- **🎉🎉🎉🎉🎉🎉🎉🎉 業務統合層着手 / お客様希望リスト駆動型復旧の基盤完成（Chunk 15 / 2026-05-21）**: `wish-match` クレート新規誕生（5 新規ファイル、合計 574 行: lib.rs 33 + error.rs 85 + file_info.rs 88 + wishlist.rs 171 + matcher.rs 197）+ `NtfsFile` 拡張（+82 行: `has_system_name_prefix` + `impl From<&NtfsFile> for FileInfo`）+ 結合テスト 208 行で、お客様希望リスト駆動型復旧の業務統合層が本格着手。`Priority`（Critical=100 / High=75 / Normal=50 / Low=25）+ `WishItem` 7 バリアント（ExactPath / PathPrefix / Extension / FilenameContains / SizeRange / ModifiedAfter / ModifiedBefore）+ `Matcher` API。**単方向依存（fs-ntfs → wish-match）** で業務層が技術層から独立。200+ 件テスト全 pass、`product_demo_wish_match_with_priority` で `\dir1\sub1\sub2\file_deeply.txt` が Critical(100)+Low(25)=125 スコア最高位を実演、業務価値が end-to-end で動作。**M3 希望突合エンジン: 0% → 10%** へ着手
 - **🎉🎉🎉🎉🎉🎉🎉 Phase 1 NTFS リーダー実装完成 / 業務統合層 API 完成形到達（Chunk 14 / 2026-05-21）**: `NtfsFile` 高レベル統合型（17 フィールド完全 owned 型）+ `FileContentRef` enum + `NtfsFileIterator` + `volume.iter_files()` / `build_file()` / `read_file_content()` 完成により、MFT エントリ + フルパス + メタデータ + データ取得を 1 つの owned 型に束ねた業務統合層 API の完成形に到達。167 テスト全 pass（単体 135 + 結合 32）、Phase 1 中核 SHA256 検証 4 件 + Chunks 10-13 結合 14 件すべて pass。**SHA256 109/109 ground truth 完全一致**を実証（`read_file_content_matches_ground_truth_sha256`）。**API 簡潔化 15 行 → 5 行**（`iter_records` + 4 つの手動パース → `iter_files`）。Owned 型優先設計でライフタイムなし、業務統合層から扱いやすい根本理由を達成
 - **🎉🎉🎉🎉🎉🎉 NTFS リーダ実用形完成形 / M2 NTFSリーダα 100% 完了（Chunk 13 / 2026-05-21）**: `NtfsVolume::list_directory`（B+ ツリー走査統合）+ `PathResolver`（フルパス再構築）完成により NTFS リーダの実用形完成形に到達。153 テスト全 pass（単体 125 + 結合 28）、Phase 1 中核 SHA256 検証 4 件 pass 維持、書籍 Chapter 12「INDEX ANALYSIS」「FINDING FILES」「LINKS TO FILES AND DIRECTORIES」+ Chapter 13「$INDEX_ALLOCATION」準拠。109 ファイル ground truth 突合 + `\many` 100 件 $INDEX_ALLOCATION 走査 + 削除 5 ファイルフルパス付与の 3 つの業務観測すべて pass。**M2 NTFSリーダα が 95% → 🎉 100%** へ到達
 

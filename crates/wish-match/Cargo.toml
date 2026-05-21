@@ -7,5 +7,9 @@ license.workspace = true
 publish = false
 
 [dependencies]
-dds-core.workspace = true
+chrono.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]

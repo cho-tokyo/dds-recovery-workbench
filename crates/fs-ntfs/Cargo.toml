@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 dds-core.workspace = true
 dds-fs-common.workspace = true
+dds-wish-match.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
 
