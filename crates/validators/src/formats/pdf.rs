@@ -40,6 +40,8 @@ impl Validator for PdfValidator {
                 "PDF",
                 self.name(),
                 format!("File too small ({} bytes)", content.len()),
+                "ファイルが小さすぎて PDF として認識できません",
+                format!("{} バイトしかない。disk-io 層を確認", content.len()),
             );
         }
 
@@ -51,6 +53,8 @@ impl Validator for PdfValidator {
                 "PDF",
                 self.name(),
                 format!("PDF header missing (got {:?})", preview),
+                "PDF として保存されていますが、PDF ファイルではないようです（別の形式の可能性）",
+                "拡張子嘘の典型例。バイト列先頭から実形式を判定（PNG/JPEG/Office 等の可能性）し、正しい拡張子で再復旧推奨",
             );
         }
 
@@ -61,6 +65,14 @@ impl Validator for PdfValidator {
                 "PDF",
                 self.name(),
                 format!("Unsupported PDF version: 1.{}", version_byte as char),
+                format!(
+                    "PDF バージョン 1.{} は現在サポート対象外です",
+                    version_byte as char
+                ),
+                format!(
+                    "PDF 1.{} は範囲外（1.0-1.7 のみ対応）。技術調査必要、CS で実ファイル確認",
+                    version_byte as char
+                ),
             );
         }
         let mut diagnostics = vec![format!("PDF header OK (version 1.{})", version_byte as char)];
@@ -79,11 +91,22 @@ impl Validator for PdfValidator {
                     "%%EOF trailer not found in last {} bytes",
                     TRAILER_SEARCH_TAIL
                 ),
+                "PDF の末尾マーカーが見つかりません。保存途中で中断された可能性があります",
+                "%%EOF 欠落。書き込み中断の可能性、最新の自動保存版があれば確認推奨",
             );
         }
         diagnostics.push("%%EOF trailer found".to_string());
 
-        ValidationResult::valid("PDF", self.name(), diagnostics)
+        ValidationResult::valid(
+            "PDF",
+            self.name(),
+            diagnostics,
+            format!(
+                "PDF ファイルとして正常です（バージョン 1.{}）",
+                version_byte as char
+            ),
+            None,
+        )
     }
 }
 
@@ -129,6 +152,20 @@ mod tests {
         let result = PdfValidator.validate(&bytes);
         assert!(result.status.is_invalid());
         assert!(result.diagnostics[0].contains("version"));
+    }
+
+    #[test]
+    fn invalid_pdf_extension_mismatch_user_message_is_polite() {
+        // Chunk 20: 拡張子嘘の場合、顧客向けメッセージが攻撃的でないこと。
+        let bytes = b"NOT A PDF AT ALL but at least 14 bytes long here";
+        let result = PdfValidator.validate(bytes.as_slice());
+        assert!(result.status.is_invalid());
+        let cust = result.customer_message();
+        // 顧客に責任追及調にならず、可能性として伝える文言
+        assert!(cust.contains("ようです") || cust.contains("可能性"), "顧客向け: {}", cust);
+        // 内部メモには業務指示
+        let note = result.internal_note().unwrap();
+        assert!(note.contains("再復旧") || note.contains("CS") || note.contains("確認"));
     }
 
     #[test]

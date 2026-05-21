@@ -42,6 +42,11 @@ impl Validator for PngValidator {
                     content.len(),
                     PNG_MIN_BYTES
                 ),
+                "ファイルが小さすぎて PNG として認識できません",
+                format!(
+                    "{} バイトしかない。MFT クラスタ単位の不整合の可能性、disk-io 層を確認",
+                    content.len()
+                ),
             );
         }
 
@@ -50,6 +55,8 @@ impl Validator for PngValidator {
                 "PNG",
                 self.name(),
                 format!("Magic signature mismatch (got {:02X?})", &content[0..8]),
+                "PNG として保存されていますが、PNG ファイルではないようです（別の形式の可能性）",
+                "拡張子と中身の不一致。バイト列冒頭から実形式を判定し、正しい拡張子で再復旧推奨",
             );
         }
         let mut diagnostics = vec!["Magic signature OK".to_string()];
@@ -61,6 +68,8 @@ impl Validator for PngValidator {
                 "PNG",
                 self.name(),
                 format!("First chunk should be IHDR, got {:02X?}", &content[12..16]),
+                "PNG 画像のヘッダー情報が破損しています。表示できない可能性があります",
+                "IHDR チャンク欠落。深い構造破損のため再復旧は困難の可能性。サンプル復旧を推奨",
             );
         }
         diagnostics.push("IHDR chunk found at correct position".to_string());
@@ -73,11 +82,19 @@ impl Validator for PngValidator {
                 "PNG",
                 self.name(),
                 "IEND chunk not found at end of file".to_string(),
+                "PNG 画像の末尾が欠けています。画像の一部または全体が表示できない可能性があります",
+                "末尾チャンク欠損のため部分復旧。可能なら元データから再復旧を試行",
             );
         }
         diagnostics.push("IEND chunk found at end".to_string());
 
-        ValidationResult::valid("PNG", self.name(), diagnostics)
+        ValidationResult::valid(
+            "PNG",
+            self.name(),
+            diagnostics,
+            "PNG 画像として正常です",
+            None,
+        )
     }
 }
 
@@ -130,5 +147,38 @@ mod tests {
         let result = PngValidator.validate(&[0x89, 0x50, 0x4E, 0x47]);
         assert!(result.status.is_invalid());
         assert!(result.diagnostics[0].contains("too small"));
+    }
+
+    #[test]
+    fn validates_minimal_valid_png_with_japanese_message() {
+        // Chunk 20: Valid 時に user_message_ja が日本語、internal_note_ja が None。
+        let result = PngValidator.validate(VALID_PNG_1X1);
+        assert!(result.status.is_valid());
+        assert_eq!(
+            result.user_message_ja.as_deref(),
+            Some("PNG 画像として正常です")
+        );
+        assert!(
+            result.internal_note_ja.is_none(),
+            "Valid 時は internal_note は None"
+        );
+    }
+
+    #[test]
+    fn invalid_png_includes_actionable_internal_note() {
+        // Chunk 20: Invalid 時に internal_note_ja が業務指示を含む（「再復旧」「CS」等）。
+        let mut bytes = VALID_PNG_1X1.to_vec();
+        bytes[0] = 0xFF;
+        let result = PngValidator.validate(&bytes);
+        assert!(result.status.is_invalid());
+        let note = result.internal_note().expect("Invalid 時は internal_note 必須");
+        assert!(
+            note.contains("再復旧") || note.contains("CS") || note.contains("確認"),
+            "internal_note には業務指示が必要: {}",
+            note
+        );
+        // 顧客向けメッセージは攻撃的でないこと（「破損」などのみで責任追及調にしない）。
+        let cust = result.customer_message();
+        assert!(cust.contains("PNG"));
     }
 }

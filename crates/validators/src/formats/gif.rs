@@ -45,6 +45,8 @@ impl Validator for GifValidator {
                     content.len(),
                     GIF_MIN_BYTES
                 ),
+                "ファイルが小さすぎて GIF として認識できません",
+                format!("{} バイトしかない。disk-io 層を確認", content.len()),
             );
         }
 
@@ -58,6 +60,8 @@ impl Validator for GifValidator {
                 "GIF",
                 self.name(),
                 format!("GIF signature mismatch: {:02X?}", header),
+                "GIF として保存されていますが、GIF ファイルではないようです（別の形式の可能性）",
+                "拡張子と中身の不一致。実形式を判定して正しい拡張子で再復旧推奨",
             );
         };
 
@@ -70,6 +74,8 @@ impl Validator for GifValidator {
                     "GIF trailer (0x3B) missing (got 0x{:02X})",
                     content.last().copied().unwrap_or(0)
                 ),
+                "GIF 画像の末尾が欠けています。画像の一部または全体が表示できない可能性があります",
+                "GIF トレーラ (0x3B) 欠落。末尾切り詰めの可能性、元データから再復旧推奨",
             );
         }
 
@@ -80,6 +86,8 @@ impl Validator for GifValidator {
                 format!("Signature: {}", version),
                 "Trailer (0x3B) found".to_string(),
             ],
+            format!("GIF 画像として正常です（{}）", version),
+            None,
         )
     }
 }

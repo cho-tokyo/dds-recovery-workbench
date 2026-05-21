@@ -40,6 +40,8 @@ impl Validator for BmpValidator {
                     content.len(),
                     BMP_HEADER_MIN_SIZE
                 ),
+                "ファイルが小さすぎて BMP として認識できません",
+                format!("{} バイトしかない。disk-io 層を確認", content.len()),
             );
         }
 
@@ -48,6 +50,8 @@ impl Validator for BmpValidator {
                 "BMP",
                 self.name(),
                 format!("BMP signature mismatch: {:02X?}", &content[0..2]),
+                "BMP として保存されていますが、BMP ファイルではないようです（別の形式の可能性）",
+                "拡張子と中身の不一致。実形式を判定して正しい拡張子で再復旧推奨",
             );
         }
 
@@ -68,6 +72,11 @@ impl Validator for BmpValidator {
                     "Size mismatch: header declares {} bytes, actual is {} bytes",
                     declared_size, actual_size
                 ),
+                "BMP 画像のサイズ情報が一致しません。画像が破損している可能性があります",
+                format!(
+                    "ヘッダー宣言 {} バイト vs 実 {} バイト。途中切り詰めの可能性、元データから再復旧推奨",
+                    declared_size, actual_size
+                ),
             );
         }
 
@@ -78,6 +87,8 @@ impl Validator for BmpValidator {
                 "BM signature OK".to_string(),
                 format!("File size matches header: {} bytes", actual_size),
             ],
+            "BMP 画像として正常です",
+            None,
         )
     }
 }

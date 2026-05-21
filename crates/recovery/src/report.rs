@@ -201,11 +201,23 @@ mod tests {
             "PNG",
             "png_v1",
             vec!["magic OK".into()],
+            "PNG 画像として正常です",
+            None,
         ));
         let mut invalid_entry = build_recovered(20);
-        invalid_entry.validation = Some(ValidationResult::invalid("PNG", "png_v1", "bad header"));
+        invalid_entry.validation = Some(ValidationResult::invalid(
+            "PNG",
+            "png_v1",
+            "bad header",
+            "PNG ヘッダーが壊れています",
+            "IHDR 破損のため再復旧推奨",
+        ));
         let mut uncertain_entry = build_recovered(30);
-        uncertain_entry.validation = Some(ValidationResult::uncertain("no validator"));
+        uncertain_entry.validation = Some(ValidationResult::uncertain(
+            "no validator",
+            "自動検証の対象外です",
+            "CS で確認",
+        ));
         let none_entry = build_recovered(40); // validation = None
 
         let report = RecoveryReport {

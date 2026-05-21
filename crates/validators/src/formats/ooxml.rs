@@ -49,6 +49,8 @@ fn validate_ooxml(
                 format,
                 validator_name,
                 format!("ZIP container invalid: {}", reason),
+                format!("{} ファイル（{} 形式）の構造に問題があります。開けない可能性があります", format, format),
+                format!("ZIP コンテナ破損のため {} として展開不可。再復旧推奨", format),
             );
         }
     };
@@ -62,6 +64,8 @@ fn validate_ooxml(
             format,
             validator_name,
             "[Content_Types].xml not found in archive".to_string(),
+            format!("{} ファイルの内部構造が不完全です。開けない可能性があります", format),
+            "[Content_Types].xml 欠落。Office アプリで開かない。再復旧推奨".to_string(),
         );
     }
 
@@ -75,6 +79,11 @@ fn validate_ooxml(
             format,
             validator_name,
             format!("Content type marker not found: {}", marker_str),
+            format!("{} として保存されていますが、{} ファイルではないようです", format, format),
+            format!(
+                "{} の content type marker ({}) が見つからない。拡張子嘘の可能性、実形式を判定して再復旧推奨",
+                format, marker_str
+            ),
         );
     }
 
@@ -85,7 +94,13 @@ fn validate_ooxml(
         std::str::from_utf8(content_marker).unwrap_or("?")
     ));
 
-    ValidationResult::valid(format, validator_name, diagnostics)
+    ValidationResult::valid(
+        format,
+        validator_name,
+        diagnostics,
+        format!("{} ファイルとして正常です", format),
+        None,
+    )
 }
 
 /// DOCX ファイルのバリデータ。

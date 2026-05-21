@@ -97,7 +97,7 @@ impl RecoveryEngine {
                 continue;
             };
             match self.recover_one(volume, ntfs_file, m) {
-                Ok(SingleOutcome::Recovered(entry)) => recovered.push(entry),
+                Ok(SingleOutcome::Recovered(entry)) => recovered.push(*entry),
                 Ok(SingleOutcome::Skipped(reason)) => skipped.push(SkippedEntry {
                     source_id: m.source_id.clone(),
                     original_path: ntfs_file.path.clone(),
@@ -200,7 +200,7 @@ impl RecoveryEngine {
             None
         };
 
-        Ok(SingleOutcome::Recovered(RecoveredEntry {
+        Ok(SingleOutcome::Recovered(Box::new(RecoveredEntry {
             source_id: m.source_id.clone(),
             original_path: ntfs_file.path.clone(),
             output_path: final_path,
@@ -209,7 +209,7 @@ impl RecoveryEngine {
             is_deleted: ntfs_file.is_deleted,
             sha256,
             validation,
-        }))
+        })))
     }
 
     /// NTFS パス → OS ファイルシステムパスに変換 + サニタイズ + 安全性検証。
@@ -294,8 +294,11 @@ impl RecoveryEngine {
 }
 
 /// `recover_one` の戻り値内部型（成功と Skip を区別、失敗は `Err` で表現）。
+///
+/// `RecoveredEntry` は `ValidationResult` を抱えるためサイズが大きい。
+/// バリアント間のサイズ差を抑えるため `Box` でヒープに退避する。
 enum SingleOutcome {
-    Recovered(RecoveredEntry),
+    Recovered(Box<RecoveredEntry>),
     Skipped(String),
 }
 

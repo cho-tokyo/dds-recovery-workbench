@@ -88,8 +88,20 @@ impl Validator for ZipValidator {
 
     fn validate(&self, content: &[u8]) -> ValidationResult {
         match validate_zip_structure(content) {
-            Ok(diagnostics) => ValidationResult::valid("ZIP", self.name(), diagnostics),
-            Err(reason) => ValidationResult::invalid("ZIP", self.name(), reason),
+            Ok(diagnostics) => ValidationResult::valid(
+                "ZIP",
+                self.name(),
+                diagnostics,
+                "ZIP アーカイブとして正常です",
+                None,
+            ),
+            Err(reason) => ValidationResult::invalid(
+                "ZIP",
+                self.name(),
+                reason,
+                "ZIP アーカイブの構造に問題があります。展開できない可能性があります",
+                "ZIP コンテナ破損。EOCD 不在や magic 不一致の可能性、再復旧推奨",
+            ),
         }
     }
 }

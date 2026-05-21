@@ -34,6 +34,8 @@ impl Validator for JpegValidator {
                 "JPEG",
                 self.name(),
                 format!("File too small ({} bytes)", content.len()),
+                "ファイルが小さすぎて JPEG として認識できません",
+                format!("{} バイトしかない。disk-io 層を確認", content.len()),
             );
         }
 
@@ -43,6 +45,8 @@ impl Validator for JpegValidator {
                 "JPEG",
                 self.name(),
                 format!("SOI marker missing (got {:02X?})", &content[0..2]),
+                "JPEG として保存されていますが、JPEG ファイルではないようです（別の形式の可能性）",
+                "ヘッダー破損または拡張子嘘。実形式を判定して正しい拡張子で再復旧推奨",
             );
         }
         let mut diagnostics = vec!["SOI marker OK".to_string()];
@@ -57,6 +61,8 @@ impl Validator for JpegValidator {
                     "EOI marker missing (got {:02X?} at end)",
                     &content[end - 2..end]
                 ),
+                "JPEG 画像の末尾が欠けています。画像の一部が表示できない可能性があります",
+                "EOI marker 欠落。画像末尾切り詰めの可能性、元データから再復旧推奨",
             );
         }
         diagnostics.push("EOI marker OK at end".to_string());
@@ -71,11 +77,19 @@ impl Validator for JpegValidator {
                     "Expected marker prefix after SOI (got 0x{:02X})",
                     content[2]
                 ),
+                "JPEG 画像のヘッダー構造が壊れています。表示できない可能性があります",
+                "SOI 直後にマーカーなし。深い構造破損のため CS で実物確認推奨",
             );
         }
         diagnostics.push(format!("Marker after SOI: 0xFF 0x{:02X}", content[3]));
 
-        ValidationResult::valid("JPEG", self.name(), diagnostics)
+        ValidationResult::valid(
+            "JPEG",
+            self.name(),
+            diagnostics,
+            "JPEG 画像として正常です",
+            None,
+        )
     }
 }
 

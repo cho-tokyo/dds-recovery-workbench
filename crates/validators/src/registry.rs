@@ -91,15 +91,23 @@ impl ValidatorRegistry {
     /// `Uncertain` を返す。
     pub fn validate(&self, content: &[u8], extension: Option<&str>) -> ValidationResult {
         let Some(ext) = extension else {
-            return ValidationResult::uncertain("No extension provided");
+            return ValidationResult::uncertain(
+                "No extension provided",
+                "拡張子が指定されていないため、自動検証できません",
+                "拡張子なしファイル。マジック自動検出は Phase 2 対応予定。CS で内容確認",
+            );
         };
 
         let lower = ext.to_lowercase();
         let Some(validator) = self.by_extension.get(&lower) else {
-            return ValidationResult::uncertain(format!(
-                "No validator for extension: .{}",
-                lower
-            ));
+            return ValidationResult::uncertain(
+                format!("No validator for extension: .{}", lower),
+                format!(".{} 形式の自動検証は現在対応していません", lower),
+                format!(
+                    ".{} は未実装。CS で実際にファイルを開いて確認推奨。複数件発生する場合は validator 追加検討",
+                    lower
+                ),
+            );
         };
 
         validator.validate(content)
@@ -184,6 +192,27 @@ mod tests {
         let reg = ValidatorRegistry::with_defaults();
         let result = reg.validate(b"some bytes", None);
         assert!(result.status.is_uncertain());
+    }
+
+    #[test]
+    fn uncertain_unknown_extension_includes_internal_action() {
+        // Chunk 20: 未知拡張子で internal_note_ja に「CS 確認」等の指示が含まれる。
+        let reg = ValidatorRegistry::with_defaults();
+        let result = reg.validate(b"some bytes", Some("xyz"));
+        assert!(result.status.is_uncertain());
+        let cust = result.customer_message();
+        assert!(cust.contains("xyz"), "顧客メッセージは拡張子を含む: {}", cust);
+        let note = result.internal_note().expect("Uncertain でも internal_note は必須");
+        assert!(
+            note.contains("CS") || note.contains("確認"),
+            "internal_note は CS 業務指示を含むべき: {}",
+            note
+        );
+
+        let no_ext = reg.validate(b"bytes", None);
+        assert!(no_ext.status.is_uncertain());
+        let no_ext_note = no_ext.internal_note().expect("None でも internal_note 必須");
+        assert!(no_ext_note.contains("CS") || no_ext_note.contains("確認"));
     }
 
     #[test]
