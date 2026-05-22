@@ -1018,7 +1018,10 @@ mod tests {
         let img = build_volume_with_dir(&[]);
         let mut v = NtfsVolume::open(make_reader(img)).expect("open");
         let result = v.build_file(1).expect("build_file ok");
-        assert!(result.is_none(), "expected None for entry without $FILE_NAME");
+        assert!(
+            result.is_none(),
+            "expected None for entry without $FILE_NAME"
+        );
     }
 
     #[test]
@@ -1063,7 +1066,10 @@ mod tests {
         );
         // 具体的には数十年以上未来の値（年=2050 以上）であることを確認。
         assert!(
-            file.created.unwrap().timestamp() > chrono::DateTime::parse_from_rfc3339("2050-01-01T00:00:00+00:00").unwrap().timestamp(),
+            file.created.unwrap().timestamp()
+                > chrono::DateTime::parse_from_rfc3339("2050-01-01T00:00:00+00:00")
+                    .unwrap()
+                    .timestamp(),
             "$FILE_NAME fallback timestamp should be in the far future, got {}",
             created_rfc
         );

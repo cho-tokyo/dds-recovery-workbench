@@ -17,8 +17,8 @@ use dds_wish_match::{Priority, Wish, WishItem, Wishlist};
 use tempfile::TempDir;
 
 /// `ntfs_mixed_formats` フィクスチャを開く。
-fn open_mixed_formats_volume(
-) -> NtfsVolume<impl FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>> {
+fn open_mixed_formats_volume() -> NtfsVolume<impl FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>>
+{
     let img = common::decompress_fixture("ntfs_mixed_formats");
     let cs = u64::from(parse_boot_sector(&img[..512]).unwrap().cluster_size_bytes());
     NtfsVolume::open(common::make_image_reader(img, cs)).expect("open volume")
@@ -88,7 +88,10 @@ fn recovers_mixed_formats_with_correct_validation_status() {
             (
                 f["path"].as_str().unwrap().to_string(),
                 (
-                    f["expected_validation_status"].as_str().unwrap().to_string(),
+                    f["expected_validation_status"]
+                        .as_str()
+                        .unwrap()
+                        .to_string(),
                     f["expected_format"].as_str().map(|s| s.to_string()),
                 ),
             )
@@ -98,9 +101,15 @@ fn recovers_mixed_formats_with_correct_validation_status() {
     let mut matched = 0;
     for entry in &report.recovered {
         let Some((expected_status, expected_format)) = expected.get(&entry.original_path) else {
-            panic!("Recovered path not in ground truth: {}", entry.original_path);
+            panic!(
+                "Recovered path not in ground truth: {}",
+                entry.original_path
+            );
         };
-        let actual = entry.validation.as_ref().expect("validation should be Some");
+        let actual = entry
+            .validation
+            .as_ref()
+            .expect("validation should be Some");
 
         let actual_status = match actual.status {
             ValidationStatus::Valid => "valid",
@@ -221,7 +230,10 @@ fn product_demo_recovery_with_quality_breakdown() {
     let mut by_format: HashMap<String, (u32, u32, u32)> = HashMap::new();
     for entry in &report.recovered {
         let Some(v) = &entry.validation else { continue };
-        let format = v.format_detected.clone().unwrap_or_else(|| "Unknown".into());
+        let format = v
+            .format_detected
+            .clone()
+            .unwrap_or_else(|| "Unknown".into());
         let counters = by_format.entry(format).or_insert((0, 0, 0));
         counters.2 += 1;
         match v.status {
@@ -273,7 +285,11 @@ fn product_demo_recovery_with_quality_breakdown() {
 
     // 期待値: valid 10 (PNG×3, JPEG×2, PDF×2, GIF×1, BMP×1, DOCX×1),
     //         invalid 4 (3 corrupted + 1 mismatch), uncertain 0 (xyz 除外)
-    assert_eq!(report.recovered.len(), 14, "14 files matched (xyz excluded)");
+    assert_eq!(
+        report.recovered.len(),
+        14,
+        "14 files matched (xyz excluded)"
+    );
     assert_eq!(report.validated_count(), 10, "10 Valid expected");
     assert_eq!(report.invalid_count(), 4, "4 Invalid expected");
 }

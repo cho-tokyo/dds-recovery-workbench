@@ -11,6 +11,7 @@ csv = "1.3"
 chrono.workspace = true
 thiserror.workspace = true
 docx-rs.workspace = true
+dds-core.workspace = true
 dds-recovery.workspace = true
 dds-validators.workspace = true
 

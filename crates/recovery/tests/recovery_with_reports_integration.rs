@@ -20,8 +20,8 @@ use dds_wish_match::{Priority, Wish, WishItem, Wishlist};
 use tempfile::TempDir;
 
 /// `ntfs_mixed_formats` フィクスチャを開く。
-fn open_mixed_formats_volume(
-) -> NtfsVolume<impl FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>> {
+fn open_mixed_formats_volume() -> NtfsVolume<impl FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>>
+{
     let img = common::decompress_fixture("ntfs_mixed_formats");
     let cs = u64::from(parse_boot_sector(&img[..512]).unwrap().cluster_size_bytes());
     NtfsVolume::open(common::make_image_reader(img, cs)).expect("open volume")
@@ -111,7 +111,13 @@ fn customer_docx_must_not_contain_internal_notes() {
     let docx_bytes = dds_report::render_customer_docx(&report).expect("render_customer_docx");
     let all_xml_text = extract_docx_xml_text(&docx_bytes);
 
-    let forbidden = ["再復旧推奨", "CS 確認", "業務判断", "技術調査", "disk-io 層"];
+    let forbidden = [
+        "再復旧推奨",
+        "CS 確認",
+        "業務判断",
+        "技術調査",
+        "disk-io 層",
+    ];
     for phrase in &forbidden {
         assert!(
             !all_xml_text.contains(phrase),

@@ -112,8 +112,7 @@ impl RecoveryEngine {
         }
 
         // Chunk 20.5: 顧客指定の Wish::label を保持。レポートで「ご指定条件」表示に使う。
-        let wish_labels: Vec<String> =
-            wishlist.wishes.iter().map(|w| w.label.clone()).collect();
+        let wish_labels: Vec<String> = wishlist.wishes.iter().map(|w| w.label.clone()).collect();
 
         Ok(RecoveryReport {
             started_at,
@@ -129,13 +128,13 @@ impl RecoveryEngine {
     /// 出力ディレクトリを作成し、ディレクトリとして利用可能か検証する。
     fn prepare_output_dir(&self) -> Result<(), RecoveryError> {
         fs::create_dir_all(&self.output_dir)?;
-        let canonical = self
-            .output_dir
-            .canonicalize()
-            .map_err(|e| RecoveryError::InvalidOutputDir {
-                path: self.output_dir.clone(),
-                reason: format!("canonicalize failed: {}", e),
-            })?;
+        let canonical =
+            self.output_dir
+                .canonicalize()
+                .map_err(|e| RecoveryError::InvalidOutputDir {
+                    path: self.output_dir.clone(),
+                    reason: format!("canonicalize failed: {}", e),
+                })?;
         if !canonical.is_dir() {
             return Err(RecoveryError::InvalidOutputDir {
                 path: canonical,
@@ -230,7 +229,11 @@ impl RecoveryEngine {
         let mut path = self.output_dir.clone();
 
         if self.options.separate_live_and_deleted {
-            path.push(if ntfs_file.is_deleted { "deleted" } else { "live" });
+            path.push(if ntfs_file.is_deleted {
+                "deleted"
+            } else {
+                "live"
+            });
         }
 
         // NTFS パスは `\` 区切り。空セグメントは除外（先頭 `\` 由来等）。
@@ -313,10 +316,7 @@ enum SingleOutcome {
 }
 
 /// `MatchResult::source_id` から対応する `NtfsFile` を逆引きする。
-fn find_ntfs_file_by_source_id<'a>(
-    files: &'a [NtfsFile],
-    source_id: &str,
-) -> Option<&'a NtfsFile> {
+fn find_ntfs_file_by_source_id<'a>(files: &'a [NtfsFile], source_id: &str) -> Option<&'a NtfsFile> {
     files
         .iter()
         .find(|f| format!("NTFS#{}", f.record_index) == source_id)

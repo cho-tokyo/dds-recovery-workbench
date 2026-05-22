@@ -21,7 +21,8 @@ const JPEG_BYTES: &[u8] = &[
 ];
 
 /// 最小有効 PDF。
-const PDF_BYTES: &[u8] = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\nxref\n0 1\n0000000000 65535 f\ntrailer\n<</Size 1>>\n%%EOF";
+const PDF_BYTES: &[u8] =
+    b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\nxref\n0 1\n0000000000 65535 f\ntrailer\n<</Size 1>>\n%%EOF";
 
 #[test]
 fn registry_dispatches_correct_validator_by_extension() {
@@ -39,7 +40,10 @@ fn registry_dispatches_correct_validator_by_extension() {
     assert_eq!(jpeg_result.validator_name, "jpeg_v1");
 
     let jpg_result = reg.validate(JPEG_BYTES, Some("jpg"));
-    assert!(jpg_result.status.is_valid(), ".jpg alias should also be valid");
+    assert!(
+        jpg_result.status.is_valid(),
+        ".jpg alias should also be valid"
+    );
     assert_eq!(jpg_result.validator_name, "jpeg_v1");
 
     let pdf_result = reg.validate(PDF_BYTES, Some("pdf"));

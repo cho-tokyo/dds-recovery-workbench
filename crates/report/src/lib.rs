@@ -125,7 +125,10 @@ mod tests {
             paths.customer_docx.file_name().unwrap(),
             "report_customer.docx"
         );
-        assert_eq!(paths.invalid_txt.file_name().unwrap(), "recovered_files.txt");
+        assert_eq!(
+            paths.invalid_txt.file_name().unwrap(),
+            "recovered_files.txt"
+        );
         assert_eq!(
             paths.internal_html.file_name().unwrap(),
             "report_internal.html"

@@ -58,8 +58,8 @@ pub fn sanitize_filename(name: &str) -> Result<String, RecoveryError> {
         .unwrap_or("")
         .to_ascii_uppercase();
 
-    let is_reserved = RESERVED_BASE_NAMES.contains(&base_upper.as_str())
-        || is_reserved_numbered(&base_upper);
+    let is_reserved =
+        RESERVED_BASE_NAMES.contains(&base_upper.as_str()) || is_reserved_numbered(&base_upper);
 
     if is_reserved {
         sanitized = format!("_{}", sanitized);
@@ -106,7 +106,10 @@ mod tests {
     fn sanitize_replaces_forbidden_chars() {
         assert_eq!(sanitize_filename("foo<>bar.txt").unwrap(), "foo__bar.txt");
         assert_eq!(sanitize_filename("a|b?c.txt").unwrap(), "a_b_c.txt");
-        assert_eq!(sanitize_filename("path/with\\sep.txt").unwrap(), "path_with_sep.txt");
+        assert_eq!(
+            sanitize_filename("path/with\\sep.txt").unwrap(),
+            "path_with_sep.txt"
+        );
     }
 
     #[test]

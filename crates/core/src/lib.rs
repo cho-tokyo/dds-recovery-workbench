@@ -6,6 +6,8 @@
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
 
+pub mod format;
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use thiserror::Error;
@@ -171,10 +173,22 @@ mod tests {
     #[test]
     fn damage_level_display_ja_all_variants() {
         assert_eq!(DamageLevel::L1_DeletionOnly.display_ja(), "L1: 削除のみ");
-        assert_eq!(DamageLevel::L2_PartitionTableDamaged.display_ja(), "L2: パーティションテーブル損傷");
-        assert_eq!(DamageLevel::L3_FsMetadataPartiallyDamaged.display_ja(), "L3: FSメタデータ部分損傷");
-        assert_eq!(DamageLevel::L4_BothDamaged.display_ja(), "L4: パーティション・FS両損傷");
-        assert_eq!(DamageLevel::L5_FsMetadataLost.display_ja(), "L5: FSメタデータ消失");
+        assert_eq!(
+            DamageLevel::L2_PartitionTableDamaged.display_ja(),
+            "L2: パーティションテーブル損傷"
+        );
+        assert_eq!(
+            DamageLevel::L3_FsMetadataPartiallyDamaged.display_ja(),
+            "L3: FSメタデータ部分損傷"
+        );
+        assert_eq!(
+            DamageLevel::L4_BothDamaged.display_ja(),
+            "L4: パーティション・FS両損傷"
+        );
+        assert_eq!(
+            DamageLevel::L5_FsMetadataLost.display_ja(),
+            "L5: FSメタデータ消失"
+        );
         assert_eq!(DamageLevel::L6_SevereDamage.display_ja(), "L6: 重度損傷");
         assert_eq!(DamageLevel::PhysicalIssue.display_ja(), "物理障害");
         assert_eq!(format!("{}", DamageLevel::L1_DeletionOnly), "L1: 削除のみ");
@@ -190,8 +204,17 @@ mod tests {
 
     #[test]
     fn recovery_method_display_outputs_japanese_label() {
-        assert_eq!(format!("{}", RecoveryMethod::L1_MetadataIntact), "L1: FSメタ健全");
-        assert_eq!(format!("{}", RecoveryMethod::L2_PartitionReconstructed), "L2: パーティション再構築");
-        assert_eq!(format!("{}", RecoveryMethod::L3_FsMetadataReconstructed), "L3: FSメタデータ再構築");
+        assert_eq!(
+            format!("{}", RecoveryMethod::L1_MetadataIntact),
+            "L1: FSメタ健全"
+        );
+        assert_eq!(
+            format!("{}", RecoveryMethod::L2_PartitionReconstructed),
+            "L2: パーティション再構築"
+        );
+        assert_eq!(
+            format!("{}", RecoveryMethod::L3_FsMetadataReconstructed),
+            "L3: FSメタデータ再構築"
+        );
     }
 }

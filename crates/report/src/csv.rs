@@ -175,7 +175,11 @@ mod tests {
         assert!(csv.contains("顧客向け文言"));
         assert!(csv.contains("内部メモ:再復旧推奨"));
         let mut rdr = csv::Reader::from_reader(csv.as_bytes());
-        let record = rdr.records().next().expect("少なくとも 1 レコード").unwrap();
+        let record = rdr
+            .records()
+            .next()
+            .expect("少なくとも 1 レコード")
+            .unwrap();
         assert_eq!(record.len(), 14);
         // matched_wishes (index 6), sha256 (index 7), customer_message (index 11), internal_note (index 12)
         assert_eq!(record.get(6), Some(""));

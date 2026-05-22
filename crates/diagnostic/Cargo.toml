@@ -7,5 +7,14 @@ license.workspace = true
 publish = false
 
 [dependencies]
-dds-core.workspace = true
+chrono.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 thiserror.workspace = true
+dds-core.workspace = true
+dds-fs-ntfs.workspace = true
+dds-case-manager.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+zstd = "0.13"

@@ -171,7 +171,9 @@ mod tests {
         bytes[0] = 0xFF;
         let result = PngValidator.validate(&bytes);
         assert!(result.status.is_invalid());
-        let note = result.internal_note().expect("Invalid 時は internal_note 必須");
+        let note = result
+            .internal_note()
+            .expect("Invalid 時は internal_note 必須");
         assert!(
             note.contains("再復旧") || note.contains("CS") || note.contains("確認"),
             "internal_note には業務指示が必要: {}",

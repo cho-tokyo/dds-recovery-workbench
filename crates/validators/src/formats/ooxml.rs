@@ -49,8 +49,14 @@ fn validate_ooxml(
                 format,
                 validator_name,
                 format!("ZIP container invalid: {}", reason),
-                format!("{} ファイル（{} 形式）の構造に問題があります。開けない可能性があります", format, format),
-                format!("ZIP コンテナ破損のため {} として展開不可。再復旧推奨", format),
+                format!(
+                    "{} ファイル（{} 形式）の構造に問題があります。開けない可能性があります",
+                    format, format
+                ),
+                format!(
+                    "ZIP コンテナ破損のため {} として展開不可。再復旧推奨",
+                    format
+                ),
             );
         }
     };
@@ -64,7 +70,10 @@ fn validate_ooxml(
             format,
             validator_name,
             "[Content_Types].xml not found in archive".to_string(),
-            format!("{} ファイルの内部構造が不完全です。開けない可能性があります", format),
+            format!(
+                "{} ファイルの内部構造が不完全です。開けない可能性があります",
+                format
+            ),
             "[Content_Types].xml 欠落。Office アプリで開かない。再復旧推奨".to_string(),
         );
     }
@@ -170,7 +179,9 @@ mod tests {
         bytes.extend_from_slice(&[0u8; 26]); // ローカルヘッダ残り
         bytes.extend_from_slice(b"[Content_Types].xml"); // ファイル名
         bytes.extend_from_slice(b"<?xml version=\"1.0\"?><Types>");
-        bytes.extend_from_slice(b"<Override ContentType=\"application/vnd.openxmlformats-officedocument.");
+        bytes.extend_from_slice(
+            b"<Override ContentType=\"application/vnd.openxmlformats-officedocument.",
+        );
         bytes.extend_from_slice(format_marker);
         bytes.extend_from_slice(b".main+xml\"/></Types>");
         // EOCD

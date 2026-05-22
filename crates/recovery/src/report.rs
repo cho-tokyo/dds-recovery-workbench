@@ -296,7 +296,11 @@ mod tests {
     #[test]
     fn total_bytes_written_sums_all_recovered() {
         let report = build_report(
-            vec![build_recovered(100), build_recovered(200), build_recovered(300)],
+            vec![
+                build_recovered(100),
+                build_recovered(200),
+                build_recovered(300),
+            ],
             3,
         );
         assert_eq!(report.total_bytes_written(), 600);
@@ -306,15 +310,25 @@ mod tests {
     fn validation_counts_classify_by_status() {
         let mut valid_entry = build_recovered(10);
         valid_entry.validation = Some(ValidationResult::valid(
-            "PNG", "png_v1", vec!["magic OK".into()], "PNG 画像として正常です", None,
+            "PNG",
+            "png_v1",
+            vec!["magic OK".into()],
+            "PNG 画像として正常です",
+            None,
         ));
         let mut invalid_entry = build_recovered(20);
         invalid_entry.validation = Some(ValidationResult::invalid(
-            "PNG", "png_v1", "bad header", "PNG ヘッダーが壊れています", "IHDR 破損のため再復旧推奨",
+            "PNG",
+            "png_v1",
+            "bad header",
+            "PNG ヘッダーが壊れています",
+            "IHDR 破損のため再復旧推奨",
         ));
         let mut uncertain_entry = build_recovered(30);
         uncertain_entry.validation = Some(ValidationResult::uncertain(
-            "no validator", "自動検証の対象外です", "CS で確認",
+            "no validator",
+            "自動検証の対象外です",
+            "CS で確認",
         ));
         let none_entry = build_recovered(40);
 
@@ -348,7 +362,11 @@ mod tests {
         for _ in 0..4 {
             let mut e = build_recovered(0);
             e.validation = Some(ValidationResult::invalid(
-                "PNG", "png_v1", "bad", "壊れています", "再復旧推奨",
+                "PNG",
+                "png_v1",
+                "bad",
+                "壊れています",
+                "再復旧推奨",
             ));
             entries.push(e);
         }
@@ -371,7 +389,13 @@ mod tests {
         entries.push(bad_png);
         for _ in 0..2 {
             let mut e = build_recovered(0);
-            e.validation = Some(ValidationResult::valid("JPEG", "jpg_v1", vec![], "ok", None));
+            e.validation = Some(ValidationResult::valid(
+                "JPEG",
+                "jpg_v1",
+                vec![],
+                "ok",
+                None,
+            ));
             entries.push(e);
         }
         let report = build_report(entries, 6);
@@ -390,13 +414,19 @@ mod tests {
     fn invalid_grouped_by_reason_separates_distinct_reasons() {
         let mut tail_missing = build_recovered(0);
         tail_missing.validation = Some(ValidationResult::invalid(
-            "PNG", "png_v1", "trailer missing",
-            "PNG 画像の末尾が欠けています", "IEND チャンク欠損",
+            "PNG",
+            "png_v1",
+            "trailer missing",
+            "PNG 画像の末尾が欠けています",
+            "IEND チャンク欠損",
         ));
         let mut wrong_ext = build_recovered(0);
         wrong_ext.validation = Some(ValidationResult::invalid(
-            "PNG", "png_v1", "magic mismatch",
-            "PNG 拡張子ですが内容が違います", "拡張子嘘の典型例",
+            "PNG",
+            "png_v1",
+            "magic mismatch",
+            "PNG 拡張子ですが内容が違います",
+            "拡張子嘘の典型例",
         ));
         let report = build_report(vec![tail_missing, wrong_ext], 2);
         let grouped = report.invalid_grouped_by_reason();

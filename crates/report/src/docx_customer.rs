@@ -53,9 +53,8 @@ pub fn render_customer_docx(report: &RecoveryReport) -> Result<Vec<u8>, ReportEr
             .align(AlignmentType::Center)
             .add_run(Run::new().add_text("データ復旧レポート").size(40).bold()),
     );
-    docx = docx.add_paragraph(
-        Paragraph::new().add_run(Run::new().add_text(format!("作成日: {}", date))),
-    );
+    docx = docx
+        .add_paragraph(Paragraph::new().add_run(Run::new().add_text(format!("作成日: {}", date))));
     docx = docx.add_paragraph(Paragraph::new());
 
     // === ご指定条件（Wish::label のリスト） ===
@@ -63,8 +62,8 @@ pub fn render_customer_docx(report: &RecoveryReport) -> Result<Vec<u8>, ReportEr
         Paragraph::new().add_run(Run::new().add_text("■ ご指定条件").size(28).bold()),
     );
     if report.wish_labels.is_empty() {
-        docx = docx
-            .add_paragraph(Paragraph::new().add_run(Run::new().add_text("  (条件指定なし)")));
+        docx =
+            docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text("  (条件指定なし)")));
     } else {
         for label in &report.wish_labels {
             docx = docx.add_paragraph(
@@ -76,8 +75,7 @@ pub fn render_customer_docx(report: &RecoveryReport) -> Result<Vec<u8>, ReportEr
 
     // === 復旧結果サマリ ===
     docx = docx.add_paragraph(
-        Paragraph::new()
-            .add_run(Run::new().add_text("■ 復旧結果サマリ").size(28).bold()),
+        Paragraph::new().add_run(Run::new().add_text("■ 復旧結果サマリ").size(28).bold()),
     );
     let summary_rows = vec![
         make_kv_row("該当ファイル数", &format!("{} 件", report.total_matched)),
@@ -94,9 +92,8 @@ pub fn render_customer_docx(report: &RecoveryReport) -> Result<Vec<u8>, ReportEr
     docx = docx.add_paragraph(Paragraph::new());
 
     // === 品質確認 ===
-    docx = docx.add_paragraph(
-        Paragraph::new().add_run(Run::new().add_text("■ 品質確認").size(28).bold()),
-    );
+    docx = docx
+        .add_paragraph(Paragraph::new().add_run(Run::new().add_text("■ 品質確認").size(28).bold()));
     let valid = report.validated_count();
     let invalid = report.invalid_count();
     let uncertain = report.uncertain_count();
@@ -114,37 +111,43 @@ pub fn render_customer_docx(report: &RecoveryReport) -> Result<Vec<u8>, ReportEr
     // === 要ご確認のファイル概要（Invalid グループのトップ 5）===
     if invalid > 0 {
         docx = docx.add_paragraph(
-            Paragraph::new()
-                .add_run(Run::new().add_text("■ 要ご確認のファイルについて").size(28).bold()),
+            Paragraph::new().add_run(
+                Run::new()
+                    .add_text("■ 要ご確認のファイルについて")
+                    .size(28)
+                    .bold(),
+            ),
         );
         docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text(format!(
             "合計 {} 件のファイルに品質上の懸念があります。",
             invalid
         ))));
         docx = docx.add_paragraph(Paragraph::new());
-        docx = docx.add_paragraph(
-            Paragraph::new().add_run(Run::new().add_text("主な内訳:").bold()),
-        );
+        docx =
+            docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text("主な内訳:").bold()));
 
         let grouped = report.invalid_grouped_by_reason();
         for (reason, entries) in grouped.iter().take(5) {
-            docx = docx.add_paragraph(Paragraph::new().add_run(
-                Run::new().add_text(format!("  ・{}: {} 件", reason, entries.len())),
-            ));
+            docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text(format!(
+                "  ・{}: {} 件",
+                reason,
+                entries.len()
+            ))));
         }
         docx = docx.add_paragraph(Paragraph::new());
-        docx = docx.add_paragraph(Paragraph::new().add_run(
-            Run::new()
-                .add_text("詳細なファイル一覧は、別添「recovered_files.txt」をご参照ください。")
-                .italic(),
-        ));
+        docx = docx.add_paragraph(
+            Paragraph::new().add_run(
+                Run::new()
+                    .add_text("詳細なファイル一覧は、別添「recovered_files.txt」をご参照ください。")
+                    .italic(),
+            ),
+        );
         docx = docx.add_paragraph(Paragraph::new());
     }
 
     // === 復旧データ量 ===
     docx = docx.add_paragraph(
-        Paragraph::new()
-            .add_run(Run::new().add_text("■ 復旧データ量").size(28).bold()),
+        Paragraph::new().add_run(Run::new().add_text("■ 復旧データ量").size(28).bold()),
     );
     docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text(format!(
         "  合計: {}",
@@ -155,13 +158,11 @@ pub fn render_customer_docx(report: &RecoveryReport) -> Result<Vec<u8>, ReportEr
     docx = docx.add_paragraph(Paragraph::new());
     docx = docx.add_paragraph(Paragraph::new());
     docx = docx.add_paragraph(
-        Paragraph::new()
-            .align(AlignmentType::Center)
-            .add_run(
-                Run::new()
-                    .add_text("ご不明な点がございましたら、担当者までお問い合わせください。")
-                    .size(18),
-            ),
+        Paragraph::new().align(AlignmentType::Center).add_run(
+            Run::new()
+                .add_text("ご不明な点がございましたら、担当者までお問い合わせください。")
+                .size(18),
+        ),
     );
     docx = docx.add_paragraph(
         Paragraph::new()
@@ -183,8 +184,7 @@ pub fn render_customer_docx(report: &RecoveryReport) -> Result<Vec<u8>, ReportEr
 /// `label: value` 形式の 1 行を 2 列テーブル行として組み立てるヘルパー。
 fn make_kv_row(label: &str, value: &str) -> TableRow {
     TableRow::new(vec![
-        TableCell::new()
-            .add_paragraph(Paragraph::new().add_run(Run::new().add_text(label).bold())),
+        TableCell::new().add_paragraph(Paragraph::new().add_run(Run::new().add_text(label).bold())),
         TableCell::new().add_paragraph(Paragraph::new().add_run(Run::new().add_text(value))),
     ])
 }
@@ -254,10 +254,7 @@ mod tests {
 
     #[test]
     fn customer_docx_contains_wish_labels() {
-        let report = build_report(
-            vec!["お客様の写真".into(), "重要な書類".into()],
-            vec![],
-        );
+        let report = build_report(vec!["お客様の写真".into(), "重要な書類".into()], vec![]);
         let bytes = render_customer_docx(&report).unwrap();
         let text = extract_docx_text(&bytes);
         assert!(text.contains("お客様の写真"));
@@ -291,10 +288,7 @@ mod tests {
     fn customer_docx_contains_summary_metrics() {
         // 業務指標（該当件数、復旧成功率、品質保証率の表現）が含まれること。
         let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
-        let report = build_report(
-            vec!["写真".into()],
-            vec![entry("\\a.png", Some(v_ok))],
-        );
+        let report = build_report(vec!["写真".into()], vec![entry("\\a.png", Some(v_ok))]);
         let bytes = render_customer_docx(&report).unwrap();
         let text = extract_docx_text(&bytes);
         // 該当ファイル数 / 復旧成功 / 正常確認済み / 復旧データ量 のラベルが含まれる。

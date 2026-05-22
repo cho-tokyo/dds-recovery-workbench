@@ -122,14 +122,16 @@ impl ValidationResult {
     ///
     /// `internal_note_ja` は**絶対に**返さない。顧客 HTML 生成で使用される。
     pub fn customer_message(&self) -> String {
-        self.user_message_ja.clone().unwrap_or_else(|| match self.status {
-            ValidationStatus::Valid => format!(
-                "{}として正常です",
-                self.format_detected.as_deref().unwrap_or("ファイル")
-            ),
-            ValidationStatus::Invalid => "ファイルに問題があります".to_string(),
-            ValidationStatus::Uncertain => "自動検証の対象外です".to_string(),
-        })
+        self.user_message_ja
+            .clone()
+            .unwrap_or_else(|| match self.status {
+                ValidationStatus::Valid => format!(
+                    "{}として正常です",
+                    self.format_detected.as_deref().unwrap_or("ファイル")
+                ),
+                ValidationStatus::Invalid => "ファイルに問題があります".to_string(),
+                ValidationStatus::Uncertain => "自動検証の対象外です".to_string(),
+            })
     }
 
     /// CS 向け内部メモへの参照（顧客には絶対公開しない）。
@@ -146,11 +148,17 @@ impl ValidationResult {
             ),
             ValidationStatus::Invalid => format!(
                 "[NG] Invalid: {}",
-                self.diagnostics.first().map(|s| s.as_str()).unwrap_or("unknown")
+                self.diagnostics
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("unknown")
             ),
             ValidationStatus::Uncertain => format!(
                 "[?] Uncertain: {}",
-                self.diagnostics.first().map(|s| s.as_str()).unwrap_or("no validator")
+                self.diagnostics
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("no validator")
             ),
         }
     }
@@ -183,7 +191,10 @@ mod tests {
         assert_eq!(r.validator_name, "png_v1");
         assert_eq!(r.diagnostics.len(), 1);
         assert_eq!(r.user_message_ja.as_deref(), Some("PNG として正常です"));
-        assert!(r.internal_note_ja.is_none(), "Valid 時の internal_note は None");
+        assert!(
+            r.internal_note_ja.is_none(),
+            "Valid 時の internal_note は None"
+        );
     }
 
     #[test]
@@ -217,13 +228,7 @@ mod tests {
 
     #[test]
     fn customer_message_returns_user_message_ja() {
-        let r = ValidationResult::valid(
-            "PNG",
-            "png_v1",
-            vec![],
-            "PNG 画像として正常です",
-            None,
-        );
+        let r = ValidationResult::valid("PNG", "png_v1", vec![], "PNG 画像として正常です", None);
         assert_eq!(r.customer_message(), "PNG 画像として正常です");
     }
 
@@ -264,15 +269,11 @@ mod tests {
                 .summary()
                 .starts_with("[OK]")
         );
-        assert!(
-            ValidationResult::invalid("PNG", "png_v1", "bad", "x", "y")
-                .summary()
-                .starts_with("[NG]")
-        );
-        assert!(
-            ValidationResult::uncertain("none", "x", "y")
-                .summary()
-                .starts_with("[?]")
-        );
+        assert!(ValidationResult::invalid("PNG", "png_v1", "bad", "x", "y")
+            .summary()
+            .starts_with("[NG]"));
+        assert!(ValidationResult::uncertain("none", "x", "y")
+            .summary()
+            .starts_with("[?]"));
     }
 }

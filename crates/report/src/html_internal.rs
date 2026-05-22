@@ -280,14 +280,14 @@ mod tests {
     #[test]
     fn internal_html_includes_internal_note_for_invalid() {
         let v = ValidationResult::invalid(
-            "PNG", "png_v1", "magic mismatch",
-            "PNG ファイルではないようです", "拡張子嘘の典型例。再復旧推奨",
+            "PNG",
+            "png_v1",
+            "magic mismatch",
+            "PNG ファイルではないようです",
+            "拡張子嘘の典型例。再復旧推奨",
         );
-        let html = render_internal_html(&make_report(
-            vec![entry("\\bad.png", Some(v))],
-            1,
-        ))
-        .unwrap();
+        let html =
+            render_internal_html(&make_report(vec![entry("\\bad.png", Some(v))], 1)).unwrap();
         assert!(html.contains("拡張子嘘の典型例"));
         assert!(html.contains("再復旧推奨"));
         // 顧客向けメッセージも併存
@@ -322,15 +322,15 @@ mod tests {
     #[test]
     fn internal_html_groups_invalid_by_reason() {
         let v1 = ValidationResult::invalid(
-            "PNG", "png_v1", "trailer", "末尾が欠けています", "IEND 欠損",
+            "PNG",
+            "png_v1",
+            "trailer",
+            "末尾が欠けています",
+            "IEND 欠損",
         );
-        let v2 = ValidationResult::invalid(
-            "PNG", "png_v1", "magic", "PNG ではないようです", "拡張子嘘",
-        );
-        let entries = vec![
-            entry("\\a.png", Some(v1)),
-            entry("\\b.png", Some(v2)),
-        ];
+        let v2 =
+            ValidationResult::invalid("PNG", "png_v1", "magic", "PNG ではないようです", "拡張子嘘");
+        let entries = vec![entry("\\a.png", Some(v1)), entry("\\b.png", Some(v2))];
         let html = render_internal_html(&make_report(entries, 2)).unwrap();
         // 2 つの distinct reason グループが invalid-group div として現れる。
         let group_count = html.matches("class=\"invalid-group\"").count();
@@ -340,9 +340,8 @@ mod tests {
     #[test]
     fn internal_html_caps_invalid_list_at_20_per_group() {
         // 同じ Invalid 理由を 25 件 → 表示 20 件 + 「... 他 5 件」
-        let v = ValidationResult::invalid(
-            "PNG", "png_v1", "magic", "PNG ではないようです", "拡張子嘘",
-        );
+        let v =
+            ValidationResult::invalid("PNG", "png_v1", "magic", "PNG ではないようです", "拡張子嘘");
         let entries: Vec<_> = (0..25)
             .map(|i| entry(&format!("\\x{}.png", i), Some(v.clone())))
             .collect();

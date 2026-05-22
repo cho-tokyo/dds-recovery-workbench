@@ -17,9 +17,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// 数値は `priority_score` の加算用。同一ファイルが複数希望にマッチした場合の
 /// ソートに使う（Chunk 17 復旧パイプラインで優先抽出順を決める）。
-#[derive(
-    Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord,
-)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Priority {
     /// 補助 (=25): あったら嬉しい。
     Low = 25,
@@ -237,11 +235,17 @@ mod tests {
         // Tauri UI 連携に必要: 希望リストが JSON でラウンドトリップ可能なこと。
         let wl = Wishlist::new()
             .add(
-                Wish::new(WishItem::PathPrefix("\\Users\\Chou".into()), "ユーザフォルダ")
-                    .with_priority(Priority::Critical),
+                Wish::new(
+                    WishItem::PathPrefix("\\Users\\Chou".into()),
+                    "ユーザフォルダ",
+                )
+                .with_priority(Priority::Critical),
             )
             .add(Wish::new(
-                WishItem::SizeRange { min: Some(100), max: Some(10_000) },
+                WishItem::SizeRange {
+                    min: Some(100),
+                    max: Some(10_000),
+                },
                 "中サイズファイル",
             ));
         let json = serde_json::to_string(&wl).expect("serialize");

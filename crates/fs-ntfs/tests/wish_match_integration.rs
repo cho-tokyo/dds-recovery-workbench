@@ -8,9 +8,7 @@
 mod common;
 
 use dds_fs_ntfs::{parse_boot_sector, NtfsFile, NtfsVolume};
-use dds_wish_match::{
-    match_files, FileInfo, Priority, Wish, WishItem, Wishlist,
-};
+use dds_wish_match::{match_files, FileInfo, Priority, Wish, WishItem, Wishlist};
 use std::collections::HashSet;
 
 fn make_image_reader(
@@ -30,9 +28,7 @@ fn make_image_reader(
     }
 }
 
-fn open_fixture(
-    name: &str,
-) -> NtfsVolume<impl FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>> {
+fn open_fixture(name: &str) -> NtfsVolume<impl FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>> {
     let img = common::decompress_fixture(name);
     let cs = u64::from(parse_boot_sector(&img[..512]).unwrap().cluster_size_bytes());
     NtfsVolume::open(make_image_reader(img, cs)).expect("open volume")
@@ -102,8 +98,10 @@ fn matches_files_in_dir1_subdirectory_only() {
 fn matches_deleted_files_with_txt_extension() {
     // 業務シナリオ: お客様が「削除された .txt を全部復旧したい」と希望。
     let mut volume = open_fixture("ntfs_with_5_deletions_small");
-    let wishlist = Wishlist::new()
-        .add(Wish::new(WishItem::Extension("txt".into()), "復旧したい .txt"));
+    let wishlist = Wishlist::new().add(Wish::new(
+        WishItem::Extension("txt".into()),
+        "復旧したい .txt",
+    ));
 
     let deleted_infos: Vec<FileInfo> = volume
         .iter_files()
@@ -177,11 +175,7 @@ fn product_demo_wish_match_with_priority() {
             .get(&m.source_id)
             .map(String::as_str)
             .unwrap_or("?");
-        let labels: Vec<&str> = m
-            .matched_wishes
-            .iter()
-            .map(|w| w.label.as_str())
-            .collect();
+        let labels: Vec<&str> = m.matched_wishes.iter().map(|w| w.label.as_str()).collect();
         println!(
             "  {:2}. [{:3}] {} -> {}  (matched: {})",
             i + 1,
@@ -244,9 +238,7 @@ fn business_scenario_dir1_txt_excluding_sub2() {
             WishItem::All(vec![
                 WishItem::PathPrefix("\\dir1".into()),
                 WishItem::Extension("txt".into()),
-                WishItem::Not(Box::new(WishItem::PathPrefix(
-                    "\\dir1\\sub1\\sub2".into(),
-                ))),
+                WishItem::Not(Box::new(WishItem::PathPrefix("\\dir1\\sub1\\sub2".into()))),
             ]),
             "dir1 配下の .txt (sub2 を除く)",
         )
@@ -318,12 +310,7 @@ fn product_demo_complex_wish_with_combinators() {
     println!("\n=== Complex Wish Match Demo (Chunk 16) ===\n");
     println!("Wishlist:");
     for w in &wishlist.wishes {
-        println!(
-            "  {:?}({}): {}",
-            w.priority,
-            w.priority.score(),
-            w.label
-        );
+        println!("  {:?}({}): {}", w.priority, w.priority.score(), w.label);
     }
     println!("\nTop 15 matches (score-sorted):");
     for (i, m) in matches.iter().enumerate().take(15) {
@@ -331,11 +318,7 @@ fn product_demo_complex_wish_with_combinators() {
             .get(&m.source_id)
             .map(String::as_str)
             .unwrap_or("?");
-        let labels: Vec<&str> = m
-            .matched_wishes
-            .iter()
-            .map(|w| w.label.as_str())
-            .collect();
+        let labels: Vec<&str> = m.matched_wishes.iter().map(|w| w.label.as_str()).collect();
         println!(
             "  {:2}. [{:3}] {} -> {}  (matched: {})",
             i + 1,

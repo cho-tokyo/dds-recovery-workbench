@@ -191,7 +191,10 @@ mod tests {
     fn path_prefix_matches_subdirectory_files() {
         // 業務シナリオ: お客様が「Users\Chou 配下のファイルが欲しい」と希望。
         let f = build_file("\\Users\\Chou\\Documents\\report.docx", 1024);
-        let wish = Wish::new(WishItem::PathPrefix("\\Users\\Chou".into()), "ユーザフォルダ");
+        let wish = Wish::new(
+            WishItem::PathPrefix("\\Users\\Chou".into()),
+            "ユーザフォルダ",
+        );
         assert!(matches_wish(&f, &wish));
     }
 
@@ -220,7 +223,10 @@ mod tests {
 
     #[test]
     fn size_range_min_and_max_inclusive() {
-        let item = WishItem::SizeRange { min: Some(1000), max: Some(5000) };
+        let item = WishItem::SizeRange {
+            min: Some(1000),
+            max: Some(5000),
+        };
         assert!(matches_item(&build_file("\\a", 1000), &item));
         assert!(matches_item(&build_file("\\a", 5000), &item));
         assert!(!matches_item(&build_file("\\a", 999), &item));
@@ -229,7 +235,10 @@ mod tests {
 
     #[test]
     fn size_range_min_only_no_upper_bound() {
-        let item = WishItem::SizeRange { min: Some(1000), max: None };
+        let item = WishItem::SizeRange {
+            min: Some(1000),
+            max: None,
+        };
         assert!(matches_item(&build_file("\\a", 1_000_000_000), &item));
         assert!(!matches_item(&build_file("\\a", 500), &item));
     }
@@ -256,10 +265,11 @@ mod tests {
         let f1 = build_file("\\important.docx", 100);
         let f2 = build_file("\\other.txt", 200);
         let wl = Wishlist::new()
-            .add(Wish::new(WishItem::Extension("docx".into()), "Word")
-                .with_priority(Priority::Critical))
-            .add(Wish::new(WishItem::Extension("txt".into()), "Text")
-                .with_priority(Priority::Low));
+            .add(
+                Wish::new(WishItem::Extension("docx".into()), "Word")
+                    .with_priority(Priority::Critical),
+            )
+            .add(Wish::new(WishItem::Extension("txt".into()), "Text").with_priority(Priority::Low));
         let results = match_files(&[f1, f2], &wl);
         assert_eq!(results.len(), 2);
         assert!(results[0].priority_score > results[1].priority_score);
@@ -534,10 +544,7 @@ mod tests {
             ))),
         ]);
         let normal = build_file("\\Users\\Chou\\Documents\\report.docx", 1);
-        let in_recycle = build_file(
-            "\\Users\\Chou\\Documents\\$RECYCLE.BIN\\old.docx",
-            1,
-        );
+        let in_recycle = build_file("\\Users\\Chou\\Documents\\$RECYCLE.BIN\\old.docx", 1);
         let wrong_ext = build_file("\\Users\\Chou\\Documents\\foo.pdf", 1);
         let outside = build_file("\\Users\\Other\\report.docx", 1);
         assert!(matches_item(&normal, &item));

@@ -75,14 +75,15 @@ impl Validator for PdfValidator {
                 ),
             );
         }
-        let mut diagnostics = vec![format!("PDF header OK (version 1.{})", version_byte as char)];
+        let mut diagnostics = vec![format!(
+            "PDF header OK (version 1.{})",
+            version_byte as char
+        )];
 
         // Trailer: 末尾 N バイト内に %%EOF を探す。
         let tail_start = content.len().saturating_sub(TRAILER_SEARCH_TAIL);
         let tail = &content[tail_start..];
-        let trailer_found = tail
-            .windows(PDF_TRAILER.len())
-            .any(|w| w == PDF_TRAILER);
+        let trailer_found = tail.windows(PDF_TRAILER.len()).any(|w| w == PDF_TRAILER);
         if !trailer_found {
             return ValidationResult::invalid(
                 "PDF",
@@ -162,7 +163,11 @@ mod tests {
         assert!(result.status.is_invalid());
         let cust = result.customer_message();
         // 顧客に責任追及調にならず、可能性として伝える文言
-        assert!(cust.contains("ようです") || cust.contains("可能性"), "顧客向け: {}", cust);
+        assert!(
+            cust.contains("ようです") || cust.contains("可能性"),
+            "顧客向け: {}",
+            cust
+        );
         // 内部メモには業務指示
         let note = result.internal_note().unwrap();
         assert!(note.contains("再復旧") || note.contains("CS") || note.contains("確認"));

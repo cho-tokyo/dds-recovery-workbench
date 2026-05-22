@@ -22,20 +22,10 @@
 /// assert_eq!(format_bytes(2_147_483_648), "2.00 GB");
 /// ```
 pub fn format_bytes(bytes: u64) -> String {
-    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB", "PB"];
-
-    if bytes < 1024 {
-        return format!("{} B", bytes);
-    }
-
-    let mut value = bytes as f64;
-    let mut unit_idx = 0;
-    while value >= 1024.0 && unit_idx < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit_idx += 1;
-    }
-
-    format!("{:.2} {}", value, UNITS[unit_idx])
+    // Chunk 22 で `dds-core::format::format_bytes` に集約済み。
+    // `dds-report::format_bytes` と `dds-report::format::format_bytes` は
+    // 後方互換のため delegate として維持する。
+    dds_core::format::format_bytes(bytes)
 }
 
 /// ミリ秒を人間可読な時間表現に変換する。

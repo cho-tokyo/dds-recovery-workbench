@@ -108,7 +108,9 @@ impl NtfsFile {
     }
     /// ファイル拡張子（小文字、ドット除く）。なければ `None`。
     pub fn extension(&self) -> Option<String> {
-        self.name.rsplit_once('.').map(|(_, ext)| ext.to_lowercase())
+        self.name
+            .rsplit_once('.')
+            .map(|(_, ext)| ext.to_lowercase())
     }
     /// 復旧優先度判定用: 削除 + ユーザファイル + 非圧縮 + 非暗号化のみ true。
     pub fn is_simple_deleted_user_file(&self) -> bool {

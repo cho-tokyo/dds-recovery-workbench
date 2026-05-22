@@ -15,9 +15,7 @@ use dds_recovery::RecoveryEngine;
 use dds_wish_match::{Priority, Wish, WishItem, Wishlist};
 use tempfile::TempDir;
 
-fn open_fixture(
-    name: &str,
-) -> NtfsVolume<impl FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>> {
+fn open_fixture(name: &str) -> NtfsVolume<impl FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>> {
     let img = common::decompress_fixture(name);
     let cs = u64::from(parse_boot_sector(&img[..512]).unwrap().cluster_size_bytes());
     NtfsVolume::open(common::make_image_reader(img, cs)).expect("open volume")
@@ -28,9 +26,8 @@ fn recovery_with_validation_marks_txt_as_uncertain() {
     // ntfs_directories は .txt ファイルのみ。.txt 用 Validator は登録されていないので、
     // 全ファイルが Uncertain 判定される業務的に正しい挙動を検証。
     let mut volume = open_fixture("ntfs_directories");
-    let wishlist = Wishlist::new().add(
-        Wish::new(WishItem::Extension("txt".into()), "全 .txt").with_priority(Priority::High),
-    );
+    let wishlist = Wishlist::new()
+        .add(Wish::new(WishItem::Extension("txt".into()), "全 .txt").with_priority(Priority::High));
 
     let tmp = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(tmp.path());

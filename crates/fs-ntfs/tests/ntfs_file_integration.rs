@@ -58,8 +58,7 @@ fn iter_files_enumerates_all_three_fixtures() {
             .filter_map(Result::ok)
             .filter(|f| f.is_user_file() && !f.name.starts_with('$'))
             .collect();
-        let unique_user_files: HashSet<u64> =
-            user_files.iter().map(|f| f.record_index).collect();
+        let unique_user_files: HashSet<u64> = user_files.iter().map(|f| f.record_index).collect();
         assert!(
             unique_user_files.len() >= expected_user_files,
             "Fixture {} expected >= {} user files, got {}",
@@ -169,9 +168,7 @@ fn product_demo_with_ntfs_file_api() {
     println!("\n=== Summary ===");
     println!("Live files:    {}", live.len());
     println!("Deleted files: {}  <- 全件 SHA256 取得成功", deleted.len());
-    println!(
-        "API code reduction: iter_records + 4 manual parsers -> iter_files (1 line)\n"
-    );
+    println!("API code reduction: iter_records + 4 manual parsers -> iter_files (1 line)\n");
 
     assert_eq!(live.len(), 25, "expected 25 live, got {}", live.len());
     assert_eq!(
@@ -200,9 +197,7 @@ fn iter_files_supports_path_and_extension_filtering() {
         .iter_files()
         .filter_map(Result::ok)
         .filter(|f| {
-            f.is_user_file()
-                && !f.name.starts_with('$')
-                && f.extension().as_deref() == Some("txt")
+            f.is_user_file() && !f.name.starts_with('$') && f.extension().as_deref() == Some("txt")
         })
         .collect();
 

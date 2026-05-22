@@ -69,9 +69,13 @@ pub enum EntryKind {
 }
 impl EntryKind {
     /// ディレクトリかどうか。
-    pub fn is_directory(&self) -> bool { matches!(self, Self::Directory) }
+    pub fn is_directory(&self) -> bool {
+        matches!(self, Self::Directory)
+    }
     /// 通常ファイルかどうか。
-    pub fn is_regular_file(&self) -> bool { matches!(self, Self::File) }
+    pub fn is_regular_file(&self) -> bool {
+        matches!(self, Self::File)
+    }
 }
 /// FS エントリのタイムスタンプ群（Unix epoch ミリ秒、未取得時は `None`）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,7 +89,9 @@ pub struct FsTimestamps {
 }
 impl FsTimestamps {
     /// 全フィールド `None` の空タイムスタンプ。
-    pub fn empty() -> Self { Self::default() }
+    pub fn empty() -> Self {
+        Self::default()
+    }
 }
 /// FS 内の単一エントリ（ファイル／ディレクトリ）のメタデータ。
 /// 関連 FR: FR-LIVE-02（エントリ列挙）, FR-LIVE-05（削除済みフラグ取得）, FR-LIVE-06（メタデータ抽出）。
@@ -112,9 +118,13 @@ pub struct FsEntry {
 }
 impl FsEntry {
     /// 削除済みかどうかを返します（公開フィールドの意図明示用 getter）。
-    pub fn is_deleted(&self) -> bool { self.is_deleted }
+    pub fn is_deleted(&self) -> bool {
+        self.is_deleted
+    }
     /// ディレクトリかどうか（`kind.is_directory()` 委譲）。
-    pub fn is_directory(&self) -> bool { self.kind.is_directory() }
+    pub fn is_directory(&self) -> bool {
+        self.kind.is_directory()
+    }
 }
 /// FS リーダーの read-only 共通インタフェース。書き込み系メソッドは **意図的に未定義**。
 /// 関連 FR: FR-LIVE-01（FS 判定）, FR-LIVE-02（エントリ列挙）, FR-LIVE-03（ルート取得）,
@@ -149,7 +159,11 @@ mod tests {
         assert_eq!(FsType::from_str("exfat").unwrap(), FsType::ExFat);
         assert_eq!(FsType::from_str("FAT32").unwrap(), FsType::Fat32);
         let err = FsType::from_str("zfs").unwrap_err();
-        assert!(matches!(err, CoreError::InvalidArgument(_)), "actual: {:?}", err);
+        assert!(
+            matches!(err, CoreError::InvalidArgument(_)),
+            "actual: {:?}",
+            err
+        );
     }
     #[test]
     fn entry_kind_helpers() {
@@ -164,9 +178,17 @@ mod tests {
         }
     }
     fn make_entry(record_id: u64, kind: EntryKind, deleted: bool) -> FsEntry {
-        FsEntry { record_id, parent_record_id: None, name: String::new(), full_path: None,
-            size_bytes: None, kind, is_deleted: deleted,
-            timestamps: FsTimestamps::empty(), fs_type: FsType::Ntfs }
+        FsEntry {
+            record_id,
+            parent_record_id: None,
+            name: String::new(),
+            full_path: None,
+            size_bytes: None,
+            kind,
+            is_deleted: deleted,
+            timestamps: FsTimestamps::empty(),
+            fs_type: FsType::Ntfs,
+        }
     }
     #[test]
     fn fs_entry_default_is_alive_and_anonymous() {
@@ -177,20 +199,33 @@ mod tests {
         assert_eq!(entry.timestamps, FsTimestamps::default());
         assert!(entry.name.is_empty());
     }
-    struct StubReader { entries: Vec<FsEntry> }
+    struct StubReader {
+        entries: Vec<FsEntry>,
+    }
     impl FsReader for StubReader {
-        fn fs_type(&self) -> FsType { FsType::Ntfs }
-        fn root_record_id(&self) -> CoreResult<u64> { Ok(5) }
+        fn fs_type(&self) -> FsType {
+            FsType::Ntfs
+        }
+        fn root_record_id(&self) -> CoreResult<u64> {
+            Ok(5)
+        }
         fn read_entry(&mut self, id: u64) -> CoreResult<FsEntry> {
-            self.entries.iter().find(|e| e.record_id == id).cloned()
+            self.entries
+                .iter()
+                .find(|e| e.record_id == id)
+                .cloned()
                 .ok_or_else(|| CoreError::InvalidArgument(format!("no entry: {}", id)))
         }
-        fn list_all_entries(&mut self) -> CoreResult<Vec<FsEntry>> { Ok(self.entries.clone()) }
+        fn list_all_entries(&mut self) -> CoreResult<Vec<FsEntry>> {
+            Ok(self.entries.clone())
+        }
     }
     #[test]
     fn fs_reader_trait_via_stub() {
         let entry = make_entry(5, EntryKind::Directory, false);
-        let mut reader = StubReader { entries: vec![entry.clone()] };
+        let mut reader = StubReader {
+            entries: vec![entry.clone()],
+        };
         assert_eq!(reader.fs_type(), FsType::Ntfs);
         assert_eq!(reader.root_record_id().unwrap(), 5);
         assert_eq!(reader.read_entry(5).unwrap(), entry);

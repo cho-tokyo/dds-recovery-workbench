@@ -155,7 +155,10 @@ mod tests {
             .validate(VALID_JPEG_MINIMAL, Some("jpg"))
             .status
             .is_valid());
-        assert!(reg.validate(VALID_PDF_MINIMAL, Some("pdf")).status.is_valid());
+        assert!(reg
+            .validate(VALID_PDF_MINIMAL, Some("pdf"))
+            .status
+            .is_valid());
     }
 
     #[test]
@@ -165,7 +168,9 @@ mod tests {
         // 拡張子: png, jpg, jpeg, pdf, gif, bmp, zip, docx, xlsx, pptx
         let reg = ValidatorRegistry::with_defaults();
         assert_eq!(reg.registered_extension_count(), 10);
-        for ext in ["png", "jpg", "jpeg", "pdf", "gif", "bmp", "zip", "docx", "xlsx", "pptx"] {
+        for ext in [
+            "png", "jpg", "jpeg", "pdf", "gif", "bmp", "zip", "docx", "xlsx", "pptx",
+        ] {
             let result = reg.validate(b"", Some(ext));
             // 空バイト列だが、Validator が登録されていれば Uncertain ではなく Invalid を返す。
             // 未登録なら Uncertain になるので、業務的にはこれで判定可能。
@@ -201,8 +206,14 @@ mod tests {
         let result = reg.validate(b"some bytes", Some("xyz"));
         assert!(result.status.is_uncertain());
         let cust = result.customer_message();
-        assert!(cust.contains("xyz"), "顧客メッセージは拡張子を含む: {}", cust);
-        let note = result.internal_note().expect("Uncertain でも internal_note は必須");
+        assert!(
+            cust.contains("xyz"),
+            "顧客メッセージは拡張子を含む: {}",
+            cust
+        );
+        let note = result
+            .internal_note()
+            .expect("Uncertain でも internal_note は必須");
         assert!(
             note.contains("CS") || note.contains("確認"),
             "internal_note は CS 業務指示を含むべき: {}",
@@ -211,7 +222,9 @@ mod tests {
 
         let no_ext = reg.validate(b"bytes", None);
         assert!(no_ext.status.is_uncertain());
-        let no_ext_note = no_ext.internal_note().expect("None でも internal_note 必須");
+        let no_ext_note = no_ext
+            .internal_note()
+            .expect("None でも internal_note 必須");
         assert!(no_ext_note.contains("CS") || no_ext_note.contains("確認"));
     }
 
