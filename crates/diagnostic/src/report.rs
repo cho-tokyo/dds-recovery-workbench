@@ -1,21 +1,25 @@
-//! Chunk 22: 診断レポート構造体群。
+//! Chunk 22 / 22.6: 診断レポート構造体群。
 //!
 //! - [`DiagnosticReport`]: in-memory のフル診断結果（CRM テキスト生成・JSON 出力に利用）。
 //! - [`HardwareInfo`] / [`FilesystemInfo`] / [`FileStatistics`] / [`FormatCount`] /
 //!   [`FolderCount`] / [`FsAnomalyReport`]: それぞれ階層的なサマリ構造体。
 //!
+//! Chunk 22.6 で旧症状判定フィールドを `filesystem_findings: FilesystemFindings`
+//! に置換。`FsAnomalyReport` (詳細 in-memory 用) と `FilesystemFindings` (slim 永続化用)
+//! の両方を保持し、`FsAnomalyReport::to_findings()` で変換する。
+//!
 //! `DiagnosticReport::to_diagnostic_input()` で case.json 用 slim 版（[`DiagnosticInput`]）
 //! に変換し、`to_crm_text()` で CRM 貼り付け用テキストを生成する。
 //!
 //! 関連 FR: FR-DIAG-01 (NTFS 論理診断), FR-DIAG-03 (削除ファイル統計),
-//!         FR-DIAG-04 (CRM 貼り付けテキスト)。
+//!         FR-DIAG-04 (CRM 貼り付けテキスト), FR-DIAG-06 (事実ベースの報告)。
 
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use dds_case_manager::{CaseId, DeletedFileStats, DiagnosticInput, FsAnomaly, Symptom};
+use dds_case_manager::{CaseId, DeletedFileStats, DiagnosticInput, FilesystemFindings};
 
 /// 診断結果のフル構造体。in-memory で全情報を保持。
 ///
@@ -34,8 +38,11 @@ pub struct DiagnosticReport {
     pub hardware: HardwareInfo,
     /// ファイルシステム情報（種別・シリアル・クラスタサイズ等）。
     pub filesystem: FilesystemInfo,
-    /// 自動判定された主症状（None / Deleted / Formatted / FilesystemError / Mixed）。
-    pub symptom: Symptom,
+    /// ファイルシステムの破損事実 (件数・フラグのみ、判定なし)。
+    ///
+    /// Chunk 22.6 で `symptom` フィールドから置換。CRM テキスト
+    /// 「【ファイルシステムの破損】」セクションのソース。
+    pub filesystem_findings: FilesystemFindings,
 
     /// 全ファイル統計（合計件数・生存/削除内訳・ディレクトリ数・総バイト）。
     pub file_stats: FileStatistics,
@@ -46,7 +53,7 @@ pub struct DiagnosticReport {
 
     /// 削除ファイルの集計統計（削除 0 件時は `None`）。
     pub deleted_file_stats: Option<DeletedFileStats>,
-    /// 検出された FS 異常レポート。
+    /// 検出された FS 異常レポート（in-memory 用の詳細情報）。
     pub anomalies: FsAnomalyReport,
 }
 
@@ -117,7 +124,8 @@ pub struct FolderCount {
 /// FS 異常レポート（カテゴリ別件数 + 自由記述）。
 ///
 /// 個別 MFT エントリのパースエラーは aggregator がカテゴリ振り分けして
-/// ここに加算する。`has_any_anomaly()` で「症状判定で FilesystemError を採用するか」判定。
+/// ここに加算する。in-memory 詳細情報用で、永続化 slim 版は
+/// [`FilesystemFindings`] に [`Self::to_findings`] で変換する。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FsAnomalyReport {
     /// MFT エントリ読み取りで失敗した件数（構造的破損の指標）。
@@ -131,7 +139,10 @@ pub struct FsAnomalyReport {
 }
 
 impl FsAnomalyReport {
-    /// 1 つでも異常があれば `true`。`Symptom` 判定の入力に使う。
+    /// 1 つでも異常があれば `true`。
+    ///
+    /// CRM テキストの「【ファイルシステムの破損】」セクションで補足表示の有無を
+    /// 切り替えるために使う。Chunk 22.6 で症状判定から切り離された。
     pub fn has_any_anomaly(&self) -> bool {
         self.mft_corrupted_count > 0
             || self.invalid_runlist_count > 0
@@ -139,30 +150,20 @@ impl FsAnomalyReport {
             || !self.other_issues.is_empty()
     }
 
-    /// `Symptom::FilesystemError { anomalies }` に渡せる [`FsAnomaly`] の Vec を構築する。
-    pub fn to_anomaly_list(&self) -> Vec<FsAnomaly> {
-        let mut list = Vec::new();
-        if self.mft_corrupted_count > 0 {
-            list.push(FsAnomaly::MftEntryCorrupted {
-                count: self.mft_corrupted_count,
-            });
+    /// case.json 永続化用の slim 版 [`FilesystemFindings`] に変換する。
+    ///
+    /// 業務的仮定:
+    /// - `signature_valid: true` (現状 MFT 読み取り成功 = ここまで到達できたので必ず true)
+    /// - `boot_sector_ok: self.boot_sector_issues.is_empty()`
+    /// - 件数系・other_issues は素直にコピー
+    pub fn to_findings(&self) -> FilesystemFindings {
+        FilesystemFindings {
+            signature_valid: true,
+            mft_corrupted_count: self.mft_corrupted_count,
+            invalid_runlist_count: self.invalid_runlist_count,
+            boot_sector_ok: self.boot_sector_issues.is_empty(),
+            other_issues: self.other_issues.clone(),
         }
-        if self.invalid_runlist_count > 0 {
-            list.push(FsAnomaly::InvalidRunList {
-                count: self.invalid_runlist_count,
-            });
-        }
-        for issue in &self.boot_sector_issues {
-            list.push(FsAnomaly::BootSectorAnomaly {
-                description: issue.clone(),
-            });
-        }
-        for issue in &self.other_issues {
-            list.push(FsAnomaly::Other {
-                description: issue.clone(),
-            });
-        }
-        list
     }
 }
 
@@ -170,12 +171,13 @@ impl DiagnosticReport {
     /// case.json 永続化用の slim 版 [`DiagnosticInput`] に変換する。
     ///
     /// 業務的に必要なフィールドのみ抽出（メモリ常駐の format_breakdown 等は除外）。
+    /// Chunk 22.6 で `symptom` フィールドが `filesystem_findings` に置換された。
     pub fn to_diagnostic_input(&self) -> DiagnosticInput {
         DiagnosticInput {
             diagnosed_at: Some(self.diagnosed_at),
             duration_secs: Some(self.duration_secs),
             filesystem_type: Some(self.filesystem.fs_type.clone()),
-            symptom: Some(self.symptom.clone()),
+            filesystem_findings: Some(self.filesystem_findings.clone()),
             total_files: self.file_stats.total_files,
             deleted_files: self.file_stats.deleted_files,
             total_size_bytes: self.file_stats.total_size_bytes,
@@ -193,13 +195,16 @@ impl DiagnosticReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dds_case_manager::FsAnomaly;
 
     #[test]
     fn fs_anomaly_report_default_has_no_anomaly() {
         let r = FsAnomalyReport::default();
         assert!(!r.has_any_anomaly());
-        assert!(r.to_anomaly_list().is_empty());
+        let findings = r.to_findings();
+        assert!(findings.signature_valid);
+        assert!(findings.boot_sector_ok);
+        assert_eq!(findings.mft_corrupted_count, 0);
+        assert!(!findings.has_any_issue());
     }
 
     #[test]
@@ -210,18 +215,25 @@ mod tests {
             ..Default::default()
         };
         assert!(r.has_any_anomaly());
-        let list = r.to_anomaly_list();
-        assert_eq!(list.len(), 2);
-        assert!(list
-            .iter()
-            .any(|a| matches!(a, FsAnomaly::MftEntryCorrupted { count: 3 })));
-        assert!(list
-            .iter()
-            .any(|a| matches!(a, FsAnomaly::InvalidRunList { count: 1 })));
+        let findings = r.to_findings();
+        assert_eq!(findings.mft_corrupted_count, 3);
+        assert_eq!(findings.invalid_runlist_count, 1);
+        assert!(findings.has_any_issue());
     }
 
     #[test]
-    fn to_diagnostic_input_preserves_symptom_and_stats() {
+    fn fs_anomaly_report_to_findings_marks_boot_sector_ng() {
+        let r = FsAnomalyReport {
+            boot_sector_issues: vec!["magic mismatch".into()],
+            ..Default::default()
+        };
+        let findings = r.to_findings();
+        assert!(!findings.boot_sector_ok);
+        assert!(findings.has_any_issue());
+    }
+
+    #[test]
+    fn to_diagnostic_input_includes_filesystem_findings() {
         let report = DiagnosticReport {
             case_id: CaseId::parse("260522-04").unwrap(),
             diagnosed_at: Utc::now(),
@@ -234,7 +246,11 @@ mod tests {
                 total_clusters: 1000,
                 used_clusters: 250,
             },
-            symptom: Symptom::Deleted,
+            filesystem_findings: FilesystemFindings {
+                signature_valid: true,
+                boot_sector_ok: true,
+                ..Default::default()
+            },
             file_stats: FileStatistics {
                 total_files: 30,
                 live_files: 25,
@@ -249,7 +265,9 @@ mod tests {
         };
         let input = report.to_diagnostic_input();
         assert_eq!(input.filesystem_type, Some("NTFS".into()));
-        assert_eq!(input.symptom, Some(Symptom::Deleted));
+        let findings = input.filesystem_findings.expect("findings present");
+        assert!(findings.signature_valid);
+        assert!(findings.boot_sector_ok);
         assert_eq!(input.total_files, 30);
         assert_eq!(input.deleted_files, 5);
         assert_eq!(input.total_size_bytes, 1500);

@@ -1,19 +1,21 @@
 //! Chunk 21 結合テスト: 案件管理の業務シナリオシミュレーション。
 //!
+//! Chunk 22.6 で旧症状判定型を削除し、`FilesystemFindings` (事実のみ) に置換。
+//!
 //! 1. 案件のライフサイクル完全シミュレーション
 //!    create → 診断データ追加 → Wishlist 追加 → RecoveryReportSummary 追加 →
 //!    save → load → 全フィールド保持確認
 //! 2. プロダクトデモテスト
 //!    1 日分の業務（3 案件を順次受領）→ list_all → println フォーマット出力
 //!
-//! 関連 FR: FR-CASE-01 ~ FR-CASE-04。
+//! 関連 FR: FR-CASE-01 ~ FR-CASE-04, FR-DIAG-06。
 
 use std::path::PathBuf;
 
 use chrono::Utc;
 use tempfile::TempDir;
 
-use dds_case_manager::{Case, CaseId, CaseStorage, RecoveryReportSummary, Symptom};
+use dds_case_manager::{Case, CaseId, CaseStorage, FilesystemFindings, RecoveryReportSummary};
 use dds_wish_match::{Priority, Wish, WishItem, Wishlist};
 
 #[test]
@@ -30,7 +32,13 @@ fn full_case_lifecycle_create_diagnose_recover() {
     case.diagnostic_input.diagnosed_at = Some(Utc::now());
     case.diagnostic_input.duration_secs = Some(42);
     case.diagnostic_input.filesystem_type = Some("NTFS".into());
-    case.diagnostic_input.symptom = Some(Symptom::Deleted);
+    case.diagnostic_input.filesystem_findings = Some(FilesystemFindings {
+        signature_valid: true,
+        mft_corrupted_count: 0,
+        invalid_runlist_count: 0,
+        boot_sector_ok: true,
+        other_issues: vec![],
+    });
     case.diagnostic_input.total_files = 12847;
     case.diagnostic_input.deleted_files = 234;
     case.diagnostic_input.total_size_bytes = 100_000_000_000;
@@ -75,7 +83,13 @@ fn full_case_lifecycle_create_diagnose_recover() {
     );
     assert_eq!(reloaded.diagnostic_input.total_files, 12847);
     assert_eq!(reloaded.diagnostic_input.deleted_files, 234);
-    assert_eq!(reloaded.diagnostic_input.symptom, Some(Symptom::Deleted));
+    let findings = reloaded
+        .diagnostic_input
+        .filesystem_findings
+        .expect("findings present");
+    assert!(findings.signature_valid);
+    assert!(findings.boot_sector_ok);
+    assert!(!findings.has_any_issue());
     assert!(reloaded.wishlist.is_some());
     assert_eq!(reloaded.wishlist.as_ref().unwrap().len(), 1);
     assert!(reloaded.recovery_report_summary.is_some());

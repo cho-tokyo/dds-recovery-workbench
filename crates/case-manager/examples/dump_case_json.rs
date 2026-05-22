@@ -1,11 +1,13 @@
 //! 完了報告用: case.json のサンプル出力を生成して標準出力に表示する。
 //!
+//! Chunk 22.6 で `symptom` → `filesystem_findings` に置換。
+//!
 //! 実行: `cargo run -p dds-case-manager --example dump_case_json`
 
 use std::path::PathBuf;
 
 use chrono::Utc;
-use dds_case_manager::{CaseId, CaseStorage, RecoveryReportSummary, Symptom};
+use dds_case_manager::{CaseId, CaseStorage, FilesystemFindings, RecoveryReportSummary};
 use dds_wish_match::{Priority, Wish, WishItem, Wishlist};
 use tempfile::TempDir;
 
@@ -18,7 +20,14 @@ fn main() {
     case.diagnostic_input.diagnosed_at = Some(Utc::now());
     case.diagnostic_input.duration_secs = Some(42);
     case.diagnostic_input.filesystem_type = Some("NTFS".into());
-    case.diagnostic_input.symptom = Some(Symptom::Deleted);
+    // 業務的に「正常な NTFS ボリューム」を示すサンプル値。
+    case.diagnostic_input.filesystem_findings = Some(FilesystemFindings {
+        signature_valid: true,
+        mft_corrupted_count: 0,
+        invalid_runlist_count: 0,
+        boot_sector_ok: true,
+        other_issues: vec![],
+    });
     case.diagnostic_input.total_files = 12847;
     case.diagnostic_input.deleted_files = 234;
     case.diagnostic_input.total_size_bytes = 100_000_000_000;

@@ -35,10 +35,6 @@ pub struct AggregateResult {
 const DELETED_TOP_FOLDERS: usize = 5;
 /// フォルダブレイクダウンの上位件数。
 const FOLDER_TOP_N: usize = 10;
-/// `Formatted` 判定で参照する代表的ファイル数閾値（症状判定側でも利用）。
-pub(crate) const FORMATTED_FILE_THRESHOLD: usize = 50;
-/// `Formatted` 判定で参照するディレクトリ数閾値。
-pub(crate) const FORMATTED_DIR_THRESHOLD: usize = 10;
 
 /// volume の全 MFT エントリを 1 回だけ走査し、全統計を集計する。
 ///

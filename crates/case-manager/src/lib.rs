@@ -34,11 +34,11 @@ pub mod case_id;
 pub mod diagnostic;
 pub mod error;
 pub mod storage;
-pub mod symptom;
 
 pub use case::{Case, RecoveryReportSummary};
 pub use case_id::CaseId;
-pub use diagnostic::{DeletedFileStats, DiagnosticInput, RecoverabilityEstimate};
+pub use diagnostic::{
+    DeletedFileStats, DiagnosticInput, FilesystemFindings, RecoverabilityEstimate,
+};
 pub use error::CaseError;
 pub use storage::CaseStorage;
-pub use symptom::{FsAnomaly, Symptom};

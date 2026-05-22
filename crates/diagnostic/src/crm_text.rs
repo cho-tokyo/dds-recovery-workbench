@@ -1,26 +1,28 @@
-//! Chunk 22: CRM 貼り付け用の業務日本語テキスト生成。
+//! Chunk 22 / 22.6: CRM 貼り付け用の業務日本語テキスト生成。
 //!
 //! 業務シナリオ:
 //! DDS の CS 担当者が CRM の備考欄に「論理診断結果」を貼り付けるためのテキスト。
 //! HDD 接続 → 1 コマンド実行 → 数十秒後に画面表示されたテキストをそのままコピペできる。
 //!
-//! 生成セクション（出力順）:
-//! 1. 案件番号 + 診断日時 + 所要時間
-//! 2. ハードウェア（モデル / シリアル / 容量）
-//! 3. ファイルシステム（種別 / シリアル / クラスタサイズ / 使用率）
-//! 4. 症状判定（主症状 + 詳細）
-//! 5. ファイル統計（生存 / 削除 / ディレクトリ件数）
-//! 6. 削除ファイル内訳（削除あり時のみ）
-//! 7. 生存ファイル統計（拡張子別 上位 10）
-//! 8. 主なフォルダ（件数順 上位 10）
-//! 9. FS 破損
-//! 10. 物理不良チェック（Phase 2 で対応予定）
+//! Chunk 22.6: 「【症状判定】」セクションを完全削除し、業務フローに整合させた。
+//! Workbench は事実報告のみで、症状判定は CS / CRM の責務。
 //!
-//! 関連 FR: FR-DIAG-04 (CRM 貼り付け用テキスト)。
+//! 生成セクション（出力順、Chunk 22.6 改訂後）:
+//! 1. 案件番号 + 診断日時 + 所要時間
+//! 2. 【ハードウェア】(モデル / シリアル / 容量)
+//! 3. 【ファイルシステム】(種別 / シリアル / クラスタサイズ / 使用率)
+//! 4. 【ファイルシステムの破損】 ← 上位へ移動
+//! 5. 【MFT エントリ統計】 ← 新規 (フォーマット案件参考)
+//! 6. 【ファイル統計】
+//! 7. 【削除エントリの詳細】(削除あり時のみ)
+//! 8. 【生存ファイル統計】(参考)
+//! 9. 【主なフォルダ】(上位 10)
+//! 10. 【物理不良チェック】
+//!
+//! 関連 FR: FR-DIAG-04 (CRM 貼り付け用テキスト), FR-DIAG-06 (事実ベースの報告)。
 
 use std::fmt::Write;
 
-use dds_case_manager::Symptom;
 use dds_core::format::format_bytes;
 
 use crate::report::{DiagnosticReport, FormatCount};
@@ -32,7 +34,7 @@ use crate::report::{DiagnosticReport, FormatCount};
 pub fn render(report: &DiagnosticReport) -> String {
     let mut s = String::with_capacity(2048);
 
-    // ヘッダ
+    // 1. ヘッダ
     let _ = writeln!(s, "=== 論理診断結果 (案件 {}) ===", report.case_id);
     let _ = writeln!(
         s,
@@ -43,7 +45,7 @@ pub fn render(report: &DiagnosticReport) -> String {
     let _ = writeln!(s, "※物理診断は別途実施済み");
     let _ = writeln!(s);
 
-    // ハードウェア
+    // 2. ハードウェア
     let _ = writeln!(s, "【ハードウェア】");
     if let Some(model) = &report.hardware.model {
         let _ = writeln!(s, "HDD: {}", model);
@@ -54,7 +56,7 @@ pub fn render(report: &DiagnosticReport) -> String {
     let _ = writeln!(s, "容量: {}", format_bytes(report.hardware.size_bytes));
     let _ = writeln!(s);
 
-    // ファイルシステム
+    // 3. ファイルシステム
     let _ = writeln!(s, "【ファイルシステム】");
     let _ = writeln!(s, "種類: {}", report.filesystem.fs_type);
     if let Some(vsn) = &report.filesystem.volume_serial {
@@ -87,13 +89,20 @@ pub fn render(report: &DiagnosticReport) -> String {
     }
     let _ = writeln!(s);
 
-    // 症状判定
-    let _ = writeln!(s, "【症状判定】");
-    let _ = writeln!(s, "主症状: {}", report.symptom.primary_label());
-    render_symptom_details(&mut s, &report.symptom);
+    // 4. ファイルシステムの破損 (上位へ移動)
+    render_filesystem_findings(&mut s, report);
+
+    // 5. MFT エントリ統計 (新規、フォーマット案件の参考)
+    let _ = writeln!(s, "【MFT エントリ統計】");
+    let _ = writeln!(s, "全エントリ数: {} 件", report.file_stats.total_files);
+    let _ = writeln!(
+        s,
+        "※ フォーマット案件の場合、エントリ数の極端な少なさが参考になります"
+    );
+    let _ = writeln!(s, "※ 旧 MFT 残存度の計測は Phase 2 で対応予定");
     let _ = writeln!(s);
 
-    // ファイル統計
+    // 6. ファイル統計
     let _ = writeln!(s, "【ファイル統計】");
     let _ = writeln!(
         s,
@@ -106,9 +115,9 @@ pub fn render(report: &DiagnosticReport) -> String {
     let _ = writeln!(s, "ディレクトリ: {} 件", report.file_stats.directories);
     let _ = writeln!(s);
 
-    // 削除ファイル内訳
+    // 7. 削除エントリの詳細 (削除あり時のみ)
     if let Some(deleted) = &report.deleted_file_stats {
-        let _ = writeln!(s, "【削除ファイルの内訳】");
+        let _ = writeln!(s, "【削除エントリの詳細】");
         if !deleted.by_extension.is_empty() {
             let _ = writeln!(s, "形式別:");
             let mut ext_vec: Vec<(&String, &usize)> = deleted.by_extension.iter().collect();
@@ -132,7 +141,7 @@ pub fn render(report: &DiagnosticReport) -> String {
         let _ = writeln!(s);
     }
 
-    // 生存ファイル統計
+    // 8. 生存ファイル統計
     let _ = writeln!(s, "【生存ファイル統計】(参考、主要形式)");
     let mut formats: Vec<(&String, &FormatCount)> = report.format_breakdown.iter().collect();
     formats.sort_by(|a, b| b.1.count.cmp(&a.1.count).then(a.0.cmp(b.0)));
@@ -151,7 +160,7 @@ pub fn render(report: &DiagnosticReport) -> String {
     }
     let _ = writeln!(s);
 
-    // 主なフォルダ
+    // 9. 主なフォルダ
     if !report.folder_breakdown.is_empty() {
         let _ = writeln!(s, "【主なフォルダ】(上位 10)");
         for folder in report.folder_breakdown.iter().take(10) {
@@ -166,30 +175,7 @@ pub fn render(report: &DiagnosticReport) -> String {
         let _ = writeln!(s);
     }
 
-    // FS 異常
-    let _ = writeln!(s, "【ファイルシステムの破損】");
-    let _ = writeln!(
-        s,
-        "MFT エントリ破損: {} 件",
-        report.anomalies.mft_corrupted_count
-    );
-    let _ = writeln!(
-        s,
-        "不正な run-list: {} 件",
-        report.anomalies.invalid_runlist_count
-    );
-    if report.anomalies.boot_sector_issues.is_empty() {
-        let _ = writeln!(s, "Boot sector: 正常");
-    } else {
-        let _ = writeln!(
-            s,
-            "Boot sector の異常: {} 件",
-            report.anomalies.boot_sector_issues.len()
-        );
-    }
-    let _ = writeln!(s);
-
-    // 物理不良チェック
+    // 10. 物理不良チェック
     let _ = writeln!(s, "【物理不良チェック】");
     let _ = writeln!(s, "未実施 (Phase 2 で対応予定)");
     let _ = writeln!(s);
@@ -199,65 +185,29 @@ pub fn render(report: &DiagnosticReport) -> String {
     s
 }
 
-/// 症状別の詳細セクションを描画する。
-fn render_symptom_details(s: &mut String, symptom: &Symptom) {
-    match symptom {
-        Symptom::None => {
-            let _ = writeln!(s, "- ファイルシステム署名: 正常 (NTFS 認識成功)");
-            let _ = writeln!(s, "- MFT 構造: 正常");
-            let _ = writeln!(s, "- 削除エントリ: なし");
-            let _ = writeln!(s, "- フォーマット痕跡: なし");
-        }
-        Symptom::Deleted => {
-            let _ = writeln!(s, "- ファイルシステム署名: 正常");
-            let _ = writeln!(s, "- MFT 構造: 正常");
-            let _ = writeln!(s, "- フォーマット痕跡: なし");
-            let _ = writeln!(s, "  ※削除エントリ検出 (件数は下記「削除ファイル」参照)");
-        }
-        Symptom::Formatted {
-            current_mft_entries,
-            old_mft_recoverability_hint,
-        } => {
-            let _ = writeln!(
-                s,
-                "- 新 MFT エントリ数: {} 件 (初期化された MFT と推定)",
-                current_mft_entries
-            );
-            if let Some(hint) = old_mft_recoverability_hint {
-                let _ = writeln!(s, "- 旧 MFT 残存度: {:.1}%", hint * 100.0);
-            } else {
-                let _ = writeln!(s, "- 旧 MFT 残存度: 未計測 (Phase 2 で対応予定)");
-            }
-            let _ = writeln!(
-                s,
-                "  ※フォーマット前ファイルの復旧には MFT カービング機能が必要 (Phase 2)"
-            );
-        }
-        Symptom::FilesystemError { anomalies } => {
-            let _ = writeln!(s, "- 検出された異常:");
-            for a in anomalies {
-                let _ = writeln!(s, "  ・{}", anomaly_label(a));
-            }
-        }
-        Symptom::Mixed { symptoms } => {
-            let _ = writeln!(s, "- 複合症状:");
-            for sub in symptoms {
-                let _ = writeln!(s, "  ・{}", sub.primary_label());
-            }
-        }
+/// 【ファイルシステムの破損】セクションを描画する。
+///
+/// `FilesystemFindings` の各フィールドを業務日本語で書き下す。
+/// Chunk 22.6 で導入。
+fn render_filesystem_findings(s: &mut String, report: &DiagnosticReport) {
+    let findings = &report.filesystem_findings;
+    let _ = writeln!(s, "【ファイルシステムの破損】");
+    if findings.signature_valid {
+        let _ = writeln!(s, "ファイルシステム署名: 正常 (NTFS 認識成功)");
+    } else {
+        let _ = writeln!(s, "ファイルシステム署名: 異常");
     }
-}
-
-/// 個別 FS 異常 ([`dds_case_manager::FsAnomaly`]) の業務日本語ラベルを返す。
-fn anomaly_label(a: &dds_case_manager::FsAnomaly) -> String {
-    use dds_case_manager::FsAnomaly::*;
-    match a {
-        MftEntryCorrupted { count } => format!("MFT エントリ破損 {} 件", count),
-        InvalidRunList { count } => format!("不正な run-list {} 件", count),
-        BootSectorAnomaly { description } => format!("Boot sector: {}", description),
-        InvalidVolumeSerial => "Volume Serial Number 異常".to_string(),
-        Other { description } => description.clone(),
+    let _ = writeln!(s, "MFT エントリ破損: {} 件", findings.mft_corrupted_count);
+    let _ = writeln!(s, "不正な run-list: {} 件", findings.invalid_runlist_count);
+    if findings.boot_sector_ok {
+        let _ = writeln!(s, "Boot sector: 正常");
+    } else {
+        let _ = writeln!(s, "Boot sector: 異常");
     }
+    if !findings.other_issues.is_empty() {
+        let _ = writeln!(s, "その他の異常: {} 件", findings.other_issues.len());
+    }
+    let _ = writeln!(s);
 }
 
 #[cfg(test)]
@@ -267,10 +217,10 @@ mod tests {
         FileStatistics, FilesystemInfo, FolderCount, FsAnomalyReport, HardwareInfo,
     };
     use chrono::TimeZone;
-    use dds_case_manager::{CaseId, DeletedFileStats};
+    use dds_case_manager::{CaseId, DeletedFileStats, FilesystemFindings};
     use std::collections::BTreeMap;
 
-    fn base_report(symptom: Symptom, with_deleted: bool) -> DiagnosticReport {
+    fn base_report(with_deleted: bool, findings: FilesystemFindings) -> DiagnosticReport {
         let mut format_breakdown: BTreeMap<String, FormatCount> = BTreeMap::new();
         format_breakdown.insert(
             "txt".into(),
@@ -310,7 +260,7 @@ mod tests {
                 total_clusters: 1220,
                 used_clusters: 0,
             },
-            symptom,
+            filesystem_findings: findings,
             file_stats: FileStatistics {
                 total_files: 30,
                 live_files: 25,
@@ -329,44 +279,94 @@ mod tests {
         }
     }
 
+    fn healthy_findings() -> FilesystemFindings {
+        FilesystemFindings {
+            signature_valid: true,
+            boot_sector_ok: true,
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn crm_text_contains_case_id() {
-        let r = base_report(Symptom::Deleted, true);
+        let r = base_report(true, healthy_findings());
         let text = render(&r);
         assert!(text.contains("260522-04"), "case id missing: {}", text);
     }
 
     #[test]
-    fn crm_text_uses_japanese_symptom_label() {
-        let r = base_report(Symptom::Deleted, true);
+    fn crm_text_no_longer_contains_symptom_section() {
+        // Chunk 22.6 回帰防止: 旧「症状判定」セクション・「主症状:」見出しが
+        // 一切残っていないことを機械的に確認する。
+        let r = base_report(true, healthy_findings());
         let text = render(&r);
-        assert!(text.contains("主症状: 削除"), "expected 主症状: 削除");
-        assert!(text.contains("【症状判定】"));
-        assert!(text.contains("【ファイル統計】"));
+        assert!(
+            !text.contains("【症状判定】"),
+            "症状判定 section must be removed: {}",
+            text
+        );
+        assert!(
+            !text.contains("主症状:"),
+            "主症状 prefix must be removed: {}",
+            text
+        );
+        assert!(
+            !text.contains("フォーマット (複合)"),
+            "Mixed format mislabel must not appear: {}",
+            text
+        );
+    }
+
+    #[test]
+    fn crm_text_shows_filesystem_findings_above_file_stats() {
+        // 業務的に「破損があれば真っ先に見たい」ため、【ファイルシステムの破損】が
+        // 【ファイル統計】より前 (= インデックスが小さい) に出ることを確認。
+        let r = base_report(true, healthy_findings());
+        let text = render(&r);
+        let findings_idx = text
+            .find("【ファイルシステムの破損】")
+            .expect("findings section present");
+        let stats_idx = text
+            .find("【ファイル統計】")
+            .expect("file stats section present");
+        assert!(
+            findings_idx < stats_idx,
+            "破損 must appear before ファイル統計: findings={} stats={}",
+            findings_idx,
+            stats_idx
+        );
+    }
+
+    #[test]
+    fn crm_text_contains_mft_entry_statistics_section() {
+        let r = base_report(false, healthy_findings());
+        let text = render(&r);
+        assert!(text.contains("【MFT エントリ統計】"), "MFT 統計 missing");
+        assert!(text.contains("全エントリ数: 30 件"));
+        assert!(text.contains("フォーマット案件"));
     }
 
     #[test]
     fn crm_text_includes_format_breakdown() {
-        let r = base_report(Symptom::Deleted, true);
+        let r = base_report(true, healthy_findings());
         let text = render(&r);
         assert!(text.contains("TXT: 25 件"), "format breakdown missing");
     }
 
     #[test]
     fn crm_text_omits_deleted_section_when_no_deletions() {
-        let r = base_report(Symptom::None, false);
+        let r = base_report(false, healthy_findings());
         let text = render(&r);
         assert!(
-            !text.contains("【削除ファイルの内訳】"),
+            !text.contains("【削除エントリの詳細】"),
             "should omit deleted block: {}",
             text
         );
-        assert!(text.contains("削除エントリ: なし"));
     }
 
     #[test]
     fn crm_text_renders_size_in_human_readable_format() {
-        let r = base_report(Symptom::Deleted, true);
+        let r = base_report(true, healthy_findings());
         let text = render(&r);
         // 5_000_000 B = 4.77 MB
         assert!(
@@ -375,5 +375,23 @@ mod tests {
             text
         );
         assert!(text.contains("1.22 KB"));
+    }
+
+    #[test]
+    fn crm_text_renders_anomaly_counts_in_findings() {
+        // findings に破損件数があれば本文に反映される。
+        let findings = FilesystemFindings {
+            signature_valid: true,
+            mft_corrupted_count: 2,
+            invalid_runlist_count: 1,
+            boot_sector_ok: false,
+            other_issues: vec!["unknown thing".into()],
+        };
+        let r = base_report(false, findings);
+        let text = render(&r);
+        assert!(text.contains("MFT エントリ破損: 2 件"));
+        assert!(text.contains("不正な run-list: 1 件"));
+        assert!(text.contains("Boot sector: 異常"));
+        assert!(text.contains("その他の異常: 1 件"));
     }
 }

@@ -1,19 +1,21 @@
-//! Chunk 21: 診断入力 `DiagnosticInput` の placeholder。
+//! Chunk 21 / 22.6: 診断入力 `DiagnosticInput` と
+//! ファイルシステム破損事実 `FilesystemFindings`。
 //!
-//! Chunk 22 で診断エンジンと連携して中身を埋める「器」を先に定義する。
+//! Chunk 22.6 で症状判定型を完全排除した。Workbench は「事実報告者」
+//! であり「判定者」ではないため、複合判定等の業務的に意味の薄い
+//! 情報は出力しない。代わりに `FilesystemFindings` で「件数」「フラグ」のみ
+//! 記録する。
+//!
 //! 業務的には CRM 貼り付け用テキスト生成や、お客様への進捗説明資料の元データになる。
 //!
 //! 全フィールドは `Option` または `Default` 可能で、空状態 (`DiagnosticInput::default()`)
-//! が「未診断」を表現する。`Option<DiagnosticInput>` ではなく `DiagnosticInput` を直接
-//! 持つことで、JSON 構造をシンプルに保つ。
+//! が「未診断」を表現する。
 //!
-//! 関連 FR: FR-CASE-01 (案件単位管理), Chunk 22 への布石。
+//! 関連 FR: FR-CASE-01 (案件単位管理), FR-DIAG-06 (事実ベースの報告)。
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-
-use crate::symptom::Symptom;
 
 /// 案件の診断結果スナップショット。Chunk 22 で実データを書き込む。
 ///
@@ -27,8 +29,12 @@ pub struct DiagnosticInput {
 
     /// 検出されたファイルシステム種別（"NTFS" / "exFAT" / "FAT32" 等）。
     pub filesystem_type: Option<String>,
-    /// 検出された主症状。
-    pub symptom: Option<Symptom>,
+
+    /// ファイルシステムの破損事実（件数・フラグのみ、判定なし）。
+    ///
+    /// Chunk 22.6 で旧症状判定フィールドから置換。Workbench は事実だけ
+    /// 提供し、業務判断 (CS の「これはフォーマット案件」等) は外部に委ねる。
+    pub filesystem_findings: Option<FilesystemFindings>,
 
     /// 検出された総ファイル数（削除含む全体）。
     pub total_files: usize,
@@ -42,6 +48,46 @@ pub struct DiagnosticInput {
 
     /// 診断担当者によるフリーテキスト備考（CRM 貼り付け用）。
     pub notes: String,
+}
+
+/// ファイルシステムの破損状態 (事実のみ、判定なし)。
+///
+/// Chunk 22.6 で導入。case.json 永続化用の slim 表現で、CRM 貼り付け用テキスト
+/// 「【ファイルシステムの破損】」セクションに対応する。
+///
+/// `Default` は全フィールド 0 / false / 空のため `has_any_issue` は `signature_valid`
+/// と `boot_sector_ok` が false 扱いとなり真。業務的な「正常」を表したい場合は
+/// 明示的に `signature_valid: true, boot_sector_ok: true` を指定する。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesystemFindings {
+    /// NTFS シグネチャが有効か (true = 認識成功)。
+    pub signature_valid: bool,
+    /// 読み取りに失敗した MFT エントリ数。
+    pub mft_corrupted_count: usize,
+    /// 不正な run-list の検出件数。
+    pub invalid_runlist_count: usize,
+    /// Boot sector に異常なし。
+    pub boot_sector_ok: bool,
+    /// その他の異常 (説明文の Vec)。
+    pub other_issues: Vec<String>,
+}
+
+impl FilesystemFindings {
+    /// 何らかの異常があるか。
+    ///
+    /// 業務的な判定基準:
+    /// - 署名が無効 → 異常
+    /// - MFT エントリ破損 1 件以上 → 異常
+    /// - 不正 run-list 1 件以上 → 異常
+    /// - Boot sector NG → 異常
+    /// - その他異常 1 件以上 → 異常
+    pub fn has_any_issue(&self) -> bool {
+        !self.signature_valid
+            || self.mft_corrupted_count > 0
+            || self.invalid_runlist_count > 0
+            || !self.boot_sector_ok
+            || !self.other_issues.is_empty()
+    }
 }
 
 /// 削除ファイル群に関する集計統計（拡張子別 / フォルダ別の内訳）。
@@ -69,4 +115,81 @@ pub struct RecoverabilityEstimate {
     pub medium_confidence: usize,
     /// 低信頼（上書きリスク高）の件数。
     pub low_confidence: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 業務的に「正常な NTFS ボリューム」を表す典型値。
+    fn healthy_findings() -> FilesystemFindings {
+        FilesystemFindings {
+            signature_valid: true,
+            boot_sector_ok: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn filesystem_findings_default_has_no_issues() {
+        // 業務的に妥当な「正常」値で has_any_issue は false。
+        let f = healthy_findings();
+        assert!(!f.has_any_issue());
+    }
+
+    #[test]
+    fn filesystem_findings_has_any_issue_detects_mft_corruption() {
+        let f = FilesystemFindings {
+            signature_valid: true,
+            mft_corrupted_count: 3,
+            invalid_runlist_count: 0,
+            boot_sector_ok: true,
+            other_issues: vec![],
+        };
+        assert!(f.has_any_issue());
+    }
+
+    #[test]
+    fn filesystem_findings_has_any_issue_detects_runlist_and_others() {
+        let f = FilesystemFindings {
+            signature_valid: true,
+            mft_corrupted_count: 0,
+            invalid_runlist_count: 2,
+            boot_sector_ok: true,
+            other_issues: vec![],
+        };
+        assert!(f.has_any_issue());
+
+        let g = FilesystemFindings {
+            signature_valid: true,
+            boot_sector_ok: true,
+            other_issues: vec!["unknown attribute".into()],
+            ..Default::default()
+        };
+        assert!(g.has_any_issue());
+
+        let h = FilesystemFindings {
+            signature_valid: true,
+            boot_sector_ok: false,
+            ..Default::default()
+        };
+        assert!(h.has_any_issue());
+    }
+
+    #[test]
+    fn filesystem_findings_serializes_correctly() {
+        // case.json 用 JSON ラウンドトリップ。
+        let f = FilesystemFindings {
+            signature_valid: true,
+            mft_corrupted_count: 2,
+            invalid_runlist_count: 1,
+            boot_sector_ok: false,
+            other_issues: vec!["foo".into(), "bar".into()],
+        };
+        let json = serde_json::to_string(&f).unwrap();
+        let restored: FilesystemFindings = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, f);
+        assert!(json.contains("signature_valid"));
+        assert!(json.contains("mft_corrupted_count"));
+    }
 }

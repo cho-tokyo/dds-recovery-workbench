@@ -142,7 +142,7 @@ mod tests {
         assert!(d.diagnosed_at.is_none());
         assert!(d.duration_secs.is_none());
         assert!(d.filesystem_type.is_none());
-        assert!(d.symptom.is_none());
+        assert!(d.filesystem_findings.is_none());
         assert_eq!(d.total_files, 0);
         assert_eq!(d.deleted_files, 0);
         assert_eq!(d.total_size_bytes, 0);
