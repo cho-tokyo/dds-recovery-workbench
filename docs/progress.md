@@ -4,6 +4,199 @@
 
 ---
 
+## 🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊 **Phase 1.5 開始 — case-manager 基盤完成 🚀🚀🚀🚀** / Phase 1 NTFS-α リリース業務適用版（Chunks 1-20.5）の上に業務統合層（案件管理）を構築する第一歩 / `crates/case-manager` 新規誕生（薄い層、CRM 補完）/ `CaseId` (yymmdd-NN 9 文字厳密 newtype) + `Case` + `Symptom` / `FsAnomaly` + `CaseStorage` CRUD + `DiagnosticInput` placeholder / `C:\cases\{案件番号}\case.json` 形式の業務永続化 / 単方向依存厳守（case-manager → wish-match → core のみ）/ 既存 364 件 + 新規 30 件 = **394 件 pass / 0 failed / 2 ignored** / FR-CASE-01/02/04 基盤達成、CRM が顧客情報 / 進捗管理を担う境界明確化 / Chunks 1-21 完了（Chunk 21 / 2026-05-22）
+
+**Chunks 1-21 完了 / Phase 1.5 開始 🚀🚀**: Phase 1 NTFS-α リリース業務適用版（Chunks 1-20.5）の完成を受け、**Chunk 21 で業務統合層（案件管理）の第一歩を構築**。`crates/case-manager` を**薄い層（CRM 補完）**として新規誕生させ、**`CaseId`（yymmdd-NN 9 文字厳密の newtype、手動 serde で JSON plain string）+ `Case`（案件のすべての業務情報集約構造体）+ `Symptom` / `FsAnomaly` enums（業務日本語 `primary_label` 付き）+ `CaseStorage` CRUD（create_new / load / save / delete / list_all、save で updated_at 自動更新）+ `DiagnosticInput` / `DeletedFileStats` / `RecoverabilityEstimate` placeholder（Chunk 22 で詰める）**を実装。**単方向依存厳守**（case-manager → wish-match → core のみ、recovery / report / fs-ntfs / validators / diagnostic / db / disk-io / fs-common / fs-exfat / fs-fat32 / quality は **含めない**）で **Phase 1.5 の核心設計原則「整合性は CLI / UI 層で取る」を維持**。**394 件 pass / 0 failed / 2 ignored**（Chunk 20.5 完了時 364 → +30、case-manager 28 単体 + 2 結合）、**case-manager 以外の既存クレートに変更 0**（git diff 確認済み、Phase 1 既存 364 件すべて pass 継続）、**`crates/case-manager/src/` に `unsafe` 0 件**、**workspace clippy / doc warning 0 件**、**M5「NTFS-α リリース」業務適用版 100% 維持、Phase 1.5 開始マイルストーン達成**。`C:\cases\{案件番号}\case.json` 形式の業務永続化フロー（1 PC 1 案件専有）が確立し、診断（Chunk 22）/ 復旧可能性推定（Chunk 22.5）/ 業務向け出力ディレクトリ構造（Chunk 23）へ進める基盤確定状態。
+
+```
+🚀🚀🚀 DDS Recovery Workbench - Phase 1.5 開始（case-manager 基盤完成） 🚀🚀🚀
+  M0 設計確定         100% ✅
+  M1 基盤構築          30% （Phase 1 では基盤として十分機能、Phase 2 で残実装）
+  M2 NTFS リーダα     100% ✅
+  M3 希望突合エンジン  100% ✅
+  M4 復旧 + 品質判定  100% ✅
+  M5 NTFS-α リリース  100% ✅ 業務適用版到達
+  ─────────────────────────────────────────
+  Phase 1.5 (業務統合層)
+  Chunk 21 case-manager 基盤  ✅ 完成（業務統合層の第一歩）
+  Chunk 22 診断エンジン        ⏳ 次推奨
+  Chunk 22.5 復旧可能性推定    ⏳ 次推奨
+  Chunk 23 業務向け出力構造    ⏳ 次推奨
+  ─────────────────────────────────────────
+  Chunks 1-21 完了 / 394 件 pass / 2 ignored / case.json 業務永続化フロー確立
+```
+
+### 🎯🎯🎯🎯🎯🎯🎯 Chunk 21 ハイライト（Phase 1.5 開始 — case-manager 基盤完成）
+
+| 観点 | Chunk 20.5（Phase 1 業務適用版） | **Chunk 21（Phase 1.5 開始）** |
+|---|---|---|
+| 業務統合層 | なし（4 形式レポート出力で完結） | **`crates/case-manager` 新規誕生（薄い層、CRM 補完）** |
+| 案件識別 | なし（レポート単位） | **`CaseId` newtype（yymmdd-NN 9 文字厳密、手動 serde で JSON plain string）+ 9 単体テスト** |
+| 案件構造体 | なし | **`Case`（case_id / created_at / updated_at / diagnostic_input / wishlist / recovery_report_summary / output_dir）+ 3 単体テスト** |
+| 症状分類 | なし | **`Symptom` enum（None / Deleted / Formatted / FilesystemError / Mixed）+ `FsAnomaly` enum、業務日本語 `primary_label` + 5 単体テスト** |
+| 診断入力 | なし | **`DiagnosticInput` + `DeletedFileStats` + `RecoverabilityEstimate` placeholder（Chunk 22 で詰める）** |
+| 永続化 | レポート出力のみ | **`CaseStorage` CRUD（create_new / load / save / delete / list_all、save で updated_at 自動更新）+ 11 単体テスト、`C:\cases\{案件番号}\case.json` 形式** |
+| エラー型 | なし | **`CaseError` 5 variants（InvalidCaseId / CaseAlreadyExists / CaseNotFound / Io / Json）** |
+| 単方向依存 | recovery → wish-match + fs-ntfs + core + validators | **case-manager → wish-match → core のみ**（recovery / report / fs-ntfs / validators / diagnostic / db / disk-io / fs-common / fs-exfat / fs-fat32 / quality は **含めない**、Phase 1.5 の核心設計原則「整合性は CLI / UI 層で取る」維持） |
+| 業務シナリオ | 復旧レポート生成 | **1 PC 1 案件専有のフロー実証（CRM 採番 → Workbench 永続化 → CRM 顧客管理）** |
+| 業務有用ヘルパ | n/a | **`examples/dump_case_json.rs`（55 行）— 業務メンバー向け case.json サンプル生成、仕様外** |
+| テスト数（case-manager） | 0 件 | **30 件**（28 単体 + 2 結合、新規誕生） |
+| テスト数（workspace 全体） | 364 件 + 1 ignored | **394 件 pass / 0 failed / 2 ignored**（+30 件、case-manager のみ追加） |
+| 既存テスト破壊 | n/a | **0 件**（Phase 1 既存 364 件すべて pass 継続、case-manager 以外の既存クレートに変更 0、git diff 確認済み） |
+| マイルストーン | M5 100% 業務適用版到達 | **Phase 1.5 開始マイルストーン達成 / M5 100% 業務適用版 維持** |
+
+### 🎯🎯 設計ポリシー（Phase 1.5 開始のキー）
+
+#### A. 「薄い層、CRM 補完」のアーキテクチャ位置づけ
+
+- **Workbench の責務**: 案件番号 + 診断 + 希望リスト + 復旧結果サマリの永続化（業務技術情報）
+- **CRM の責務**: 顧客情報（氏名 / 住所 / 連絡先）+ 案件進捗管理 + 担当 CS 割当 + 請求
+- 境界明確化により Workbench は「技術情報の塊」、CRM は「業務情報の塊」として独立進化可能
+- 案件番号（yymmdd-NN）が両者を繋ぐ唯一の ID（CRM 採番、Workbench 利用）
+
+#### B. 単方向依存厳守（Phase 1.5 の核心設計原則）
+
+- **依存方向**: `case-manager → wish-match → core` のみ
+- **含めない依存**: recovery / report / fs-ntfs / validators / diagnostic / db / disk-io / fs-common / fs-exfat / fs-fat32 / quality
+- 設計原則「整合性は CLI / UI 層で取る」: case-manager は永続化と業務概念のコード化のみ担当、復旧パイプライン実行や検証は CLI / Tauri UI 層で構築（実装の重複防止 + テスト容易性）
+
+#### C. `CaseId` newtype 厳密性（業務 ID）
+
+- yymmdd-NN（9 文字、`\d{6}-\d{2}` 正規表現相当、`-` 位置厳密）
+- `CaseError::InvalidCaseId` で不正形式を型レベルで拒否
+- 手動 serde（plain string、JSON 上は `"260522-04"` のみ、struct ラッパなし）で外部システム連携容易
+- 9 単体テスト（valid / 長さ不正 / `-` 位置不正 / 非数字 / 境界）
+
+#### D. `C:\cases\{案件番号}\case.json` 形式の業務永続化
+
+- 1 PC 1 案件専有の業務フロー前提（同時 N 案件並列処理は想定外、技術者の集中力確保）
+- SQLite ではなく JSON ファイル（Phase 1.5 では人間が直接編集 / 確認可能な可読性を優先、Phase 2 で SQLite 化検討）
+- 案件番号フォルダ単位の独立性（後の Chunk 23 業務向け出力ディレクトリ構造で復旧データもこのフォルダに格納予定）
+- `save` で `updated_at` 自動更新（業務監査用）
+
+#### E. `Symptom` enum の業務日本語 `primary_label`
+
+- `None` → 「症状なし」
+- `Deleted` → 「ファイル削除」
+- `Formatted` → 「フォーマット」
+- `FilesystemError` → 「ファイルシステムエラー」
+- `Mixed` → 「複合症状」
+- `FsAnomaly` enum で詳細症状を `#[serde(tag)]` で JSON タグ付け、業務員 / 顧客への説明に直接利用可能
+
+### 🎯 構造（合計 ~1010 行新規 + workspace 更新）
+
+**新規 `crates/case-manager/`**:
+
+| ファイル | 行数 | 内容 |
+|---|---|---|
+| `Cargo.toml` | — | 依存（dds-core / dds-wish-match / chrono / serde / serde_json / thiserror、dev: tempfile） |
+| `src/lib.rs` | 44 | re-export 集約 + 業務責務 / 担わない責務の rustdoc |
+| `src/error.rs` | 49 | `CaseError` 5 variants（InvalidCaseId / CaseAlreadyExists / CaseNotFound / Io / Json） |
+| `src/case_id.rs` | 168 | `CaseId` newtype（yymmdd-NN 9 文字厳密）+ 手動 serde（JSON plain string）+ 9 単体テスト |
+| `src/symptom.rs` | 190 | `Symptom` + `FsAnomaly` enums（`#[serde(tag)]`）+ `primary_label` 業務日本語 + 5 単体テスト |
+| `src/diagnostic.rs` | 72 | `DiagnosticInput` + `DeletedFileStats` + `RecoverabilityEstimate` placeholder（Chunk 22 で詰める） |
+| `src/case.rs` | 152 | `Case` + `RecoveryReportSummary` + 3 単体テスト |
+| `src/storage.rs` | 282 | `CaseStorage` CRUD（create_new / load / save / delete / list_all、save で updated_at 自動更新）+ 11 単体テスト |
+| `tests/case_lifecycle_integration.rs` | 124 | 2 結合テスト |
+| `examples/dump_case_json.rs` | 55 | 業務メンバー向け case.json サンプル生成ヘルパ（仕様外、業務有用） |
+
+### 🎯 業務観測（プロダクトデモ）
+
+```
+=== Phase 1.5 Case Management Demo (Chunk 21) ===
+
+保存先: TempDir
+登録案件数: 3
+
+案件一覧:
+  260522-01 (作成: 2026-05-22 06:54)
+  260522-02 (作成: 2026-05-22 06:54)
+  260522-03 (作成: 2026-05-22 06:54)
+
+=== Case Manager 基盤完成 ===
+```
+
+### 🎯 case.json サンプル（実際の出力）
+
+```json
+{
+  "case_id": "260522-04",
+  "created_at": "2026-05-22T06:55:12.642908500Z",
+  "updated_at": "2026-05-22T06:55:12.645941900Z",
+  "diagnostic_input": {
+    "filesystem_type": "NTFS",
+    "symptom": { "type": "Deleted" },
+    "total_files": 12847,
+    "deleted_files": 234,
+    "notes": "Shift+Delete による削除と推定"
+  },
+  "wishlist": {
+    "wishes": [
+      { "item": {"Extension":"docx"}, "priority": "High", "label": "Word ファイル全部" }
+    ]
+  },
+  "recovery_report_summary": {
+    "recovered_count": 225,
+    "validated_count": 220,
+    "total_bytes_written": 850000000,
+    "recovery_success_rate": 0.978,
+    "quality_assurance_rate": 0.978
+  },
+  "output_dir": "G:\\260522-04"
+}
+```
+
+（整形済、UTF-8 日本語可読、Windows パスは `\\` エスケープ）
+
+### 🎯 業務シナリオ実証（1 PC 1 案件専有のフロー）
+
+1. CRM が案件番号 `260522-04` を採番
+2. Workbench で `storage.create_new(case_id)` → `C:\cases\260522-04\case.json` 作成
+3. 診断 / Wishlist / 復旧結果サマリを順次 `case.save()` で永続化（`updated_at` 自動更新）
+4. 案件完了後、CRM が顧客情報 / 進捗管理を担う（Workbench は技術情報の塊として独立）
+
+### 🎯 テスト合計
+
+- **case-manager**: **30 件**（28 単体 + 2 結合、新規誕生）
+- **workspace 全体**: **394 件 pass / 0 failed / 2 ignored**（Chunk 20.5 完了時 364 → +30、case-manager のみ追加）
+
+### 🎯 検証結果（tester 独立検証で全項目合格）
+
+- `cargo check --workspace`: OK
+- `cargo test -p dds-case-manager`: **30 件 pass**（28 単体 + 2 結合）
+- `cargo test --workspace`: **394 件 pass / 0 failed / 2 ignored**
+- `cargo clippy --workspace --all-targets -- -D warnings`: warning **0 件**
+- `cargo doc --workspace --no-deps`: warning **0 件**
+- 全公開 type / method に rustdoc 完備
+- 既存 Phase 1 の 364 件すべて pass 継続（破壊 0 件、case-manager 以外の既存クレートに変更 0、git diff 確認済み）
+
+### 🎯 安全性継続
+
+- `crates/case-manager/src/` に `unsafe` **0 件**
+- 書き込み API は `CaseStorage::save / delete` のみ（出力先 `C:\cases\{案件番号}\case.json` のみ、**ソースデバイスへの書き込みなし**、CLAUDE.md 安全要件に完全準拠）
+- 単方向依存厳守: case-manager → wish-match → core のみ
+- ソース read-only 制約は完全維持（Chunk 17 と同水準、Chunk 21 でも保全）
+
+### 関連 FR の進捗
+
+- **FR-CASE-01**（案件の新規作成）: ✅ **🎉 基盤達成**（`CaseStorage::create_new` + `Case` 構造体、お客様名 / 担当 CS / ステータスは CRM 担当として境界明確化）
+- **FR-CASE-02**（案件番号 yymmdd-NN による識別）: ✅ **🎉 達成**（`CaseId` newtype 厳密バリデーション + `CaseStorage::list_all`）
+- **FR-CASE-04**（案件情報の永続化、PC ローカル）: ✅ **🎉 達成**（`CaseStorage` CRUD、`C:\cases\{案件番号}\case.json` 形式、save で updated_at 自動更新）
+- **FR-CASE-03**（案件詳細表示）: [~] Tauri UI で実装予定（Chunk 22+ で着手検討）
+- **FR-CASE-05**（案件のエクスポート）: ⏳ Chunk 23 業務向け出力ディレクトリ構造で着手検討
+
+### マイルストーン意義（Phase 1.5 開始マイルストーン達成）
+
+- **Phase 1 NTFS-α リリース業務適用版**: M5 100% 維持（Chunks 1-20.5 のすべて pass 継続、破壊 0 件）
+- **Phase 1.5 開始**: 業務統合層（案件管理）の第一歩が確定、CRM 補完アーキテクチャが実証
+- 「整合性は CLI / UI 層で取る」設計原則を単方向依存で実装に落とし込み、Phase 1.5 全体の指針確立
+- **次のチャンク候補（Phase 1.5）**:
+  1. **Chunk 22**: 診断エンジン + CRM 貼り付けテキスト生成（`DiagnosticInput` / `DeletedFileStats` placeholder を実装で詰める、CS が CRM に貼り付けやすい業務日本語サマリ生成）
+  2. **Chunk 22.5**: 削除ファイルの復旧可能性推定（`RecoverabilityEstimate` placeholder を実装で詰める、業務員 / 顧客への定量的説明）
+  3. **Chunk 23**: 業務向け出力ディレクトリ構造（`C:\cases\{案件番号}\` 配下に復旧データ / レポートを業務テンプレートで格納、FR-CASE-05 案件エクスポート達成）
+
+---
+
 ## 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 **Phase 1 NTFS-α リリース業務適用版完成 🎊🎊🎊🎊** / Chunk 20 レポート機能を業務観点フィードバック反映で実運用品質に進化 / 顧客向け .docx（Word 編集 → PDF 化）+ Invalid 集約 TXT + サマリ強化 HTML + matched_wishes 列追加 CSV / .docx 内 internal_note 漏洩 0 件（ZIP 実解凍 grep 業務 CRITICAL）/ 4 形式（docx/txt/html/csv）に再設計 / 業務指標（該当数 / 復旧成功率 / 品質保証率 / 形式別ブレイクダウン / Invalid フォルダ単位グルーピング）/ Chunks 1-20.5 完了（Chunk 20.5 / 2026-05-22）
 
 **Chunks 1-20.5 完了 / Phase 1 NTFS-α リリース業務適用版確定 🎊🎊**: Chunk 20 で完成した 3 形式レポート（顧客 HTML + CS HTML + CSV）の上に、**Chunk 20.5 で業務観点フィードバック（① Word 編集 → PDF 化したい、② Invalid のみ TXT 一覧、③ サマリに業務指標、④ CSV に matched_wishes、⑤ 万件規模対応）を反映**し、**顧客向け .docx（`docx-rs` で生成、デジタルデータソリューション株式会社名入り）+ `recovered_files.txt`（Invalid のみフォルダ単位グルーピング）+ サマリ強化 CS HTML（業務指標 + 形式別ブレイクダウン + Invalid グルーピング max 20 件）+ matched_wishes 列追加 CSV（13→14 列）**に再設計。`crates/report/src/html_customer.rs` 廃止、`docx_customer.rs` 306 + `txt_customer.rs` 218 + `format.rs` 136 行を新規追加。**業務 CRITICAL の機械検証は強化**: `customer_docx_must_not_contain_internal_notes` が **`zip` クレートで .docx を実解凍 + 全 .xml grep** で禁止フレーズ 5 種 0 件を検証（Chunk 20 の HTML grep よりさらに厳格に、Office Open XML の実構造で検証）。**364 件 pass / 1 ignored / 0 failed**（Chunk 20 完了時 340 → +24）、**workspace clippy / doc warning 0 件**、**M4「復旧+品質判定」100% 維持、M5「NTFS-α リリース」業務適用版到達**、**FR-REP-04（業務指標可視化）+ FR-REP-05（大規模ファイル対応）を新規達成、FR-REP-01 を業務適用版到達に更新**。CS のフロー「.docx を Word で開く → 案件固有の注記追加 → PDF として保存 → PDF + .txt をお客様に納品」が確立、Phase 2（case-manager / Tauri UI / exFAT・FAT32 / 実機検証）へ着手可能なリリース業務適用版確定状態。
@@ -2631,11 +2824,11 @@ Deleted recovered:  5 files
 ## FR要件達成マトリクス
 
 ### 案件管理 (FR-CASE)
-- [ ] FR-CASE-01: 案件の新規作成
-- [ ] FR-CASE-02: 案件一覧表示
-- [ ] FR-CASE-03: 案件詳細表示
-- [ ] FR-CASE-04: 案件履歴の永続化
-- [ ] FR-CASE-05: 案件のエクスポート
+- [x] **FR-CASE-01: 案件の新規作成** ✅ **🎉 基盤達成**（Chunk 21 / 2026-05-22 / dds-case-manager）— `CaseStorage::create_new(case_id)` で `C:\cases\{案件番号}\case.json` を新規作成、`Case` 構造体に `case_id` / `created_at` / `updated_at` / `diagnostic_input` / `wishlist` / `recovery_report_summary` / `output_dir` を保持。お客様名 / 担当 CS / ステータスは CRM 担当（境界明確化）
+- [x] **FR-CASE-02: 案件番号 yymmdd-NN による識別** ✅ **🎉 達成**（Chunk 21 / 2026-05-22 / dds-case-manager）— `CaseId` newtype（9 文字厳密、yymmdd-NN 形式バリデーション、手動 serde で JSON plain string）、`CaseStorage::list_all` で案件一覧（CRM が顧客情報 / 進捗管理を担うため Workbench 側は案件番号ベース）
+- [~] FR-CASE-03: 案件詳細表示（Tauri UI で実装予定、Chunk 22+ で着手検討）
+- [x] **FR-CASE-04: 案件情報の永続化（PC ローカル、1 PC 1 案件専有）** ✅ **🎉 達成**（Chunk 21 / 2026-05-22 / dds-case-manager）— `CaseStorage` で `case.json` 形式の永続化 CRUD（create_new / load / save / delete / list_all、save で updated_at 自動更新）、SQLite ではなく JSON ファイル形式（Phase 1.5 では 1 PC 1 案件専有の業務フロー前提）
+- [ ] FR-CASE-05: 案件のエクスポート（Chunk 23 業務向け出力ディレクトリ構造で着手検討）
 
 ### 診断 (FR-DIAG)
 - [ ] FR-DIAG-01: デバイス検出
