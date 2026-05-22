@@ -111,6 +111,10 @@ impl RecoveryEngine {
             }
         }
 
+        // Chunk 20.5: 顧客指定の Wish::label を保持。レポートで「ご指定条件」表示に使う。
+        let wish_labels: Vec<String> =
+            wishlist.wishes.iter().map(|w| w.label.clone()).collect();
+
         Ok(RecoveryReport {
             started_at,
             finished_at: Utc::now(),
@@ -118,6 +122,7 @@ impl RecoveryEngine {
             recovered,
             failed,
             skipped,
+            wish_labels,
         })
     }
 
@@ -200,6 +205,10 @@ impl RecoveryEngine {
             None
         };
 
+        // Chunk 20.5: マッチした各 Wish のラベルを集約。CSV / レポート用。
+        let matched_wish_labels: Vec<String> =
+            m.matched_wishes.iter().map(|w| w.label.clone()).collect();
+
         Ok(SingleOutcome::Recovered(Box::new(RecoveredEntry {
             source_id: m.source_id.clone(),
             original_path: ntfs_file.path.clone(),
@@ -209,6 +218,7 @@ impl RecoveryEngine {
             is_deleted: ntfs_file.is_deleted,
             sha256,
             validation,
+            matched_wish_labels,
         })))
     }
 

@@ -50,5 +50,5 @@ pub mod sanitize;
 pub use engine::RecoveryEngine;
 pub use error::RecoveryError;
 pub use options::{ConflictStrategy, RecoveryOptions};
-pub use report::{FailedEntry, RecoveredEntry, RecoveryReport, SkippedEntry};
+pub use report::{FailedEntry, FormatStats, RecoveredEntry, RecoveryReport, SkippedEntry};
 pub use sanitize::{insert_deleted_marker, sanitize_filename};

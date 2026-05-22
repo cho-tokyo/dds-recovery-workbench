@@ -73,6 +73,9 @@ proptest = "1.5"
 insta = "1.40"
 tempfile = "3.10"
 
+# DOCX report generation (Chunk 20.5)
+docx-rs = "0.4"
+
 # Windows API (for disk I/O)
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",

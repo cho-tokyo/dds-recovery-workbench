@@ -1,12 +1,13 @@
-//! Chunk 20: 外部システム連携用 CSV レポート生成。
+//! Chunk 20 / 20.5: 外部システム連携用 CSV レポート生成。
 //!
-//! 13 列の固定スキーマで全フィールドを出力する。Excel 等での詳細分析や
-//! 案件管理 DB への取り込みを想定。Phase 1 は BOM なし UTF-8（シンプル優先）。
+//! 14 列（Chunk 20.5 で `matched_wishes` 列を追加）の固定スキーマで全フィールドを出力する。
+//! Excel 等での詳細分析や案件管理 DB への取り込みを想定。
+//! Phase 1 は BOM なし UTF-8（シンプル優先）。
 //!
 //! 列順序:
 //! `source_id, original_path, output_path, bytes_written, is_deleted,
-//! priority_score, sha256, validation_status, format_detected, validator_name,
-//! customer_message, internal_note, diagnostics`
+//! priority_score, matched_wishes, sha256, validation_status, format_detected,
+//! validator_name, customer_message, internal_note, diagnostics`
 //!
 //! 関連 FR: FR-REP-03 (外部システム連携用 CSV)。
 
@@ -15,14 +16,15 @@ use dds_validators::ValidationStatus;
 
 use crate::error::ReportError;
 
-/// CSV ヘッダー（13 列、列順序の単一の真実）。
-const CSV_HEADER: &[&str; 13] = &[
+/// CSV ヘッダー（14 列、Chunk 20.5 で `matched_wishes` 列を追加）。
+const CSV_HEADER: &[&str; 14] = &[
     "source_id",
     "original_path",
     "output_path",
     "bytes_written",
     "is_deleted",
     "priority_score",
+    "matched_wishes",
     "sha256",
     "validation_status",
     "format_detected",
@@ -32,7 +34,7 @@ const CSV_HEADER: &[&str; 13] = &[
     "diagnostics",
 ];
 
-/// CSV レポートを生成する（全 13 フィールド含む）。
+/// CSV レポートを生成する（全 14 フィールド含む）。
 ///
 /// `csv` crate がカンマ・ダブルクオート・改行を自動でエスケープする。
 /// 文字エンコーディングは UTF-8 (BOM なし)。
@@ -66,6 +68,9 @@ pub fn render_csv(report: &RecoveryReport) -> Result<String, ReportError> {
                 ),
             };
 
+        // Chunk 20.5: matched_wish_labels を "; " 区切りで一つの CSV セルに連結。
+        let matched_wishes = entry.matched_wish_labels.join("; ");
+
         wtr.write_record([
             entry.source_id.as_str(),
             entry.original_path.as_str(),
@@ -73,6 +78,7 @@ pub fn render_csv(report: &RecoveryReport) -> Result<String, ReportError> {
             &entry.bytes_written.to_string(),
             &entry.is_deleted.to_string(),
             &entry.priority_score.to_string(),
+            matched_wishes.as_str(),
             entry.sha256.as_deref().unwrap_or(""),
             status,
             format.as_str(),
@@ -106,6 +112,7 @@ mod tests {
             recovered: entries,
             failed: vec![],
             skipped: vec![],
+            wish_labels: vec![],
         }
     }
 
@@ -119,34 +126,34 @@ mod tests {
             is_deleted: false,
             sha256: Some("ff".repeat(32)),
             validation,
+            matched_wish_labels: Vec::new(),
         }
     }
 
     #[test]
-    fn csv_has_all_13_fields_in_header() {
-        // 13 列ヘッダーが先頭行に並ぶこと。
+    fn csv_has_all_14_fields_in_header() {
+        // 14 列ヘッダー（Chunk 20.5 で matched_wishes 列を追加）。
         let csv = render_csv(&build_report(vec![])).unwrap();
         let first_line = csv.lines().next().unwrap();
         let cols: Vec<_> = first_line.split(',').collect();
-        assert_eq!(cols.len(), 13, "ヘッダーは 13 列: {:?}", cols);
+        assert_eq!(cols.len(), 14, "ヘッダーは 14 列: {:?}", cols);
         for col in CSV_HEADER {
             assert!(first_line.contains(col), "{} が含まれるべき", col);
         }
-        // 専用カラム: internal_note と customer_message が独立して存在
+        // 専用カラム
+        assert!(first_line.contains("matched_wishes"));
         assert!(first_line.contains("internal_note"));
         assert!(first_line.contains("customer_message"));
     }
 
     #[test]
     fn csv_handles_commas_and_quotes_in_paths() {
-        // パスにカンマやダブルクオートを含むケース。csv crate が自動でエスケープすること。
         let validation = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
         let report = build_report(vec![entry(
             "\\dir,with,comma\\and\"quote.png",
             Some(validation),
         )]);
         let csv = render_csv(&report).unwrap();
-        // クオートで囲まれた中にカンマが含まれていれば正しくエスケープされている
         assert!(
             csv.contains("\"\\dir,with,comma\\and\"\"quote.png\""),
             "csv crate がカンマとクオートを正しくエスケープすること: {}",
@@ -156,7 +163,6 @@ mod tests {
 
     #[test]
     fn csv_writes_internal_note_in_dedicated_column() {
-        // internal_note が独立カラムに書かれ、customer_message と分離されていること。
         let validation = ValidationResult::invalid(
             "PNG",
             "png_v1",
@@ -168,12 +174,24 @@ mod tests {
         let csv = render_csv(&report).unwrap();
         assert!(csv.contains("顧客向け文言"));
         assert!(csv.contains("内部メモ:再復旧推奨"));
-        // 2 行目（データ行）に 13 列存在
         let mut rdr = csv::Reader::from_reader(csv.as_bytes());
         let record = rdr.records().next().expect("少なくとも 1 レコード").unwrap();
-        assert_eq!(record.len(), 13);
-        // customer_message 列 (index 10) と internal_note 列 (index 11) が分離
-        assert_eq!(record.get(10), Some("顧客向け文言"));
-        assert_eq!(record.get(11), Some("内部メモ:再復旧推奨"));
+        assert_eq!(record.len(), 14);
+        // matched_wishes (index 6), sha256 (index 7), customer_message (index 11), internal_note (index 12)
+        assert_eq!(record.get(6), Some(""));
+        assert_eq!(record.get(11), Some("顧客向け文言"));
+        assert_eq!(record.get(12), Some("内部メモ:再復旧推奨"));
+    }
+
+    #[test]
+    fn csv_emits_matched_wishes_column() {
+        // Chunk 20.5 追加: matched_wish_labels が "; " 区切りで matched_wishes 列に出ること。
+        let validation = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
+        let mut e = entry("\\img\\a.png", Some(validation));
+        e.matched_wish_labels = vec!["写真".into(), "重要書類".into()];
+        let csv = render_csv(&build_report(vec![e])).unwrap();
+        let mut rdr = csv::Reader::from_reader(csv.as_bytes());
+        let record = rdr.records().next().unwrap().unwrap();
+        assert_eq!(record.get(6), Some("写真; 重要書類"));
     }
 }

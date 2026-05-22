@@ -1,60 +1,69 @@
 //! # dds-report
 //!
-//! Chunk 20: DDS 復旧レポート生成。
+//! Chunk 20 / 20.5: DDS 復旧レポート生成（業務適用版）。
 //!
-//! [`dds_recovery::RecoveryReport`] から 3 種類のレポートを生成する:
+//! [`dds_recovery::RecoveryReport`] から 4 種類のレポートを生成する:
 //!
-//! - **顧客向け HTML** ([`render_customer_html`]): お客様に納品する正式レポート。
+//! - **顧客向け .docx** ([`render_customer_docx`]): Word で開いて編集 → PDF 化して納品。
 //!   `user_message_ja` のみ使用、`internal_note_ja` は**絶対に含めない**。
-//! - **CS 向け HTML** ([`render_internal_html`]): CS の業務管理用。
-//!   `internal_note_ja` + SHA256 + 出力先パス等を含む。「お客様に共有しないでください」警告付き。
-//! - **CSV** ([`render_csv`]): 外部システム連携用。13 列全フィールド出力。
+//! - **顧客向け要確認 .txt** ([`render_invalid_files_txt`]):
+//!   Invalid なファイルをフォルダ単位でグルーピング。
+//! - **CS 向け HTML** ([`render_internal_html`]): 業務管理用。`internal_note_ja` +
+//!   SHA256 + 出力先パスを含む。「お客様に共有しないでください」警告付き。
+//! - **CSV** ([`render_csv`]): 外部システム連携用。14 列（matched_wishes 列追加）。
 //!
-//! [`write_all_reports`] で 3 形式を同時にディレクトリへ書き出せる。
+//! [`write_all_reports`] で 4 形式を同時にディレクトリへ書き出せる。
 //!
 //! ## 安全性設計
 //!
-//! - 顧客 HTML から `internal_note_ja` を排除（テストで機械検証）
-//! - ファイル名・メッセージは HTML エスケープ済み（XSS 防止）
+//! - 顧客 .docx / .txt から `internal_note_ja` を排除（テストで機械検証）
+//! - HTML はファイル名・メッセージを HTML エスケープ済み（XSS 防止）
 //! - 出力 HTML は外部 CSS/JS リンクなし、自己完結
 //!
-//! 関連 FR: FR-REP-01 / FR-REP-02 / FR-REP-03 / FR-QUAL-04。
+//! 関連 FR: FR-REP-01 / FR-REP-02 / FR-REP-03 / FR-REP-04 / FR-REP-05 / FR-QUAL-04。
 
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
 
 pub mod csv;
+pub mod docx_customer;
 pub mod error;
 pub mod escape;
-pub mod html_customer;
+pub mod format;
 pub mod html_internal;
+pub mod txt_customer;
 
 pub use crate::csv::render_csv;
+pub use crate::docx_customer::{render_customer_docx, COMPANY_NAME};
+pub use crate::format::{format_bytes, format_duration_ms};
+pub use crate::html_internal::render_internal_html;
+pub use crate::txt_customer::render_invalid_files_txt;
 pub use error::ReportError;
-pub use html_customer::render_customer_html;
-pub use html_internal::render_internal_html;
 
 use std::path::{Path, PathBuf};
 
 use dds_recovery::RecoveryReport;
 
-/// [`write_all_reports`] が生成した 3 つのレポートのファイルパス。
+/// [`write_all_reports`] が生成した 4 つのレポートのファイルパス。
 #[derive(Debug, Clone)]
 pub struct ReportPaths {
-    /// 顧客向け HTML レポートのパス（`report_customer.html`）。
-    pub customer_html: PathBuf,
+    /// 顧客向け .docx レポートのパス（`report_customer.docx`）。
+    pub customer_docx: PathBuf,
+    /// 顧客向け要確認 .txt（`recovered_files.txt`）。
+    pub invalid_txt: PathBuf,
     /// CS 向け HTML レポートのパス（`report_internal.html`）。
     pub internal_html: PathBuf,
     /// 外部連携用 CSV のパス（`report.csv`）。
     pub csv: PathBuf,
 }
 
-/// 3 種類のレポート（顧客 HTML / CS HTML / CSV）を `output_dir` に書き出す。
+/// 4 種類のレポート（顧客 .docx / 顧客 .txt / CS HTML / CSV）を `output_dir` に書き出す。
 ///
 /// `output_dir` が存在しない場合は再帰的に作成する。
 ///
 /// 出力ファイル名:
-/// - `report_customer.html`
+/// - `report_customer.docx`
+/// - `recovered_files.txt`
 /// - `report_internal.html`
 /// - `report.csv`
 pub fn write_all_reports(
@@ -63,17 +72,20 @@ pub fn write_all_reports(
 ) -> Result<ReportPaths, ReportError> {
     std::fs::create_dir_all(output_dir)?;
 
-    let customer_path = output_dir.join("report_customer.html");
-    let internal_path = output_dir.join("report_internal.html");
+    let customer_docx = output_dir.join("report_customer.docx");
+    let invalid_txt = output_dir.join("recovered_files.txt");
+    let internal_html = output_dir.join("report_internal.html");
     let csv_path = output_dir.join("report.csv");
 
-    std::fs::write(&customer_path, render_customer_html(report)?)?;
-    std::fs::write(&internal_path, render_internal_html(report)?)?;
+    std::fs::write(&customer_docx, render_customer_docx(report)?)?;
+    std::fs::write(&invalid_txt, render_invalid_files_txt(report))?;
+    std::fs::write(&internal_html, render_internal_html(report)?)?;
     std::fs::write(&csv_path, render_csv(report)?)?;
 
     Ok(ReportPaths {
-        customer_html: customer_path,
-        internal_html: internal_path,
+        customer_docx,
+        invalid_txt,
+        internal_html,
         csv: csv_path,
     })
 }
@@ -94,25 +106,44 @@ mod tests {
             recovered: vec![],
             failed: vec![],
             skipped: vec![],
+            wish_labels: vec![],
         }
     }
 
     #[test]
-    fn write_all_reports_creates_three_files() {
-        // 3 種レポートが指定ディレクトリに生成され、ファイルが空でないこと。
+    fn write_all_reports_creates_four_files() {
+        // 4 種レポート（Chunk 20.5）が指定ディレクトリに生成され、空でないこと。
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path().join("nested").join("reports");
         let paths = write_all_reports(&empty_report(), &dir).expect("write_all_reports");
-        assert!(paths.customer_html.exists());
+        assert!(paths.customer_docx.exists());
+        assert!(paths.invalid_txt.exists());
         assert!(paths.internal_html.exists());
         assert!(paths.csv.exists());
-        // ファイル名の検証
-        assert_eq!(paths.customer_html.file_name().unwrap(), "report_customer.html");
-        assert_eq!(paths.internal_html.file_name().unwrap(), "report_internal.html");
+        // ファイル名
+        assert_eq!(
+            paths.customer_docx.file_name().unwrap(),
+            "report_customer.docx"
+        );
+        assert_eq!(paths.invalid_txt.file_name().unwrap(), "recovered_files.txt");
+        assert_eq!(
+            paths.internal_html.file_name().unwrap(),
+            "report_internal.html"
+        );
         assert_eq!(paths.csv.file_name().unwrap(), "report.csv");
-        // 各ファイルの先頭バイトをチェック（空ではない）
-        assert!(paths.customer_html.metadata().unwrap().len() > 0);
+        // 各ファイルが空でない
+        assert!(paths.customer_docx.metadata().unwrap().len() > 0);
+        assert!(paths.invalid_txt.metadata().unwrap().len() > 0);
         assert!(paths.internal_html.metadata().unwrap().len() > 0);
         assert!(paths.csv.metadata().unwrap().len() > 0);
+    }
+
+    #[test]
+    fn write_all_reports_customer_docx_is_zip_archive() {
+        // .docx は OOXML ZIP アーカイブとして書き出されること（PK magic で開始）。
+        let tmp = TempDir::new().unwrap();
+        let paths = write_all_reports(&empty_report(), tmp.path()).expect("write_all_reports");
+        let bytes = std::fs::read(&paths.customer_docx).unwrap();
+        assert!(bytes.starts_with(b"PK\x03\x04"));
     }
 }

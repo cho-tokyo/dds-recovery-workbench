@@ -1,15 +1,18 @@
-//! Chunk 20 結合テスト: recovery → validators → report の end-to-end 連鎖。
+//! Chunk 20.5 結合テスト: recovery → validators → report の end-to-end 連鎖（業務適用版）。
 //!
-//! `ntfs_mixed_formats.img.zst` を入力に、3 形式（顧客 HTML / CS HTML / CSV）の
-//! レポートを生成し、業務的に重要な不変条件を機械検証する:
+//! `ntfs_mixed_formats.img.zst` を入力に、**4 形式**（顧客 .docx / 顧客 .txt /
+//! CS HTML / CSV）のレポートを生成し、業務的に重要な不変条件を機械検証する:
 //!
-//! - 3 ファイルが規定ファイル名で生成される
-//! - 顧客 HTML に CS 内部メモが**絶対に**漏れていない
-//! - CS HTML に警告文と内部メモが含まれる
+//! - 4 ファイルが規定ファイル名で生成される
+//! - 顧客 .docx は ZIP magic (PK\x03\x04) で開始（OOXML 構造）
+//! - 顧客 .docx の **XML 中身**に CS 内部メモが**絶対に**漏れていない
+//! - CS HTML に警告文・業務指標・形式別ブレイクダウンが含まれる
 //!
-//! 関連 FR: FR-REP-01 / FR-REP-02 / FR-REP-03 / FR-QUAL-04。
+//! 関連 FR: FR-REP-01〜05 / FR-QUAL-04。
 
 mod common;
+
+use std::io::Read;
 
 use dds_fs_ntfs::{parse_boot_sector, NtfsVolume};
 use dds_recovery::RecoveryEngine;
@@ -42,10 +45,26 @@ fn business_wishlist() -> Wishlist {
     )
 }
 
+/// .docx の ZIP アーカイブを開いて、全 .xml の文字列を連結して返す。
+/// 内部メモ漏洩テストで使う。
+fn extract_docx_xml_text(docx_bytes: &[u8]) -> String {
+    let cursor = std::io::Cursor::new(docx_bytes);
+    let mut archive = zip::ZipArchive::new(cursor).expect("docx is a ZIP archive");
+    let mut all_text = String::new();
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).unwrap();
+        if file.name().ends_with(".xml") {
+            let mut content = String::new();
+            file.read_to_string(&mut content).unwrap();
+            all_text.push_str(&content);
+        }
+    }
+    all_text
+}
+
 #[test]
-fn generates_all_three_report_formats_from_mixed_fixture() {
-    // 業務シナリオ: 混在フィクスチャから 3 形式レポートが全て生成され、
-    // 各ファイルが規定サイズ以上の内容を持つこと。
+fn generates_four_report_files_in_business_format() {
+    // Chunk 20.5: 4 形式（.docx / .txt / .html / .csv）が全て生成されること。
     let mut volume = open_mixed_formats_volume();
     let temp_dir = TempDir::new().unwrap();
     let recovery_dir = temp_dir.path().join("recovered");
@@ -58,34 +77,30 @@ fn generates_all_three_report_formats_from_mixed_fixture() {
 
     let paths = dds_report::write_all_reports(&report, &report_dir).expect("write_all_reports");
 
-    assert!(paths.customer_html.exists());
+    assert!(paths.customer_docx.exists());
+    assert!(paths.invalid_txt.exists());
     assert!(paths.internal_html.exists());
     assert!(paths.csv.exists());
 
-    // 各ファイルが空でないこと（実データを含む）。
-    let customer_size = paths.customer_html.metadata().unwrap().len();
-    let internal_size = paths.internal_html.metadata().unwrap().len();
-    let csv_size = paths.csv.metadata().unwrap().len();
+    // .docx は OOXML ZIP（PK magic で始まる）
+    let docx_bytes = std::fs::read(&paths.customer_docx).unwrap();
+    assert!(
+        docx_bytes.starts_with(b"PK\x03\x04"),
+        ".docx must be a ZIP archive (PK magic)"
+    );
 
-    assert!(
-        customer_size > 1000,
-        "顧客 HTML は 1000 byte 超: actual {}",
-        customer_size
-    );
-    assert!(
-        internal_size > 1000,
-        "CS HTML は 1000 byte 超: actual {}",
-        internal_size
-    );
-    assert!(csv_size > 500, "CSV は 500 byte 超: actual {}", csv_size);
+    // 各ファイルサイズが妥当
+    assert!(paths.customer_docx.metadata().unwrap().len() > 1000);
+    assert!(paths.internal_html.metadata().unwrap().len() > 1000);
+    assert!(paths.csv.metadata().unwrap().len() > 200);
+    // recovered_files.txt は Invalid 0 件のケースでも会社名フッターを含むので 100+ bytes。
+    assert!(paths.invalid_txt.metadata().unwrap().len() > 50);
 }
 
 #[test]
-fn customer_html_must_not_contain_internal_notes() {
-    // 業務上、最重要の不変条件: 顧客 HTML に CS 内部メモが含まれてはならない。
-    //
-    // 機械検証: validator が internal_note_ja で使う既知フレーズをすべて grep して、
-    // 1 つでも見つかったら失敗。
+fn customer_docx_must_not_contain_internal_notes() {
+    // 業務上、最重要の不変条件: 顧客 .docx の XML 中身に CS 内部メモが含まれてはならない。
+    // .docx は ZIP なので、内部 XML を文字列抽出して機械的に grep 検証する。
     let mut volume = open_mixed_formats_volume();
     let temp_dir = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(temp_dir.path().join("recovered"));
@@ -93,33 +108,26 @@ fn customer_html_must_not_contain_internal_notes() {
         .recover_files(&mut volume, &business_wishlist())
         .expect("recover_files");
 
-    let html = dds_report::render_customer_html(&report).expect("render_customer_html");
+    let docx_bytes = dds_report::render_customer_docx(&report).expect("render_customer_docx");
+    let all_xml_text = extract_docx_xml_text(&docx_bytes);
 
-    let forbidden_strings = [
-        "再復旧推奨",
-        "CS 確認",
-        "業務判断",
-        "技術調査",
-        "validator 追加検討",
-        "disk-io 層を確認",
-        "CS 内部",
-    ];
-
-    for forbidden in &forbidden_strings {
+    let forbidden = ["再復旧推奨", "CS 確認", "業務判断", "技術調査", "disk-io 層"];
+    for phrase in &forbidden {
         assert!(
-            !html.contains(forbidden),
-            "顧客 HTML に CS 内部フレーズが含まれてはならない: '{}' が検出された",
-            forbidden
+            !all_xml_text.contains(phrase),
+            "Customer DOCX must not contain CS-internal phrase: '{}'",
+            phrase
         );
     }
 }
 
 #[test]
-fn product_demo_full_pipeline_with_reports() {
-    // Phase 1 NTFS-α 完成デモ: recovery → validators → report の全パイプラインを
-    // 実行し、3 形式のレポートを生成して業務不変条件を確認する。
+fn product_demo_business_grade_reports() {
+    // Chunk 20.5 完成デモ: recovery → validators → report の全パイプラインを
+    // 実行し、4 形式の業務適用版レポートを生成して業務不変条件を確認する。
     //
-    // `cargo test --release --nocapture` で出力可視化推奨。
+    // 実行: `cargo test --release -p dds-recovery --test recovery_with_reports_integration \
+    //        product_demo_business_grade_reports -- --nocapture`
     let mut volume = open_mixed_formats_volume();
     let wishlist = business_wishlist();
 
@@ -134,69 +142,92 @@ fn product_demo_full_pipeline_with_reports() {
 
     let paths = dds_report::write_all_reports(&report, &report_dir).expect("write_all_reports");
 
-    println!("\n=== DDS Recovery Workbench - Full Pipeline Demo (Chunk 20) ===\n");
+    println!("\n=== DDS Recovery Workbench - Business-Grade Reports (Chunk 20.5) ===\n");
     println!("入力:");
     println!("  ソース: ntfs_mixed_formats.img.zst");
-    println!("  希望: 全形式（PNG/JPEG/PDF/GIF/BMP/DOCX）");
     println!();
-    println!("復旧結果:");
-    println!("  対象: {} ファイル", report.total_matched);
-    println!("  成功: {} ファイル", report.recovered.len());
-    println!("  品質 OK: {}", report.validated_count());
-    println!("  品質 NG: {}", report.invalid_count());
-    println!();
-    println!("出力レポート:");
+    println!("業務指標:");
+    println!("  該当ファイル数:  {} 件", report.total_matched);
+    println!("  復旧成功率:      {:.1}%", report.recovery_success_rate());
+    println!("  品質保証率:      {:.1}%", report.quality_assurance_rate());
     println!(
-        "  顧客向け HTML: {:?} ({} bytes)",
-        paths.customer_html,
-        paths.customer_html.metadata().unwrap().len()
+        "  復旧データ量:    {}",
+        dds_report::format_bytes(report.total_bytes_written())
     );
-    println!("    (お客様に納品可能、internal_note を含まない)");
     println!(
-        "  CS 向け HTML:  {:?} ({} bytes)",
-        paths.internal_html,
+        "  処理時間:        {}",
+        dds_report::format_duration_ms(report.duration_ms())
+    );
+    println!();
+    println!("形式別ブレイクダウン:");
+    for (format, stats) in report.format_breakdown() {
+        println!(
+            "  {:6} : {}/{} 正常 ({:.1}%)",
+            format,
+            stats.valid,
+            stats.total,
+            stats.valid_ratio()
+        );
+    }
+    println!();
+    println!("出力ファイル:");
+    println!(
+        "  [顧客向け] report_customer.docx ({} bytes)",
+        paths.customer_docx.metadata().unwrap().len()
+    );
+    println!(
+        "  [顧客向け] recovered_files.txt  ({} bytes)",
+        paths.invalid_txt.metadata().unwrap().len()
+    );
+    println!(
+        "  [CS 内部] report_internal.html  ({} bytes)",
         paths.internal_html.metadata().unwrap().len()
     );
-    println!("    (業務管理用、internal_note + SHA256 含む)");
     println!(
-        "  CSV:           {:?} ({} bytes)",
-        paths.csv,
+        "  [外部連携] report.csv           ({} bytes)",
         paths.csv.metadata().unwrap().len()
     );
-    println!("    (外部システム連携用、全 13 フィールド)");
     println!();
-    println!("=== Phase 1 NTFS-α 完成 ===");
+    println!("CS のフロー:");
+    println!("  1. report_customer.docx を Word で開いて確認");
+    println!("  2. 案件固有の注記を追加 (必要なら)");
+    println!("  3. 「PDF として保存」(Word の機能)");
+    println!("  4. PDF + recovered_files.txt をお客様に納品");
+    println!();
+    println!("=== Phase 1 NTFS-α 業務適用版完成 ===");
 
-    // 顧客 HTML には CS 内部メモが一切含まれない。
-    let customer = std::fs::read_to_string(&paths.customer_html).unwrap();
+    // 基本的な assertions
+    assert!(paths.customer_docx.metadata().unwrap().len() > 1000);
+    assert!(paths.invalid_txt.metadata().unwrap().len() > 50);
+    // .docx XML 中に CS 内部メモが含まれない（顧客漏洩防止）
+    let docx_bytes = std::fs::read(&paths.customer_docx).unwrap();
+    let all_xml_text = extract_docx_xml_text(&docx_bytes);
     assert!(
-        !customer.contains("CS 内部"),
-        "顧客 HTML に 'CS 内部' は含めない"
-    );
-    assert!(
-        !customer.contains("再復旧推奨"),
-        "顧客 HTML に '再復旧推奨' は含めない"
+        !all_xml_text.contains("再復旧推奨"),
+        "Customer DOCX must not leak CS internal note"
     );
 
-    // CS HTML には CS が含まれること（タイトル or 警告文 or カラム名）。
+    // CS HTML に業務指標が出ていること
     let internal = std::fs::read_to_string(&paths.internal_html).unwrap();
-    assert!(internal.contains("CS"), "CS HTML には 'CS' が含まれる");
+    assert!(internal.contains("品質保証率"));
+    assert!(internal.contains("形式別ブレイクダウン") || internal.contains("ブレイクダウン"));
 
-    // CSV が 13 列ヘッダーを持つこと。
+    // CSV ヘッダーが 14 列
     let csv = std::fs::read_to_string(&paths.csv).unwrap();
     let first_line = csv.lines().next().unwrap();
     let col_count = first_line.split(',').count();
-    assert_eq!(col_count, 13, "CSV ヘッダーは 13 列: {}", first_line);
+    assert_eq!(col_count, 14, "CSV ヘッダーは 14 列: {}", first_line);
+    assert!(first_line.contains("matched_wishes"));
 }
 
-/// 通常 CI からは除外する開発者用デモ: 生成された 3 レポートを
-/// `target/chunk20-samples/` に永続化し、ブラウザ / Excel での視覚確認に使う。
+/// 通常 CI からは除外する開発者用デモ: 生成された 4 レポートを
+/// `target/chunk20_5-samples/` に永続化し、Word / Notepad / ブラウザ / Excel での視覚確認に使う。
 ///
 /// 実行: `cargo test -p dds-recovery --test recovery_with_reports_integration \
-///        persist_chunk20_demo_reports -- --ignored --nocapture`
+///        persist_chunk20_5_demo_reports -- --ignored --nocapture`
 #[test]
 #[ignore]
-fn persist_chunk20_demo_reports() {
+fn persist_chunk20_5_demo_reports() {
     let mut volume = open_mixed_formats_volume();
     let temp_dir = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(temp_dir.path().join("recovered"));
@@ -204,13 +235,29 @@ fn persist_chunk20_demo_reports() {
         .recover_files(&mut volume, &business_wishlist())
         .expect("recover_files");
 
-    // workspace ルート target/chunk20-samples に永続化。
+    // workspace ルート target/chunk20_5-samples に永続化。
     let mut sample_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    sample_dir.push("../../target/chunk20-samples");
+    sample_dir.push("../../target/chunk20_5-samples");
     let paths = dds_report::write_all_reports(&report, &sample_dir).expect("write_all_reports");
 
-    println!("Persistent reports written to: {:?}", sample_dir.canonicalize().unwrap_or(sample_dir));
-    println!("  customer_html: {} bytes", paths.customer_html.metadata().unwrap().len());
-    println!("  internal_html: {} bytes", paths.internal_html.metadata().unwrap().len());
-    println!("  csv:           {} bytes", paths.csv.metadata().unwrap().len());
+    println!(
+        "Persistent reports written to: {:?}",
+        sample_dir.canonicalize().unwrap_or(sample_dir)
+    );
+    println!(
+        "  customer_docx: {} bytes",
+        paths.customer_docx.metadata().unwrap().len()
+    );
+    println!(
+        "  invalid_txt:   {} bytes",
+        paths.invalid_txt.metadata().unwrap().len()
+    );
+    println!(
+        "  internal_html: {} bytes",
+        paths.internal_html.metadata().unwrap().len()
+    );
+    println!(
+        "  csv:           {} bytes",
+        paths.csv.metadata().unwrap().len()
+    );
 }
