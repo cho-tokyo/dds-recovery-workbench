@@ -138,6 +138,22 @@ pub fn render(report: &DiagnosticReport) -> String {
             "推定合計サイズ: {}",
             format_bytes(deleted.estimated_total_size)
         );
+
+        // Chunk 22.5: 復旧可能性 (推定) セクション
+        if let Some(est) = &deleted.recoverability_estimate {
+            let _ = writeln!(s);
+            let _ = writeln!(s, "復旧可能性 (推定):");
+            let _ = writeln!(s, "  高 (確実復旧可能): {} 件", est.high_confidence);
+            let _ = writeln!(s, "  中 (部分復旧の可能性): {} 件", est.medium_confidence);
+            let _ = writeln!(s, "  低 (メタデータのみ): {} 件", est.low_confidence);
+            let _ = writeln!(s, "  ※ 判定基準:");
+            let _ = writeln!(
+                s,
+                "    高: ファイル内容が MFT 内に完結、または占有クラスタが上書きされていない"
+            );
+            let _ = writeln!(s, "    中: 占有クラスタの一部が他のファイルで上書きされている");
+            let _ = writeln!(s, "    低: run-list 解析失敗、または全クラスタが上書き済み");
+        }
         let _ = writeln!(s);
     }
 
@@ -375,6 +391,43 @@ mod tests {
             text
         );
         assert!(text.contains("1.22 KB"));
+    }
+
+    // Chunk 22.5: 復旧可能性 (推定) セクションのテスト ---------------------
+
+    fn report_with_recoverability(
+        est: Option<dds_case_manager::RecoverabilityEstimate>,
+    ) -> DiagnosticReport {
+        let mut r = base_report(true, healthy_findings());
+        if let Some(stats) = r.deleted_file_stats.as_mut() {
+            stats.recoverability_estimate = est;
+        }
+        r
+    }
+
+    #[test]
+    fn crm_text_includes_recoverability_section_when_estimate_present() {
+        let est = dds_case_manager::RecoverabilityEstimate {
+            high_confidence: 5,
+            medium_confidence: 0,
+            low_confidence: 0,
+        };
+        let r = report_with_recoverability(Some(est));
+        let text = render(&r);
+        assert!(text.contains("復旧可能性 (推定):"), "missing header: {}", text);
+        assert!(text.contains("高 (確実復旧可能): 5 件"));
+        assert!(text.contains("中 (部分復旧の可能性): 0 件"));
+        assert!(text.contains("低 (メタデータのみ): 0 件"));
+        assert!(text.contains("判定基準:"));
+    }
+
+    #[test]
+    fn crm_text_omits_recoverability_when_no_estimate() {
+        // recoverability_estimate = None の場合は判定基準セクションが含まれない。
+        let r = report_with_recoverability(None);
+        let text = render(&r);
+        assert!(!text.contains("復旧可能性 (推定):"));
+        assert!(!text.contains("高 (確実復旧可能)"));
     }
 
     #[test]

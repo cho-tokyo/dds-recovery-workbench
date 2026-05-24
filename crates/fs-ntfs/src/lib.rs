@@ -33,7 +33,7 @@ pub use attributes::{
     IndxBlock, MftReference, Run, RunlistError, SiError, StandardInformation,
 };
 pub use boot_sector::{parse_boot_sector, BootSector, BootSectorError};
-pub use file::{FileContentRef, NtfsFile, NtfsFileIterator};
+pub use file::{ClusterRange, FileContentRef, NtfsFile, NtfsFileIterator};
 pub use fixup::{apply_fixup, FixupError};
 pub use mft::{parse_mft_entry, MftEntry, MftEntryHeader, MftError};
 pub use path::{PathResolver, MAX_PATH_DEPTH, NTFS_ROOT_RECORD};

@@ -49,8 +49,10 @@
 pub mod aggregator;
 pub mod crm_text;
 pub mod error;
+pub mod recoverability;
 pub mod report;
 
+pub use aggregator::{ClusterOccupancyMap, DeletedFileMetadata};
 pub use error::DiagnosticError;
 pub use report::{
     DiagnosticReport, FileStatistics, FilesystemInfo, FolderCount, FormatCount, FsAnomalyReport,
@@ -95,6 +97,14 @@ impl DiagnosticEngine {
         // 症状判定は行わない (Chunk 22.6)。事実のみ FilesystemFindings に詰める。
         let filesystem_findings = aggregate.anomalies.to_findings();
 
+        // Chunk 22.5: 削除ファイル群の復旧可能性を推定し、DeletedFileStats に反映。
+        let recoverability =
+            recoverability::estimate(&aggregate.deleted_file_metadata, &aggregate.cluster_occupancy);
+        let mut deleted_file_stats = aggregate.deleted_file_stats;
+        if let Some(stats) = &mut deleted_file_stats {
+            stats.recoverability_estimate = Some(recoverability);
+        }
+
         let finished_at = Utc::now();
         let duration_secs = (finished_at - started_at).num_seconds().max(0) as u64;
 
@@ -113,7 +123,7 @@ impl DiagnosticEngine {
             file_stats: aggregate.file_stats,
             format_breakdown: aggregate.format_breakdown,
             folder_breakdown: aggregate.folder_breakdown,
-            deleted_file_stats: aggregate.deleted_file_stats,
+            deleted_file_stats,
             anomalies: aggregate.anomalies,
         })
     }

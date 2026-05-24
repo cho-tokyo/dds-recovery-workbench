@@ -50,6 +50,34 @@ impl FileContentRef {
     }
 }
 
+/// 占有クラスタの範囲（LCN ベース）。
+///
+/// Chunk 22.5 で導入。復旧可能性推定で「生存ファイルの占有マップ構築」+
+/// 「削除ファイルの占有範囲取得」に使用される。
+///
+/// `start_lcn` は範囲の開始 LCN（Logical Cluster Number）、`length` はそこから
+/// 連続するクラスタ数。`length == 0` の範囲は無効と見なされ、`contains` 等は
+/// 常に `false` を返す。
+/// 関連 FR: FR-DIAG-07（削除ファイル復旧可能性推定）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClusterRange {
+    /// 開始 Logical Cluster Number。
+    pub start_lcn: u64,
+    /// 範囲のクラスタ数。
+    pub length: u64,
+}
+
+impl ClusterRange {
+    /// 範囲の終端 LCN（exclusive）。`start_lcn + length` をオーバーフロー保護つきで返す。
+    pub fn end_lcn(&self) -> u64 {
+        self.start_lcn.saturating_add(self.length)
+    }
+    /// 指定 LCN がこの範囲に含まれるか。`length == 0` の場合は常に `false`。
+    pub fn contains(&self, lcn: u64) -> bool {
+        lcn >= self.start_lcn && lcn < self.end_lcn()
+    }
+}
+
 /// 1 つの NTFS ファイル/ディレクトリの統合情報（owned）。
 ///
 /// MFT エントリから抽出した全情報を 1 つの所有データ型に束ねる。ライフタイムを持たないため
@@ -123,6 +151,44 @@ impl NtfsFile {
     /// 使うフィルタ。関連 FR: FR-LIVE-05 (削除エントリ可視化)。
     pub fn has_system_name_prefix(&self) -> bool {
         self.name.starts_with('$')
+    }
+    /// メイン `$DATA` 属性が resident かどうかを返す。
+    ///
+    /// resident なファイルは内容が MFT エントリ内に格納されており、復旧可能性推定では
+    /// 確実復旧可能（High）として扱われる。`$DATA` 属性がない（ディレクトリ等）場合や
+    /// non-resident な場合は `false`。
+    /// 関連 FR: FR-DIAG-07（削除ファイル復旧可能性推定）。
+    pub fn is_resident(&self) -> bool {
+        self.content.is_resident()
+    }
+    /// メイン `$DATA` ストリームが占有しているクラスタ範囲のリストを返す。
+    ///
+    /// 設計:
+    /// - resident（[`FileContentRef::Resident`]）→ 空 `Vec`（クラスタ占有なし）
+    /// - non-resident + 通常ラン → [`ClusterRange`] に変換
+    /// - non-resident + sparse ラン（`lcn == None`）→ skip（実クラスタ占有なし）
+    /// - `$DATA` がない場合（ディレクトリ等、[`FileContentRef::None`]）→ 空 `Vec`
+    ///
+    /// 復旧可能性推定（Chunk 22.5）では「実際に占有するクラスタ」のみを返す必要がある
+    /// ため、sparse ラン（仮想的な穴で物理的にデータがない）は除外する。
+    ///
+    /// 注: runlist 解析失敗時はビルダ関数（`build_file_for_record`）で `Err` になり、
+    /// `iter_files()` 側で `Err` として現れるため、本メソッドは run-list が完全に
+    /// 解析された前提で動作する。
+    /// 関連 FR: FR-DIAG-07（削除ファイル復旧可能性推定）。
+    pub fn occupied_cluster_ranges(&self) -> Vec<ClusterRange> {
+        match &self.content {
+            FileContentRef::NonResident { runs, .. } => runs
+                .iter()
+                .filter_map(|run| {
+                    run.lcn.map(|lcn| ClusterRange {
+                        start_lcn: lcn,
+                        length: run.length_clusters,
+                    })
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
     }
 }
 
@@ -520,5 +586,97 @@ mod tests {
         let fi: dds_wish_match::FileInfo = (&ntfs).into();
         assert_eq!(fi.source_id, "NTFS#67");
         assert!(fi.is_deleted);
+    }
+
+    // Chunk 22.5: ClusterRange + occupied_cluster_ranges のテスト ---------------
+
+    #[test]
+    fn cluster_range_contains_works_within_bounds() {
+        let r = ClusterRange {
+            start_lcn: 100,
+            length: 5,
+        };
+        // 範囲内
+        assert!(r.contains(100));
+        assert!(r.contains(104));
+        // 範囲外
+        assert!(!r.contains(99));
+        assert!(!r.contains(105));
+        // end_lcn は exclusive
+        assert_eq!(r.end_lcn(), 105);
+        // length 0 のレンジは何も含まない
+        let empty = ClusterRange {
+            start_lcn: 100,
+            length: 0,
+        };
+        assert!(!empty.contains(100));
+    }
+
+    #[test]
+    fn occupied_cluster_ranges_returns_empty_for_resident_file() {
+        let mut f = make_file(100, "small.txt", false, true, false, false);
+        f.content = FileContentRef::Resident(vec![0u8; 50]);
+        assert!(f.is_resident());
+        assert!(f.occupied_cluster_ranges().is_empty());
+    }
+
+    #[test]
+    fn occupied_cluster_ranges_returns_empty_for_none_content() {
+        let f = make_file(100, "dir", true, false, false, false);
+        // 既定で content は FileContentRef::None
+        assert!(!f.is_resident());
+        assert!(f.occupied_cluster_ranges().is_empty());
+    }
+
+    #[test]
+    fn occupied_cluster_ranges_returns_ranges_for_non_resident() {
+        let mut f = make_file(100, "big.bin", false, true, false, false);
+        f.content = FileContentRef::NonResident {
+            real_size: 8192,
+            runs: vec![
+                Run {
+                    length_clusters: 3,
+                    lcn: Some(100),
+                },
+                Run {
+                    length_clusters: 2,
+                    lcn: Some(200),
+                },
+            ],
+        };
+        assert!(!f.is_resident());
+        let ranges = f.occupied_cluster_ranges();
+        assert_eq!(ranges.len(), 2);
+        assert_eq!(ranges[0].start_lcn, 100);
+        assert_eq!(ranges[0].length, 3);
+        assert_eq!(ranges[1].start_lcn, 200);
+        assert_eq!(ranges[1].length, 2);
+    }
+
+    #[test]
+    fn occupied_cluster_ranges_skips_sparse_runs() {
+        let mut f = make_file(100, "sparse.bin", false, true, false, false);
+        f.content = FileContentRef::NonResident {
+            real_size: 12288,
+            runs: vec![
+                Run {
+                    length_clusters: 2,
+                    lcn: Some(50),
+                },
+                Run {
+                    length_clusters: 4,
+                    lcn: None,
+                }, // sparse hole
+                Run {
+                    length_clusters: 3,
+                    lcn: Some(80),
+                },
+            ],
+        };
+        let ranges = f.occupied_cluster_ranges();
+        // sparse run はスキップされ、2 要素のみ
+        assert_eq!(ranges.len(), 2);
+        assert_eq!(ranges[0].start_lcn, 50);
+        assert_eq!(ranges[1].start_lcn, 80);
     }
 }
