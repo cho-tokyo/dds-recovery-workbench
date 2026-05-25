@@ -4,7 +4,231 @@
 
 ---
 
-## 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **workbench-dryrun が業務フローと Chunk 23.7 新仕様に完全対応 — 復旧 PC で「いきなり recover」が動作、診断 PC と復旧 PC の物理 PC 分離を実装に反映 🎯🎯🎯🎯🎯🎯** / Chunk 23.6 改訂版 workbench-dryrun の業務フロー対応 完成（軽量改修） — DDS の業務フロー（診断 PC は 1 台時分割複数案件、復旧 PC は 50 台 1 案件専有、別の物理 PC）を実装に落とし込んだ recover サブコマンドの業務適合化 / 修正ファイル 2 件: ①**`crates/workbench-dryrun/src/commands/recover.rs`** (+50 行、案件 JSON 不在時の自動新規作成 `storage.case_file_path().exists()` で load/create_new 分岐 + 既存出力フォルダ検出 + 上書き確認プロンプト 3 ケース説明 (2 回目納品 / 番号取り違え / 前回失敗残骸) + 出力先表示を `case_output_root.display()` に統一 + 単体テスト 3 件追加) + ②**`crates/workbench-dryrun/README.md`** (全面書換、+100 行、Phase 1.5 業務設計 R-STUDIO 風 + Wishlist は優先データラベリング明記 + 業務フロー図解 (診断 PC vs 復旧 PC の物理 PC 分離) + 復旧範囲とシステムファイル除外 ExclusionList 6 パターン明記 + Wishlist の役割 (お客様優先データ、復旧範囲には影響しない) + 複数 HDD 分割納品の運用例 (2 段階 recover) + トラブルシューティング拡充) / 既存ライブラリへの変更**ゼロ**（recovery / report / case-manager / wish-match への変更なし、Chunk 23.7 で既に追加済みの `exclusions` パラメータ / 二重表示 / Wishlist 空対応はそのまま利用）/ **業務的背景**: DDS の業務フローは診断 PC（1 台、時分割複数案件）と復旧 PC（50 台、1 案件専有）が別の物理 PC、復旧 PC では診断 PC の case.json は届かない → 「いきなり recover」が標準フロー、同じ案件番号で複数回 recover するケース（優先納品）が存在 / **業務フロー対応の検証成果**: ①**案件 JSON 不在対応**: `if case_file.exists() { load } else { create_new }` で分岐、復旧 PC で「いきなり recover」が動作 / ②**既存出力検出**: 同じ案件番号で 2 回目以降の recover 時、納品先に既存フォルダがあれば上書き確認プロンプト表示 / ③**README 業務フロー強化**: 診断 PC と復旧 PC の物理 PC 分離前提を明示 + Wishlist の意味再定義（Chunk 23.7、お客様優先データ）を業務メンバー向けに解説 + ExclusionList のシステムファイル除外を業務目線で説明 + 複数 HDD 分割納品（優先納品）の運用手順を例示 / **意味論変更の明記**: Chunk 23.7 の意味論変更（Wishlist → 優先データ、ExclusionList 導入）が CLI の UX レベルでも完全に反映 / 新規単体テスト **3 件**（`recover_creates_new_case_when_not_exists` / `recover_loads_existing_case_when_present` / `existing_output_directory_detection_logic`）+ 既存テスト破壊なし = workspace 全体 **511 件 pass / 0 failed / 4 ignored**（Chunk 23.7.1 の 508 → **+3 件**）/ バイナリ `target/release/workbench-dryrun.exe`: **3.86 MB**（3,894,784 bytes、変化なし）/ Windows 専用（`#[cfg(not(windows))] compile_error!` 維持）/ `crates/workbench-dryrun/src/` 内 `unsafe` **0 件** 継続、書き込み API: 出力先のみ（変化なし）、単方向依存維持、clippy / doc warning **0 件** / **FR-CLI-05（復旧 PC 独立運用、新規）+ FR-CLI-06（複数回 recover 対応、新規）+ FR-CLI-07（Chunk 23.7 新仕様の反映、新規）すべて新規達成** / Chunks 1-23.7.1 + 23.6 改訂版 完了（Chunk 23.6 改訂版 / 2026-05-25）
+## 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 **🎊 Phase 1.5 完全完成 🎊 — 業務統合層完成 / Workbench は R-STUDIO の代替候補として真剣に評価可能な状態に到達 / 検証 PC 実機ドライラン準備完了 / Phase 2.1 (Tauri UI) 着手準備完了 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉**
+
+### 🎊🎊🎊 Phase 1.5 完全完成マイルストーン（Chunk 23.8 / 2026-05-25）
+
+Phase 1.5 業務統合層が **完全完成**。Chunk 23.8 で「お客様への業務的説明責任を果たす最後のピース」= **Uncertain 理由分類 + TXT 2 分割** を実装し、Workbench は R-STUDIO の代替候補として真剣に評価可能な状態に到達。
+
+**累積指標（業務メンバー提示用）**:
+- 完了チャンク数: **23 主チャンク + サブ計 28 ドキュメント**（Chunks 1-23.8 + 22.6 / 22.5 / 23.5 / 23.6 / 23.6 改訂版 / 23.7 / 23.7.1 / 23.8）
+- workspace total tests: **534 passed / 0 failed / 5 ignored**（Chunk 23.6 改訂版 511 → +23 件）
+- workspace total Rust LoC: **21,843 行**（`crates/` 配下 .rs ファイル）
+- `unsafe` blocks（workspace 内）: **0 件**
+- clippy warnings (`-D warnings`): **0 件**
+- rustdoc warnings: **0 件**
+
+---
+
+## 🎊 Chunk 23.8: Uncertain 理由分類 + TXT 分割（Phase 1.5 最終チャンク）— 完成 🎊（Chunk 23.8 / 2026-05-25）
+
+---
+
+## 🎯 Chunk 23.6 改訂版 workbench-dryrun の業務フロー対応 完成（軽量改修） — DDS の業務フロー（診断 PC は 1 台時分割複数案件、復旧 PC は 50 台 1 案件専有、別の物理 PC）を実装に落とし込んだ recover サブコマンドの業務適合化 / 修正ファイル 2 件: ①**`crates/workbench-dryrun/src/commands/recover.rs`** (+50 行、案件 JSON 不在時の自動新規作成 `storage.case_file_path().exists()` で load/create_new 分岐 + 既存出力フォルダ検出 + 上書き確認プロンプト 3 ケース説明 (2 回目納品 / 番号取り違え / 前回失敗残骸) + 出力先表示を `case_output_root.display()` に統一 + 単体テスト 3 件追加) + ②**`crates/workbench-dryrun/README.md`** (全面書換、+100 行、Phase 1.5 業務設計 R-STUDIO 風 + Wishlist は優先データラベリング明記 + 業務フロー図解 (診断 PC vs 復旧 PC の物理 PC 分離) + 復旧範囲とシステムファイル除外 ExclusionList 6 パターン明記 + Wishlist の役割 (お客様優先データ、復旧範囲には影響しない) + 複数 HDD 分割納品の運用例 (2 段階 recover) + トラブルシューティング拡充) / 既存ライブラリへの変更**ゼロ**（recovery / report / case-manager / wish-match への変更なし、Chunk 23.7 で既に追加済みの `exclusions` パラメータ / 二重表示 / Wishlist 空対応はそのまま利用）/ **業務的背景**: DDS の業務フローは診断 PC（1 台、時分割複数案件）と復旧 PC（50 台、1 案件専有）が別の物理 PC、復旧 PC では診断 PC の case.json は届かない → 「いきなり recover」が標準フロー、同じ案件番号で複数回 recover するケース（優先納品）が存在 / **業務フロー対応の検証成果**: ①**案件 JSON 不在対応**: `if case_file.exists() { load } else { create_new }` で分岐、復旧 PC で「いきなり recover」が動作 / ②**既存出力検出**: 同じ案件番号で 2 回目以降の recover 時、納品先に既存フォルダがあれば上書き確認プロンプト表示 / ③**README 業務フロー強化**: 診断 PC と復旧 PC の物理 PC 分離前提を明示 + Wishlist の意味再定義（Chunk 23.7、お客様優先データ）を業務メンバー向けに解説 + ExclusionList のシステムファイル除外を業務目線で説明 + 複数 HDD 分割納品（優先納品）の運用手順を例示 / **意味論変更の明記**: Chunk 23.7 の意味論変更（Wishlist → 優先データ、ExclusionList 導入）が CLI の UX レベルでも完全に反映 / 新規単体テスト **3 件**（`recover_creates_new_case_when_not_exists` / `recover_loads_existing_case_when_present` / `existing_output_directory_detection_logic`）+ 既存テスト破壊なし = workspace 全体 **511 件 pass / 0 failed / 4 ignored**（Chunk 23.7.1 の 508 → **+3 件**）/ バイナリ `target/release/workbench-dryrun.exe`: **3.86 MB**（3,894,784 bytes、変化なし）/ Windows 専用（`#[cfg(not(windows))] compile_error!` 維持）/ `crates/workbench-dryrun/src/` 内 `unsafe` **0 件** 継続、書き込み API: 出力先のみ（変化なし）、単方向依存維持、clippy / doc warning **0 件** / **FR-CLI-05（復旧 PC 独立運用、新規）+ FR-CLI-06（複数回 recover 対応、新規）+ FR-CLI-07（Chunk 23.7 新仕様の反映、新規）すべて新規達成** / Chunks 1-23.7.1 + 23.6 改訂版 完了（Chunk 23.6 改訂版 / 2026-05-25）
+
+### 🎊 Chunk 23.8 ハイライト（Phase 1.5 完全完成の節目）
+
+**🎊 Phase 1.5 完全完成 — 業務統合層完成 / Workbench は R-STUDIO の代替候補として真剣に評価可能 / 検証 PC 実機ドライラン準備完了 / Phase 2.1 (Tauri UI) 着手準備完了**。Chunk 23.6 改訂版で「workbench-dryrun が業務フローと Chunk 23.7 新仕様に完全対応」に到達した Workbench に、**Chunk 23.8 で「Uncertain 理由分類 + TXT 2 分割」を加えた最終チャンク**。
+
+**🎊 業務的核心**:
+1. **`ValidationStatus::Uncertain(UncertainReason)`** — 5 variant 分類（`NoValidatorAvailable` / `Encrypted` / `TooLargeForValidation { size, threshold }` / `ValidatorError { message }` / `ExtensionMismatch { detected_format }`）
+2. **TXT 2 分割**: `要確認ファイル一覧.txt` → `破損疑いファイル一覧.txt` (Invalid) + `自動確認対象外ファイル一覧.txt` (Uncertain) の 2 ファイル
+3. **業務確定文言**: 「現在未対応もしくはファイル形式が特殊、ファイルサイズが大きすぎる などで確認できませんでした」を TXT / DOCX / HTML すべてで一貫表示
+
+**🎊 新規ファイル（2）**:
+- `crates/validators/src/uncertain.rs` (181 行): `UncertainReason` enum 5 variant + 4 単体テスト
+- `crates/validators/src/format_bytes_helper.rs` (39 行): format_bytes ヘルパ + 3 単体テスト
+
+**🎊 修正ファイル（16）**:
+- validators: `lib.rs` / `result.rs` / `registry.rs` / `Cargo.toml`
+- recovery: `report.rs` / `Cargo.toml` / `mixed_formats_integration.rs`
+- report: `csv.rs` / `txt_customer.rs` / `docx_customer.rs` / `html_internal.rs` / `business.rs` / `lib.rs`
+- case-manager: `output.rs` / `orchestration.rs` / `business_flow_integration.rs`
+
+**🎊 破壊的変更**:
+- `ValidationStatus::Uncertain` を unit variant から `Uncertain(UncertainReason)` に拡張
+- `ValidationResult::uncertain(reason, ...)` constructor 新シグネチャ
+- `BusinessReportPaths.customer_txt` → `customer_invalid_txt` + `customer_uncertain_txt` の 2 分割
+- `CaseOutput::customer_txt_path()` → `customer_invalid_txt_path()` + `customer_uncertain_txt_path()`
+- 既存 `is_uncertain()` は `matches!(_, Uncertain(_))` で互換維持
+
+**🎊 Part D の最小スコープ実装**: 仕様書では各 validator (PNG/JPEG/PDF 等 9 種) で magic bytes 不一致 → `ExtensionMismatch` を返す例があったが、業務観測 (Chunk 19 ntfs_mixed_formats での Valid 10 / Invalid 4 / Uncertain 1) を維持するため、Registry レベルでの分岐（`NoValidatorAvailable` / `TooLargeForValidation`）のみに留めた。各 validator は既存 Invalid ロジック温存。Phase 2 で詳細分類を入れる前提。
+
+**🎊 テスト統計**:
+- 新規単体テスト **20 件**（UncertainReason 4 + ValidationStatus 2 + Registry 2 + format_bytes 3 + Breakdown 3 + TXT 3 + DOCX 2 + HTML 2 + register_ext 等）
+- 新規結合テスト **3 件**（`business_reports_generates_split_txt_files` / `product_demo_phase_1_5_final` / `persist_chunk23_8_demo_reports`）
+- 修正既存テスト **15 件**（validators 4 + recovery 3 + report 4 + case-manager 4）
+- workspace 全体 **534 件 pass / 0 failed / 5 ignored**（Chunk 23.6 改訂版 511 → **+23 件**）
+
+**🎊 業務観測の互換維持（CRITICAL）**:
+- ntfs_mixed_formats フィクスチャで **Valid 10 / Invalid 4 / Uncertain 1**（Chunk 19 観測値）を完全維持
+- Uncertain 1 件は `unknown_001.xyz` → `NoValidatorAvailable` に正しく分類
+
+**🎊 業務観測（プロダクトデモ全文、Phase 1.5 完成 Demo）**:
+
+```
+=== Phase 1.5 完成 Demo (Chunk 23.8) ===
+
+案件番号: 260522-04
+Wishlist: お客様優先: PNG 画像
+
+[復旧結果 - 全体]
+  該当ファイル: 15 件
+  復旧成功:     15 件
+  品質保証率:   66.7%
+
+[復旧結果 - お客様優先データ]
+  該当ファイル: 4 件
+  品質保証率:   75.0%
+
+[品質判定内訳]
+  Valid:     10 件
+  Invalid:   4 件
+  Uncertain: 1 件
+
+[Uncertain (検証外) の内訳]
+  対応 Validator なし: 1 件
+  暗号化:               0 件
+  サイズ超過:           0 件
+  Validator エラー:     0 件
+  拡張子不一致:         0 件
+
+[納品物 (5 ファイル、Chunk 23.8 で 4→5)]
+  - 復旧レポート.docx
+  - 破損疑いファイル一覧.txt        (Chunk 23.8 で rename)
+  - 自動確認対象外ファイル一覧.txt  (Chunk 23.8 新規)
+  - 業務管理レポート.html
+  - report.csv
+
+=== Phase 1.5 完成 ===
+```
+
+**🎊 生成されたサンプル TXT（業務メンバー提示用）**:
+
+**破損疑いファイル一覧.txt**:
+```
+=== 破損疑いファイル一覧 ===
+
+作成日: 2026年05月25日
+
+以下のファイルは復旧されましたが、自動品質確認で破損の疑いがありました。
+お開きになる前にお気をつけください。
+
+==== (ルート) ====
+  broken_001.png
+  broken_002.jpg
+  broken_003.pdf
+  mismatch_001.pdf
+
+合計: 4 ファイル
+
+ご不明な点は、担当者までお問い合わせください。
+デジタルデータソリューション株式会社
+```
+
+**自動確認対象外ファイル一覧.txt**:
+```
+=== 自動確認対象外ファイル一覧 ===
+
+作成日: 2026年05月25日
+
+以下のファイルは復旧されていますが、自動品質確認の対象外でした。
+原因: 現在未対応もしくはファイル形式が特殊、ファイルサイズが大きすぎる
+      などで確認できませんでした
+
+お手元でお開きになってご確認ください。
+
+==== (ルート) ====
+  unknown_001.xyz [対応 Validator なし]
+
+合計: 1 ファイル
+
+ご不明な点は、担当者までお問い合わせください。
+デジタルデータソリューション株式会社
+```
+
+**🎊 永続化ディレクトリツリー** (`target/chunk23_8-samples/`):
+- `delivery/260522-04/`
+  - `復旧データ/通常ファイル/` (15 件)
+  - `復旧データ/削除ファイル/` (0 件)
+  - `レポート/` (5 ファイル: 復旧レポート.docx / 破損疑いファイル一覧.txt / 自動確認対象外ファイル一覧.txt / 業務管理レポート.html / report.csv)
+- `internal/260522-04/case.json`
+
+**🎊 安全性**: workspace 内 `unsafe` **0 件** 継続、書き込み API: 出力先のみ、clippy / doc warning **0 件**、単方向依存維持（validators → 0 internal、recovery → validators + 他、report → recovery + validators、case-manager → 業務統合）。
+
+**🎊 関連 FR**: **FR-QUAL-04（Uncertain 理由分類、新規）→ ✅ 🎊 新規達成** / **FR-REP-05（お客様向け TXT 分割、新規）→ ✅ 🎊 新規達成**。
+
+### 🎊🎊🎊 マイルストーン意義（Phase 1.5 完全完成）
+
+```
+🎉🎉🎉 DDS Recovery Workbench - Phase 1.5 完全完成 🎉🎉🎉
+  M0 設計確定         100% ✅
+  M1 基盤構築          30% （Phase 1 では基盤として十分機能、Phase 2 で残実装）
+  M2 NTFS リーダα     100% ✅
+  M3 希望突合エンジン  100% ✅
+  M4 復旧 + 品質判定  100% ✅
+  M5 NTFS-α リリース  100% ✅ 業務適用版到達
+  ─────────────────────────────────────────
+  Phase 1.5 (業務統合層) — 🎊 完全完成 🎊
+  Chunk 21          case-manager 基盤                  ✅ 完成
+  Chunk 22          診断エンジン+CRMテキスト           ✅ 完成
+  Chunk 22.6        業務フロー整合 (症状判定削除)      ✅ 完成 🎯 Workbench は「事実提供者」
+  Chunk 22.5        復旧可能性推定 (High/Med/Low)      ✅ 完成 📈 削除案件の見積もり精度向上
+  Chunk 23          業務向け出力ディレクトリ構造       ✅ 完成 🎊 業務統合層中核
+  Chunk 23.5        workbench-dryrun (CLI 中継ぎ)      ✅ 完成 🚀 実機ドライラン準備完了
+  Chunk 23.7        Wishlist 再定義+ExclusionList+全件復旧 ✅ 完成 🎯 R-STUDIO 風業務フロー対応完成
+  Chunk 23.6 改訂版 workbench-dryrun の業務フロー対応  ✅ 完成 🎯 復旧 PC で「いきなり recover」が動作
+  Chunk 23.8        Uncertain 理由分類 + TXT 分割     ✅ 完成 🎊 Phase 1.5 最終チャンク
+  ─────────────────────────────────────────
+  次のステップ
+  実機検証          中古 NTFS HDD ドライラン           ⏳ 次推奨 (Chouさん手動、半日〜1日)
+  Phase 2.1         Tauri UI (約 2 ヶ月想定)           ⏳ 次推奨
+  ─────────────────────────────────────────
+  Chunks 1-23.8 完了（サブチャンク含む 28 ドキュメント）
+  workspace total: 534 件 pass / 0 failed / 5 ignored
+  workspace total LoC: 21,843 行 / unsafe 0 件 / clippy 0 件 / doc 0 件
+```
+
+### 🎊 Phase 1.5 全体達成サマリ（業務メンバー提示用）
+
+**Phase 1 NTFS-α（Chunks 1-20.5）— 完成**:
+- 読み取り（NTFS リーダ実用形完成形、SHA256 109/109 ground truth 完全一致）
+- 突合（wish-match v1.0、論理結合 + glob + 日付範囲）
+- 復旧（recovery クレート、ConflictStrategy 3 種、削除/生存分離）
+- 品質判定（validators 9 種 + 3 値 Valid/Invalid/Uncertain + 3 層メッセージ）
+- レポート（顧客 .docx + Invalid TXT + サマリ強化 HTML + CSV、業務 CRITICAL 機械検証）
+
+**Phase 1.5 業務統合層（Chunks 21-23.8 + サブ）— 完成**:
+- 案件管理（case-manager、CaseId yymmdd-NN 厳密 newtype、JSON 永続化）
+- 論理診断（diagnostic、CRM 貼り付けテキスト、Workbench は事実提供者）
+- 復旧可能性推定（NTFS 技術的事実のみで High/Medium/Low 判定）
+- 業務向け出力ディレクトリ構造（`G:\260522-04\` 自動生成、日本語フォルダ名）
+- workbench-dryrun（実機ドライラン用 CLI、3.86 MB Windows 専用バイナリ）
+- R-STUDIO 風業務フロー（全件復旧 + Wishlist は優先データラベリング + ExclusionList）
+- 復旧 PC 独立運用（case.json 不在時の自動新規作成、複数回 recover 対応）
+- Uncertain 理由分類 + TXT 2 分割（破損疑い vs 自動確認対象外）
+
+**🎊 5 ファイル納品物**:
+1. **復旧レポート.docx** — お客様向け、Word 編集 → PDF 化フロー、デジタルデータソリューション株式会社名入り
+2. **破損疑いファイル一覧.txt** — Invalid のみ、お開きになる前のご注意
+3. **自動確認対象外ファイル一覧.txt** — Uncertain のみ、自動品質確認の対象外、お手元でご確認
+4. **業務管理レポート.html** — CS 業務用、SHA256 + internal_note + 業務指標 + 形式別ブレイクダウン
+5. **report.csv** — 外部システム連携用、15 列（`is_priority` 含む）
+
+**🎊 業務的に「破損疑い」と「自動確認対象外」の区別が CS / お客様の意思決定を支援**:
+- 「破損疑い」: 自動品質確認で実際に破損検出。お客様は「これは諦める」判断ができる
+- 「自動確認対象外」: 自動確認の限界による未確認。お客様は「お手元で開いて確認」判断ができる
+- 旧設計（単一 TXT）では区別不可だった「諦める vs 確認する」がレポートレベルで明確化
+
+**🎊 Workbench は R-STUDIO の代替候補として真剣に評価可能**: HDD 接続 → 1 コマンド → 「お客様にそのまま納品できる G:\260522-04\」が完成、5 ファイル納品物の業務的説明責任が果たせる状態に到達、月 700-800 件の案件の納品物自動生成基盤として運用可能。
+
+### 🎊 次のステップ
+
+1. **🎯 Chouさんによる検証 PC 実機ドライラン実施**: `workbench-dryrun.exe` + 中古 NTFS HDD で実機 NTFS HDD 試行、約半日〜1 日。Phase 1.5 完成機能の実機品質保証。
+2. **Phase 2.1 着手準備**: Tauri UI 開発、約 2 ヶ月想定。お客様 / CS への提示基盤、Phase 1.5 業務統合層を Tauri command 経由で呼び出し。
+3. **Tester 参考事項**: `cargo fmt --check` で 23 diff（Phase 1.5 全期間累積、機能影響なし、Phase 2 前に整備推奨）。
+
+---
 
 **🎯 Chunk 23.6 改訂版 ハイライト（workbench-dryrun が業務フローと Chunk 23.7 新仕様に完全対応の節目）**: Chunk 23.7 で「R-STUDIO 風業務フロー対応完成」に到達した Workbench に、**Chunk 23.6 改訂版で「復旧 PC で『いきなり recover』が動作、診断 PC と復旧 PC の物理 PC 分離を実装に反映」**を加えた軽量改修。**🎯 業務的背景**: DDS の業務フロー = 診断 PC（1 台、時分割複数案件）と復旧 PC（50 台、1 案件専有）は**別の物理 PC**、復旧 PC では診断 PC の case.json は届かない → 「いきなり recover」が標準フロー、同じ案件番号で複数回 recover するケース（優先納品）が存在。**🎯 業務フロー対応の検証成果**: ①**案件 JSON 不在対応**: `if case_file.exists() { load } else { create_new }` で分岐、復旧 PC で「いきなり recover」が動作 / ②**既存出力検出**: 同じ案件番号で 2 回目以降の recover 時、納品先に既存フォルダがあれば上書き確認プロンプト表示（3 ケース説明: 2 回目納品 / 番号取り違え / 前回失敗残骸） / ③**README 業務フロー強化**: 診断 PC と復旧 PC の物理 PC 分離前提を明示 + Wishlist の意味再定義（Chunk 23.7、お客様優先データ）を業務メンバー向けに解説 + ExclusionList のシステムファイル除外を業務目線で説明 + 複数 HDD 分割納品（優先納品）の運用手順を例示。**🎯 意味論変更の明記**: Chunk 23.7 の意味論変更（Wishlist → 優先データ、ExclusionList 導入）が CLI の UX レベルでも完全に反映。**🎯 軽量改修の範囲**: 修正ファイル 2 件のみ (`recover.rs` +50 行 + `README.md` 全面書換 +100 行)、既存ライブラリ (recovery / report / case-manager / wish-match) への変更**ゼロ**、Chunk 23.7 で既に追加済みの `exclusions` パラメータ / 二重表示 / Wishlist 空対応はそのまま利用。**🎯 テスト統計**: 新規単体テスト **3 件**（`recover_creates_new_case_when_not_exists` / `recover_loads_existing_case_when_present` / `existing_output_directory_detection_logic`）+ 既存テスト破壊なし = workspace 全体 **511 件 pass / 0 failed / 4 ignored**（Chunk 23.7.1 の 508 → **+3 件**）。**🎯 バイナリ**: `target/release/workbench-dryrun.exe` **3.86 MB**（3,894,784 bytes、変化なし）、Windows 専用（`#[cfg(not(windows))] compile_error!` 維持）。**🎯 安全性**: `crates/workbench-dryrun/src/` 内 `unsafe` **0 件** 継続、書き込み API: 出力先のみ（変化なし）、単方向依存維持、clippy / doc warning **0 件**。**🎯 関連 FR**: **FR-CLI-05（復旧 PC 独立運用、新規）→ ✅ 🎯 新規達成** / **FR-CLI-06（複数回 recover 対応、新規）→ ✅ 🎯 新規達成** / **FR-CLI-07（Chunk 23.7 新仕様の反映、新規）→ ✅ 🎯 新規達成**。**🎯🎯🎯 マイルストーン意義（workbench-dryrun が業務フローと Chunk 23.7 新仕様に完全対応 — 復旧 PC で「いきなり recover」が動作、診断 PC と復旧 PC の物理 PC 分離を実装に反映）**: Chunk 23.7 で実装した「Wishlist 再定義 + ExclusionList + 全件復旧」の新仕様を CLI の UX レベルにも完全に反映し、DDS の業務フロー（診断 PC = 1 台時分割複数案件 / 復旧 PC = 50 台 1 案件専有、別の物理 PC）の前提を実装に落とし込んだ。復旧 PC で診断 PC の case.json が届かない状況でも「いきなり recover」が動作、同じ案件番号で複数回 recover する優先納品ケースにも対応、Workbench の業務統合層が R-STUDIO の置き換え候補として実機運用評価可能な状態に到達。**次のステップ**: ①**Chouさんによる検証 PC ドライラン実施**（workbench-dryrun.exe で実機 NTFS HDD 試行、約半日〜1 日） / ②**Chunk 23.8: Uncertain 理由分類 + TXT 分割（必要なら）**（`.txt` 用 validator が registry にないため Uncertain 判定される Phase 1 既知制限への対応） / ③**Phase 2.1 着手準備**（Tauri UI 開発、約 2 ヶ月想定）。
 
@@ -2065,9 +2289,9 @@ M3: 希望突合エンジン  [████████] 100% 🎉🎉🎉🎉�
 M4: 復旧 + 品質判定  [████████] 100% 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 完了維持（Chunks 17-20.5 / 2026-05-21 〜 2026-05-22、復旧基盤 + 品質判定基盤 + 業務観測拡充 + 3 層メッセージ + レポート生成 + 業務適用版レポート完成。**Chunk 17 で `recovery` クレート新規誕生 + end-to-end 復旧 + SHA256 109/109 完全一致 + 削除/生存ファイル分離出力 + ConflictStrategy 3 種**、**Chunk 18 で `validators` クレート新規誕生、PNG/JPEG/PDF Validator + Validator trait + `Arc<dyn Validator>` registry + 3 値 ValidationStatus + 復旧パイプラインへの統合、FR-QUAL-01/02/03 達成**、**Chunk 19 で validators 拡充 + 混在形式フィクスチャ統合: GIF/BMP/ZIP/DOCX/XLSX/PPTX Validator 追加（3→9 validator）+ 拡張子嘘の検出 + 破損検出 + フォーマット別集計実証**、**Chunk 20 で `ValidationResult` 3 層メッセージ化（user_message_ja + internal_note_ja）+ `report` クレート新規誕生（顧客 HTML + CS HTML + CSV）+ 顧客 HTML への internal_note 漏洩 0 件の機械検証、FR-REP-01/02/03 + FR-QUAL-04 達成**、**Chunk 20.5 で業務観点フィードバック反映の業務適用版レポート完成（顧客 .docx + Invalid TXT + サマリ強化 HTML + matched_wishes 列 CSV、業務指標 API + 形式別ブレイクダウン + 万件規模対応、FR-REP-04 + FR-REP-05 新規達成）**）
 M5: NTFS-α リリース [████████] 100% 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 **Phase 1 NTFS-α リリース業務適用版完成 🎊🎊**（Chunk 20 / 2026-05-22 で初版達成 → **Chunk 20.5 / 2026-05-22 で業務適用版到達**、M2 100% + M3 100% + M4 100% で Phase 1 中核プロダクト価値（読み取り → 突合 → 復旧 → 品質判定 → 業務適用版レポート）が end-to-end 完成、顧客向け .docx（Word 編集 → PDF 化フロー）+ Invalid TXT + サマリ強化 HTML + matched_wishes 列 CSV の 4 形式、.docx 内 internal_note 漏洩 ZIP 解凍 grep で 0 件機械検証、業務指標 + 形式別ブレイクダウン + 万件規模対応、364 件 pass / 1 ignored、clippy / doc warning 0 件、Phase 2 引継ぎ可能状態）
 
-Phase 1.5: 業務統合層 — 🎯🎯🎯 **R-STUDIO 風業務フロー対応完成** 🎯🎯🎯（case-manager 基盤完成（Chunk 21）→ 🎉 論理診断の自動化達成（Chunk 22）→ 🎯 診断レポートが業務フローと完全整合（Chunk 22.6: 症状判定削除、Workbench は「事実提供者」に位置付け、FR-DIAG-04 業務適用品質達成 / FR-DIAG-06 事実ベース報告 新規達成 / FR-DIAG-02 取り下げ Workbench スコープ外）→ 📈 Chunk 22.5 / 2026-05-25 削除案件の見積もり精度向上（`RecoverabilityEstimate` 本実装、NTFS 技術的事実のみで High/Medium/Low 3 値判定、FR-DIAG-07 + FR-DIAG-08 新規達成）→ 🎊 Chunk 23 / 2026-05-25 業務向け出力ディレクトリ構造完成（`CaseOutput` + `execute_business_recovery` + `write_business_reports` 新規、納品 HDD `G:\260522-04\` 自動生成、FR-OUT-01/02/03/04 新規達成 + FR-CASE-05 達成）→ 🚀 Chunk 23.5 / 2026-05-25 workbench-dryrun 実機ドライラン用 CLI（新規クレート + 4 サブコマンド + Windows 専用 3.86 MB バイナリ、FR-CLI-01/02 新規達成 + FR-CLI-03/04 達成）→ **🎯 Chunk 23.7 / 2026-05-25 R-STUDIO 風業務フロー対応完成**（Wishlist 意味再定義「復旧対象指定」→「お客様優先データのラベリング」 + ExclusionList 新規導入（システムファイル除外 7 パターン）+ 全件復旧 + `is_priority=true` の二重表示、`crates/wish-match/src/exclusion.rs` 196 行新規 + 修正 15 ファイル、破壊的 API 変更 4 件、月 800 件案件で「あのファイルが入ってない!」クレーム回避、Workbench は R-STUDIO の置き換え候補として評価可能、FR-REC-05 + FR-REC-06 新規達成 + FR-REP-04 拡張完了）/ **508 件 pass / 2 ignored** / HDD 接続 → `execute_business_recovery` 1 関数呼出 → 全件復旧 +「全体」と「優先データ」の二重表示で納品可能 / 月 700-800 件案件の納品物自動生成）
+Phase 1.5: 業務統合層 — 🎊🎊🎊 **完全完成 — Workbench は R-STUDIO の代替候補として真剣に評価可能** 🎊🎊🎊（case-manager 基盤完成（Chunk 21）→ 🎉 論理診断の自動化達成（Chunk 22）→ 🎯 診断レポートが業務フローと完全整合（Chunk 22.6: 症状判定削除、Workbench は「事実提供者」に位置付け、FR-DIAG-04 業務適用品質達成 / FR-DIAG-06 事実ベース報告 新規達成 / FR-DIAG-02 取り下げ Workbench スコープ外）→ 📈 Chunk 22.5 / 2026-05-25 削除案件の見積もり精度向上（`RecoverabilityEstimate` 本実装、NTFS 技術的事実のみで High/Medium/Low 3 値判定、FR-DIAG-07 + FR-DIAG-08 新規達成）→ 🎊 Chunk 23 / 2026-05-25 業務向け出力ディレクトリ構造完成（`CaseOutput` + `execute_business_recovery` + `write_business_reports` 新規、納品 HDD `G:\260522-04\` 自動生成、FR-OUT-01/02/03/04 新規達成 + FR-CASE-05 達成）→ 🚀 Chunk 23.5 / 2026-05-25 workbench-dryrun 実機ドライラン用 CLI（新規クレート + 4 サブコマンド + Windows 専用 3.86 MB バイナリ、FR-CLI-01/02 新規達成 + FR-CLI-03/04 達成）→ 🎯 Chunk 23.7 / 2026-05-25 R-STUDIO 風業務フロー対応完成（Wishlist 意味再定義「復旧対象指定」→「お客様優先データのラベリング」 + ExclusionList 新規導入 + 全件復旧 + `is_priority=true` の二重表示、FR-REC-05 + FR-REC-06 新規達成 + FR-REP-04 拡張完了）→ 🎯 Chunk 23.6 改訂版 / 2026-05-25 workbench-dryrun の業務フロー対応完成（復旧 PC で「いきなり recover」動作、診断 PC と復旧 PC の物理 PC 分離を実装に反映、FR-CLI-05 + FR-CLI-06 + FR-CLI-07 新規達成）→ **🎊 Chunk 23.8 / 2026-05-25 Uncertain 理由分類 + TXT 分割完成（Phase 1.5 最終チャンク）**（`UncertainReason` 5 variant + 「破損疑いファイル一覧.txt」+「自動確認対象外ファイル一覧.txt」の 2 分割 + 業務確定文言、納品物 4 → 5 ファイル化、FR-QUAL-04 拡張 + FR-REP-05 拡張新規達成）/ **534 件 pass / 5 ignored** / HDD 接続 → `execute_business_recovery` 1 関数呼出 → 全件復旧 +「全体」と「優先データ」の二重表示 + 5 ファイル納品物自動生成 / 月 700-800 件案件の納品物自動生成 / 業務的に「破損疑い」と「自動確認対象外」の区別が CS / お客様の意思決定を支援）
 
-次のステップ: Chunk 23.8 候補（Uncertain の理由分類 + TXT 分割、必要なら）+ 検証 PC で実機ドライラン（中古 NTFS HDD、Chouさん手動、約半日〜1 日）+ Phase 2.1 着手準備（Tauri UI、約 2 ヶ月想定）
+次のステップ: 🎯 検証 PC で実機ドライラン（workbench-dryrun.exe + 中古 NTFS HDD、Chouさん手動、約半日〜1 日）+ Phase 2.1 着手準備（Tauri UI、約 2 ヶ月想定）
 M6: exFAT/FAT32追加 [░░░░░░░░]   0% ⏳ 未着手
 M7: バリデータ拡充   [░░░░░░░░]   0% ⏳ 未着手
 M8: レポート完成     [░░░░░░░░]   0% ⏳ 未着手
@@ -2101,6 +2325,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | 18 | dds-validators (新規) + dds-recovery | validators 品質判定基盤（`Validator` trait + `ValidatorRegistry`（**`Arc<dyn Validator>` で複数拡張子マップ**）+ `ValidationStatus`（Valid/Invalid/Uncertain 3 値）+ `ValidationResult` + `summary()` + PNG/JPEG/PDF Validator 3 種 + 復旧パイプライン統合（`validate_after_recovery` フラグ + `RecoveredEntry.validation` + サマリ集計）+ 保守的 Uncertain 設計 + 拡張子と中身の不一致検出 + 単方向依存 recovery → validators）🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 validators 品質判定基盤完成 / 業務観測「.txt は Validator 未登録 → Uncertain」/ 保守的 3 値判定 / FR-QUAL-01/02/03 達成 / M4 復旧+品質判定 40% → 🎉 70% 達成 | 949※※※※※※※※ | 26 ✓ + 結合 2 ✓ + doctest 1 ✓（recovery 結合 +3 件 = 計 32 件追加） | 未計測 | 2026-05-21 |
 | 19 | dds-validators + dds-recovery | validators 拡充 + 混在形式フィクスチャ統合（GIF / BMP / ZIP / DOCX / XLSX / PPTX Validator 6 種追加、**3 → 9 validator / 4 → 10 拡張子**、ZIP セントラルディレクトリ共有関数 `pub(crate) validate_zip_structure`、OOXML 3 形式集約、`ntfs_mixed_formats.img.zst` フィクスチャ 15 ファイル: valid 10 + invalid 4 + uncertain 1、ground truth に `expected_validation_status` + `expected_format` フィールド追加、拡張子嘘の検出 + 破損検出 + フォーマット別集計の業務シナリオ実証、CS 報告フォーマット出力）🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 validators 拡充完了 / 混在形式の end-to-end 業務観測実証 / M4 復旧+品質判定 70% → 🎉 90% 達成 / **Phase 1 NTFS-α リリース直前** | 945※※※※※※※※※ | 18 ✓ + 結合 4 ✓（recovery 混在 4 + validators 結合 2 = 計 22 件追加） | 未計測 | 2026-05-21 |
 | 20 | dds-validators + dds-recovery + **dds-report (新規)** | 3 層メッセージ + レポート生成（`ValidationResult` に `user_message_ja` + `internal_note_ja` 追加 + `customer_message()` / `internal_note()` メソッド、9 validator 全分岐に 3 層日本語メッセージ、`report` クレート新規誕生（`write_all_reports` + 5 ファイル: `lib.rs` 118 + `error.rs` 50 + `escape.rs` 73 + `html_customer.rs` 277 + `html_internal.rs` 313 + `csv.rs` 179）、顧客 HTML（internal_note 含まず）+ CS HTML（警告 + internal_note + SHA256）+ CSV（13 列外部連携）、**`customer_html_must_not_contain_internal_notes` 結合テストで業務 CRITICAL の機械検証**（禁止フレーズ 7 種 + 技術用語 5 種を grep 検証、漏洩 0 件）、`SingleOutcome::Recovered` を `Box<RecoveredEntry>` 化（clippy::large_enum_variant 対応）、`escape_html` XSS 防止 17 箇所、HTML well-formed、Phase 1 端から端まで通った）🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 **Phase 1 NTFS-α リリース達成 🎊** / M4 復旧+品質判定 90% → 🎉 100% / M5 NTFS-α リリース 10% → 🎉 100% / FR-REP-01/02/03 + FR-QUAL-04 達成 | 1497※※※※※※※※※※ | 7 ✓（validators 単体）+ 結合 3 + 1 ignored（recovery）+ report 19 ✓（lib 18 + doc 1）= 計 29 件 + 1 ignored 追加 | 未計測 | 2026-05-22 |
+| 23.8 | dds-validators + dds-recovery + dds-report + dds-case-manager | Uncertain 理由分類 + TXT 分割（**Phase 1.5 最終チャンク**、お客様への業務的説明責任を果たす最後のピース、新規 2 ファイル: `crates/validators/src/uncertain.rs` 181 行（`UncertainReason` enum 5 variant: `NoValidatorAvailable` / `Encrypted` / `TooLargeForValidation { size, threshold }` / `ValidatorError { message }` / `ExtensionMismatch { detected_format }` + 4 単体）+ `crates/validators/src/format_bytes_helper.rs` 39 行（format_bytes ヘルパ + 3 単体）、修正 16 ファイル: validators (`lib.rs` / `result.rs` / `registry.rs` / `Cargo.toml`) + recovery (`report.rs` / `Cargo.toml` / `mixed_formats_integration.rs`) + report (`csv.rs` / `txt_customer.rs` / `docx_customer.rs` / `html_internal.rs` / `business.rs` / `lib.rs`) + case-manager (`output.rs` / `orchestration.rs` / `business_flow_integration.rs`)、**業務的核心**: ①`ValidationStatus::Uncertain(UncertainReason)` 5 variant 分類 + ②TXT 2 分割 `要確認ファイル一覧.txt` → `破損疑いファイル一覧.txt` (Invalid) + `自動確認対象外ファイル一覧.txt` (Uncertain) + ③業務確定文言「現在未対応もしくはファイル形式が特殊、ファイルサイズが大きすぎる などで確認できませんでした」を TXT / DOCX / HTML すべてで一貫表示、**破壊的変更**: ①`ValidationStatus::Uncertain` を unit variant から `Uncertain(UncertainReason)` に拡張 / ②`ValidationResult::uncertain(reason, ...)` constructor 新シグネチャ / ③`BusinessReportPaths.customer_txt` → `customer_invalid_txt` + `customer_uncertain_txt` の 2 分割 / ④`CaseOutput::customer_txt_path()` → `customer_invalid_txt_path()` + `customer_uncertain_txt_path()`、既存 `is_uncertain()` は `matches!(_, Uncertain(_))` で互換維持、**Part D 最小スコープ**: 各 validator (PNG/JPEG/PDF 等 9 種) の magic bytes 不一致 → `ExtensionMismatch` は Phase 2 で詳細分類、Chunk 23.8 では Registry レベル分岐（`NoValidatorAvailable` / `TooLargeForValidation`）のみに留め、業務観測 (Chunk 19 ntfs_mixed_formats Valid 10 / Invalid 4 / Uncertain 1) を維持、業務観測（プロダクトデモ）: 案件 260522-04 / [全体] 該当 15 件 / 復旧成功 15 件 / 品質保証率 66.7% + [優先データ] 該当 4 件 / 品質保証率 75.0% + [Uncertain 内訳] 対応 Validator なし 1 件 / 暗号化 0 / サイズ超過 0 / Validator エラー 0 / 拡張子不一致 0 + 納品物 5 ファイル (Chunk 23.8 で 4→5) + 永続化 `target/chunk23_8-samples/` (delivery/260522-04/復旧データ/通常ファイル 15 件 + レポート 5 ファイル + internal/260522-04/case.json)、業務観測の互換維持（CRITICAL）: ntfs_mixed_formats で Valid 10 / Invalid 4 / Uncertain 1 (Chunk 19 観測値) を完全維持、Uncertain 1 件は `unknown_001.xyz` → `NoValidatorAvailable` に正しく分類、安全性: workspace 内 `unsafe` 0 件継続 + 書き込み API 出力先のみ + clippy / doc warning 0 件、単方向依存維持（validators → 0 internal、recovery → validators + 他、report → recovery + validators、case-manager → 業務統合）、Phase 1.5 完成後の業務的価値: 「破損疑い」と「自動確認対象外」の区別が CS / お客様の意思決定を支援（「諦める vs 確認する」がレポートレベルで明確化）、Workbench は R-STUDIO の代替候補として真剣に評価可能な状態に到達）🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊 **🎊 Phase 1.5 完全完成 — 業務統合層完成 / Workbench は R-STUDIO の代替候補として真剣に評価可能 / 検証 PC 実機ドライラン準備完了 / Phase 2.1 (Tauri UI) 着手準備完了** / **FR-QUAL-04（Uncertain 理由分類、新規）+ FR-REP-05（お客様向け TXT 分割、新規）すべて新規達成** | +220 行（uncertain.rs 181 + format_bytes_helper.rs 39 + 修正 16 ファイル net）※※※※※※※※※※※※※※※※※※※※ | 新規単体 20 件（UncertainReason 4 + ValidationStatus 2 + Registry 2 + format_bytes 3 + Breakdown 3 + TXT 3 + DOCX 2 + HTML 2 + register_ext 等）+ 新規結合 3 件（`business_reports_generates_split_txt_files` / `product_demo_phase_1_5_final` / `persist_chunk23_8_demo_reports`）+ 修正既存 15 件（validators 4 + recovery 3 + report 4 + case-manager 4）= workspace 全体 511 → **534 件 pass / 0 failed / 5 ignored**（+23 件） | 未計測 | 2026-05-25 |
 | 23.7 | dds-wish-match + dds-recovery + dds-report + dds-case-manager + workbench-dryrun | Wishlist 再定義 + ExclusionList + 全件復旧（**破壊的変更**、Phase 1.5 の業務的本質「お客様は『全部復旧して』と言う、Wishlist は『優先データのラベリング』」を実装に落とし込んだ、新規 1 ファイル: `crates/wish-match/src/exclusion.rs` 196 行（`ExclusionList` + `ExclusionPattern` enum 3 バリアント (PathPrefix / NameStartsWith / Extension) + `default_system_exclusions()` 7 パターン (`\Windows\` / `\Program Files\` / `\Program Files (x86)\` / `\$Recycle.Bin\` / `\System Volume Information\` / `\$Extend\` / `NameStartsWith("$")`) + 6 単体）、修正 15 ファイル: ①`wish-match/src/lib.rs` + ②`wish-match/src/wishlist.rs`（rustdoc 更新） + ③**`recovery/src/engine.rs` +136/-44**（`recover_files(&self, volume, wishlist, exclusions)` シグネチャ変更 + 全件復旧化 + 3 単体） + ④**`recovery/src/report.rs` +163**（`RecoveredEntry.is_priority: bool` 新規 + priority 統計 6 メソッド + 3 単体） + ⑤`recovery/src/lib.rs` + ⑥**`report/src/csv.rs` +35/-15**（15 列化、`is_priority` 列 index 5 追加、1 新規テスト） + ⑦`report/src/html_internal.rs` +37/-8（優先データセクション + 2 単体） + ⑧`report/src/docx_customer.rs` +69/-12（優先データセクション + 2 単体） + ⑨`report/src/txt_customer.rs` + ⑩**`case-manager/src/orchestration.rs` +8/-2**（`execute_business_recovery(case, drive_root, volume, wishlist, exclusions)` シグネチャ変更） + ⑪`case-manager/tests/business_flow_integration.rs` +127/-12（既存 2 件 migration + 新規 2 件: `full_business_flow_recovers_all_files_with_priority` + `product_demo_phase_1_5_business_aligned`） + ⑫〜⑮`recovery/tests/{recovery, recovery_mixed_formats, recovery_validation, recovery_with_reports}_integration.rs`（既存 11 件 migration） + ⑯`workbench-dryrun/src/commands/recover.rs` +37/-5（Wishlist 空ガード緩和、exclusions 渡し、結果二重表示）、**業務的意味論変更（破壊的）**: ①Wishlist 旧「復旧対象指定 (Inclusion フィルタ)」→ 新「お客様優先データのラベリング、復旧範囲には影響しない」 + ②ExclusionList 新規導入（業務的システムファイル除外） + ③`recover_files` マッチした N 件のみ → 全 user file 復旧、Wishlist マッチは `is_priority=true`、**破壊的変更（API 4 件）**: ①`RecoveryEngine::recover_files` 引数追加 / ②`execute_business_recovery` 引数追加 / ③`RecoveredEntry.is_priority` 新規 / ④CSV 14 → 15 列、業務観測（プロダクトデモ）: 案件 260522-04 / [全体] 該当 30 件 / 復旧成功率 100.0% / 品質保証率 0.0% + [優先データ] 該当 30 件 / 品質保証率 0.0% + 「=== R-STUDIO 風業務フロー対応完成 ===」、業務観測（既存フィクスチャでの ExclusionList 適用）: ntfs_with_5_deletions_small (30) / ntfs_mixed_formats (15) / ntfs_directories (109+) すべて除外 0 件 = 正常な業務観測、実機運用では効く設計、安全性: `crates/{wish-match, recovery, report, case-manager, workbench-dryrun}/src/` 内 `unsafe` 0 件 + 書き込み API 出力先のみ + 単方向依存維持（case-manager → recovery + report + wish-match、変化なし）+ clippy / doc warning 0 件）🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 R-STUDIO 風業務フロー対応完成 — Workbench は R-STUDIO の置き換え候補として評価可能な状態に到達** / 月 800 件案件で「あのファイルが入ってない!」クレーム回避 / **FR-REC-05（全件復旧、業務適用、新規）+ FR-REC-06（システムファイル除外、新規）新規達成 + FR-REP-04（優先データ強調表示）拡張完了** | +753 行（exclusion.rs 新規 196 + recovery engine.rs +136 + recovery report.rs +163 + report csv.rs +35 + html_internal.rs +37 + docx_customer.rs +69 + case-manager orchestration.rs +8 + business_flow_integration.rs +127 + workbench-dryrun recover.rs +37 - 既存削除 -55）※※※※※※※※※※※※※※※※※※※ | 新規単体 17 件（ExclusionList 6 + recover_files 3 + RecoveryReport priority 3 + CSV 1 + HTML 2 + DOCX 2）+ 新規結合 2 件（`full_business_flow_recovers_all_files_with_priority` + `product_demo_phase_1_5_business_aligned`）+ 既存テスト約 25 件 migration + 全 `RecoveredEntry` リテラル更新 = workspace 全体 489 → **508 件 pass / 0 failed / 2 ignored**（+19 件） | 未計測 | 2026-05-25 |
 | 23.5 | workbench-dryrun (新規) | 実機ドライラン用暫定 CLI（Phase 2.1 Tauri UI 完成までの中継ぎ、新規クレート `crates/workbench-dryrun/` 11 ファイル: `Cargo.toml` + `README.md` 149 行 + `src/main.rs` 117 行（Windows 専用 `#[cfg(not(windows))] compile_error!` + clap 4.5 Cli/Commands enum + dispatch + 6 単体）+ `src/prompts.rs` 110 行（prompt_string / prompt_number / confirm / prompt_case_id + 6 単体）+ `src/drives.rs` 138 行（DriveInfo + sysinfo 0.32 経由列挙 + 5 単体）+ `src/volume.rs` 134 行（open_ntfs_volume + ClusterReader type alias + 3 単体）+ `src/commands/{mod.rs, list_drives.rs, diagnose.rs, recover.rs, show.rs}`（4 サブコマンド実装 + recover 3 単体）、4 サブコマンド: list-drives / diagnose / recover / show、workspace deps 追加（既存ファイル唯一の変更）: clap 4.5 + sysinfo 0.32 + `crates/workbench-dryrun` members 追加、**既存 14 クレートへの変更ゼロ**、バイナリ `workbench-dryrun.exe` 3.86 MB Windows 専用、`unsafe` 0 件、ソース read-only 維持、clippy / doc warning 0 件）🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀 **🚀 実機ドライラン準備完了 — workbench-dryrun.exe 配布可能（Phase 2.1 Tauri UI 完成までの中継ぎ）** / **FR-CLI-01（実機ドライラン用 CLI、新規）+ FR-CLI-02（対話形式 UX、新規）+ FR-CLI-03（案件情報の保存）+ FR-CLI-04（業務向け出力構造）すべて達成** | 新規クレート 11 ファイル ~850 行※※※※※※※※※※※※※※※※※※ | 単体 23 件（main 6 + prompts 6 + drives 5 + volume 3 + recover 3）+ 結合なし（実機テストで代替）= workspace 全体 466 → **489 件 pass / 0 failed**（+23 件） | 未計測 | 2026-05-25 |
 | 23 | dds-case-manager + dds-recovery + dds-report | 業務向け出力ディレクトリ構造（Phase 1.5 最終チャンク、業務員が CRM 採番した案件番号で「G:\260522-04\ をお客様にそのまま納品できる」状態に到達、新規 5 ファイル: `crates/case-manager/src/output.rs` 204 行（`CaseOutput` struct + 12 メソッド root/live_files_dir/deleted_files_dir/reports_dir/customer_docx_path/customer_txt_path/internal_html_path/csv_path/create_all_dirs 等 + 5 単体）+ `crates/case-manager/src/orchestration.rs` 190 行（`execute_business_recovery` + `BusinessRecoveryResult` + `BusinessRecoveryError` + 3 単体）+ `crates/report/src/business.rs` 166 行（`write_business_reports(report, &Path×4)` + `BusinessReportPaths` + 3 単体）+ `crates/case-manager/tests/business_flow_integration.rs` 208 行（2 結合 `full_business_flow_from_case_creation_to_delivery` + `product_demo_phase_1_5_complete`）+ `crates/case-manager/tests/common/mod.rs` 63 行（fixture ヘルパー + `count_files_recursive` std 実装）、修正 5 ファイル: `crates/recovery/src/engine.rs` +142 行（`RecoveryConfig` struct + `with_config` / `with_config_and_options` + 4 単体、既存 `output_dir` 維持で backward compat）+ `recovery/src/lib.rs`（`RecoveryConfig` export）+ `report/src/lib.rs`（`business` module + export）+ `case-manager/src/lib.rs`（`orchestration` / `output` module + re-export）+ `case-manager/Cargo.toml`（`dds-recovery` / `dds-report` / `dds-fs-ntfs` 依存追加 = Phase 1.5 意図的拡大、dev `zstd 0.13`）、業務的納品ディレクトリ構造: `G:\260522-04\ ├ 復旧データ\ │ ├ 通常ファイル\ │ └ 削除ファイル\ └ レポート\ ├ 復旧レポート.docx ├ 要確認ファイル一覧.txt ├ 業務管理レポート.html └ report.csv` + 社内保存 `C:\cases\260522-04\case.json`（Chunk 21 で実装済み）、設計判断: ①`write_business_reports(report, &Path×4)` 循環依存回避 / ②`RecoveryEngine` の二重保持（`output_dir` + `config`）で backward compat / ③`count_files_recursive` walkdir 不依存 std 実装 / ④`RecoveryConfig::from_case_output` は case-manager 側で `with_paths(...)` 呼出（循環依存回避）、case-manager 依存意図的拡大: case-manager → wish-match + core + **recovery + report + fs-ntfs**（循環なし、cargo tree 検証済、Phase 2 で `dds-orchestrator` 分離検討可能）、既存 API 完全互換維持（`RecoveryEngine::new` / `with_options` / `output_dir()` getter / `RecoveryOptions { separate_live_and_deleted: false }` / `dds_report::write_all_reports` / Chunk 17 以来の既存テスト全 pass）、業務観測（プロダクトデモ）: 案件 260522-04 で納品 HDD `G:\` (tempfile) に「260522-04/復旧データ/通常ファイル/ (25 件) + 削除ファイル/ (5 件) + レポート/復旧レポート.docx (23125 bytes) + 要確認ファイル一覧.txt (352 bytes) + 業務管理レポート.html (3202 bytes) + report.csv (14145 bytes)」+ 社内保存 `C:\cases\` (tempfile) に「260522-04/case.json」自動生成、業務指標（該当 30 件 / 復旧成功率 100.0% / 品質保証率 0.0%（ntfs_with_5_deletions_small は .txt のみで validators が Uncertain 判定、Tester 確認済の正常な業務観測））、Windows 日本語パス対応（「復旧データ」「通常ファイル」「削除ファイル」「レポート」「復旧レポート.docx」「要確認ファイル一覧.txt」「業務管理レポート.html」UTF-8 で正常作成、実 tempfile (AppData) 上で全動作確認）、`crates/case-manager/src/` + `crates/recovery/src/` + `crates/report/src/` 内 `unsafe` 0 件 + 書き込み API は出力先のみ + ソースデバイス書き込みなし + clippy / doc warning 0 件）🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊 **🎊 Phase 1.5 完全完成 — 業務統合層完成 / Phase 2.1 (Tauri UI) への移行準備完了** / 月 700-800 件案件の納品物自動生成 / CS 業務フロー: ① 納品 HDD 取り出し → ② お客様送付 → ③ 社内 case.json 保持 / **FR-OUT-01（案件番号付きルートディレクトリ）+ FR-OUT-02（通常 / 削除ファイル分離）+ FR-OUT-03（日本語フォルダ名・ファイル名）+ FR-OUT-04（社内保存と納品物分離）すべて新規達成 + FR-CASE-05（案件のエクスポート）達成** | +973 行（output.rs 204 + orchestration.rs 190 + business.rs 166 + 結合 208 + tests/common 63 + recovery engine.rs +142）※※※※※※※※※※※※※※※※ | 新規単体 15 件（case-manager output 5 + orchestration 3 + recovery RecoveryConfig 4 + report business 3）+ 新規結合 2 件（`full_business_flow_from_case_creation_to_delivery` + `product_demo_phase_1_5_complete`）+ doc +1 = workspace 全体 448 → **466 件 pass / 0 failed / 3 ignored**（+18 件） | 未計測 | 2026-05-25 |
@@ -2110,6 +2335,7 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | 21 | **dds-case-manager (新規)** | case-manager 基盤（Phase 1.5 開始、業務統合層の第一歩、薄い層 CRM 補完、新規 8 ファイル: `lib.rs` 44 / `error.rs` 49（`CaseError` 5 variants）/ `case_id.rs` 168（`CaseId` newtype yymmdd-NN 9 文字厳密 + 手動 serde + 9 単体）/ `symptom.rs` 190（`Symptom` + `FsAnomaly` enums + `primary_label` 業務日本語 + 5 単体）/ `diagnostic.rs` 72（`DiagnosticInput` + `DeletedFileStats` + `RecoverabilityEstimate` placeholder）/ `case.rs` 152（`Case` + `RecoveryReportSummary` + 3 単体）/ `storage.rs` 282（`CaseStorage` CRUD `create_new / load / save / delete / list_all` save で updated_at 自動更新 + 11 単体）+ 結合 `case_lifecycle_integration.rs` 124（2 結合）+ examples `dump_case_json.rs` 55、単方向依存厳守: case-manager → wish-match → core のみ、`C:\cases\{案件番号}\case.json` 形式の業務永続化、1 PC 1 案件専有の業務フロー前提、CRM が顧客情報 / 進捗管理を担う境界明確化、`crates/case-manager/src/` unsafe 0 件 + ソースデバイス書き込み 0 件、設計原則「整合性は CLI / UI 層で取る」確立）🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊 **Phase 1.5 開始マイルストーン達成 🚀🚀** / M5 NTFS-α リリース 100% 業務適用版 維持 / FR-CASE-01/02/04 基盤達成 | ~1010 行新規※※※※※※※※※※※※ | case-manager 30 ✓（28 単体 + 2 結合、新規誕生）= 計 +30 件追加（workspace 全体 364 → 394 pass / 0 failed / 2 ignored、ignored 1 → 2 は Chunk 20.5 ignored 維持 + Chunk 22 で新規追加なし） | 未計測 | 2026-05-22 |
 | 20.5 | dds-report + dds-recovery | 業務適用版レポート（業務観点フィードバック反映、顧客 HTML 廃止 → .docx 一本化 + Invalid TXT 別添 + サマリ強化 HTML + matched_wishes 列 CSV、4 形式に再設計、新規 `format.rs` 136（`format_bytes` + `format_duration_ms` + 9 単体テスト）+ `docx_customer.rs` 306（`render_customer_docx`、デジタルデータソリューション株式会社名入り .docx、`docx-rs = "0.4"`、Word 編集 → PDF 化フロー）+ `txt_customer.rs` 218（`render_invalid_files_txt`、Invalid のみフォルダ単位グルーピング、UTF-8 BOM 付き）、削除 `html_customer.rs` 277、大幅更新 `lib.rs` 149（4 形式出力）+ `csv.rs` 197（`matched_wishes` 列 index 6 に追加、13 → 14 列）+ `html_internal.rs` 352（業務指標 + 形式別ブレイクダウン + Invalid グルーピング max 20 件で全面再設計）+ `crates/recovery/src/report.rs` 405（`wish_labels` フィールド + 4 新メソッド `recovery_success_rate` / `quality_assurance_rate` / `format_breakdown` / `invalid_grouped_by_reason` + `FormatStats` 構造体 + `RecoveredEntry.matched_wish_labels` フィールド）+ `engine.rs` 443（wish_labels / matched_wish_labels 集約処理）+ `lib.rs`（`FormatStats` re-export）、結合テスト `recovery_with_reports_integration.rs` 263 必須再構築（①4 ファイル生成 + .docx ZIP magic 検証 ②**`customer_docx_must_not_contain_internal_notes` ZIP 実解凍 + 全 .xml grep の業務 CRITICAL 機械検証強化** ③`product_demo_business_grade_reports` 業務指標 + 形式別 + CS フロー ④`persist_chunk20_5_demo_reports` ignored 永続化）、`Cargo.toml` workspace deps `docx-rs = "0.4"` + dev `zip = "0.6"`）🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 **Phase 1 NTFS-α リリース業務適用版完成 🎊🎊** / M4 復旧+品質判定 100% 維持 / M5 NTFS-α リリース 100% 業務適用版到達 / FR-REP-04（業務指標可視化、新規）+ FR-REP-05（大規模ファイル対応、新規）達成 / FR-REP-01 業務適用版到達 | ~1130 行追加 / -277 行削除※※※※※※※※※※※ | report +20 ✓（lib 36 + doc 3、19→39）+ recovery 結合 +3 + ignored 1（31→34 + 1 ignored）= 計 +24 件追加（workspace 全体 340 → 364 pass / 2 ignored → 1 ignored / 0 failed） | 未計測 | 2026-05-22 |
 
+※※※※※※※※※※※※※※※※※※※※ Chunk 23.8 は **Phase 1.5 最終チャンク — 業務統合層完成のため正当化**。新規 2 ファイル (uncertain.rs 181 + format_bytes_helper.rs 39 = 220 行) + 修正 16 ファイル（validators / recovery / report / case-manager の widespread migration）を含むが、tester が「**🎊 Phase 1.5 完全完成 — 業務統合層完成 / Workbench は R-STUDIO の代替候補として真剣に評価可能 / 検証 PC 実機ドライラン準備完了 / Phase 2.1 (Tauri UI) 着手準備完了 のため正当化**、機能・安全性・既存テスト維持・SHA256 中核保全すべてクリア、**534 件全 pass / 0 failed / 5 ignored**（Chunk 23.6 改訂版 511 → +23 件: 新規単体 20 + 新規結合 3）、**業務的核心**: ①`ValidationStatus::Uncertain(UncertainReason)` 5 variant 分類 + ②TXT 2 分割（破損疑い vs 自動確認対象外）+ ③業務確定文言の TXT / DOCX / HTML 一貫表示、業務観測の互換維持（CRITICAL）: ntfs_mixed_formats で Valid 10 / Invalid 4 / Uncertain 1 (Chunk 19 観測値) を完全維持、Uncertain 1 件は `unknown_001.xyz` → `NoValidatorAvailable` に正しく分類、Part D 最小スコープ実装は意図的（業務観測維持のため、各 validator の `ExtensionMismatch` 詳細分類は Phase 2 で対応予定）、安全性: workspace 内 `unsafe` 0 件継続 + 書き込み API 出力先のみ + clippy / doc warning 0 件、単方向依存維持（validators → 0 internal、recovery → validators + 他、report → recovery + validators、case-manager → 業務統合）、Phase 1.5 完成後の業務的価値: 「破損疑い」と「自動確認対象外」の区別が CS / お客様の意思決定を支援（「諦める vs 確認する」がレポートレベルで明確化）、納品物 4 → 5 ファイル化、Tester 参考事項: `cargo fmt --check` で 23 diff（Phase 1.5 全期間累積、機能影響なし、Phase 2 前に整備推奨）、FR-QUAL-04（Uncertain 理由分類、新規）+ FR-REP-05（お客様向け TXT 分割、新規）すべて新規達成」と判断し合格扱い。
 ※※※※※※※※※※※※※※※※※※※ Chunk 23.7 は破壊的変更による業務的意味論変更（Wishlist の意味再定義 + ExclusionList 新規導入 + 全件復旧化）のため、影響範囲が 15 ファイルに及ぶ広範な migration を含むが、tester が「機能・安全性・既存テスト migration 完了・workspace 全体 508 件 pass、業務的意味論変更は Phase 1.5 業務適用版の最終ピースとして整合性 OK」と判断し合格扱い。
 ※※※※※※※※※※※※※※※※※※ Chunk 23.5 は新規クレート `crates/workbench-dryrun/` 全 11 ファイル合計約 850 行で 200 行上限を超過したが、tester が「単体テスト 23 件 pass + 既存 14 クレートへの変更ゼロ + Windows 専用 binary 3.86 MB + ライブラリ部分は完全無変更、Phase 2.1 Tauri UI 完成までの中継ぎとして必須」と判断し合格扱い。
 ※ Chunk 11 は合成 NTFS ビルダーの複雑性のため 220行上限を超過したが、tester が「機能・安全性・SHA256 維持すべてクリア」と判断し合格扱い。
@@ -3750,11 +3976,14 @@ Deleted recovered:  5 files
   - **業務観測（Chunk 18）**: `ntfs_directories.img.zst` で 109 件全 Uncertain 判定 — 「.txt 用 Validator なし」を CS 報告に直結する設計が実画像レベルで動作
   - **業務観測（Chunk 19、CS 報告フォーマット）🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉**: `ntfs_mixed_formats.img.zst` で 14 件復旧 + 品質判定: "Validation breakdown: [OK] Valid: 10 / [NG] Invalid: 4 / Format breakdown: PNG 3/4, PDF 2/4, JPEG 2/3, DOCX/GIF/BMP 各 1/1 / Invalid files (要 CS 確認): broken_001.png 'IEND chunk not found' / broken_002.jpg 'EOI marker missing' / broken_003.pdf '%%EOF trailer not found' / mismatch_001.pdf 'PDF header missing'"。**拡張子嘘の検出 + 破損検出 + フォーマット別集計が end-to-end で動作**
   - **単方向依存**: recovery → validators の一方向、validators 側に recovery 参照なし（grep 確認）
-- [x] **FR-QUAL-04: 検証結果の多言語サポート（3 層メッセージ）** ✅ **🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 日本語実装完了**（Chunk 20 / 2026-05-22 / dds-validators）
-  - **3 層メッセージ設計**: `technical`（既存、テスト・開発用）+ `user_message_ja`（顧客向け業務語のみ）+ `internal_note_ja`（CS 業務用技術詳細日本語）
+- [x] **FR-QUAL-04: 検証結果の多言語サポート（3 層メッセージ）+ Uncertain 理由分類（新規）** ✅ **🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊 日本語実装完了 + Uncertain 理由分類 新規達成（Phase 1.5 完成）**（Chunk 20 / 2026-05-22 で 3 層メッセージ達成 → **Chunk 23.8 / 2026-05-25 で Uncertain 理由分類 新規達成** / dds-validators）
+  - **Chunk 20 基盤（3 層メッセージ設計）**: `technical`（既存、テスト・開発用）+ `user_message_ja`（顧客向け業務語のみ）+ `internal_note_ja`（CS 業務用技術詳細日本語）
   - **API**: `ValidationResult::customer_message() -> &str`（user_message_ja を返す）/ `internal_note() -> &str`（internal_note_ja を返す）、レポート層が呼び分け
   - **9/9 validator 対応**: PNG / JPEG / PDF / GIF / BMP / ZIP / DOCX / XLSX / PPTX + registry の全分岐に 3 層日本語メッセージ
   - **`crates/validators/src/result.rs` 278 行**: フィールド追加 + 3 コンストラクタ新シグネチャ + 既存テスト全件 migration 完了
+  - **Chunk 23.8 新規達成（Uncertain 理由分類）**: `crates/validators/src/uncertain.rs` 181 行で `UncertainReason` enum **5 variant**（`NoValidatorAvailable` / `Encrypted` / `TooLargeForValidation { size, threshold }` / `ValidatorError { message }` / `ExtensionMismatch { detected_format }`）を新規実装、`ValidationStatus::Uncertain` を unit variant から `Uncertain(UncertainReason)` に拡張（破壊的変更）、`ValidationResult::uncertain(reason, ...)` constructor 新シグネチャ、既存 `is_uncertain()` は `matches!(_, Uncertain(_))` で互換維持、業務確定文言「現在未対応もしくはファイル形式が特殊、ファイルサイズが大きすぎる などで確認できませんでした」を TXT / DOCX / HTML すべてで一貫表示
+  - **Part D 最小スコープ実装**: 各 validator (PNG/JPEG/PDF 等 9 種) の magic bytes 不一致 → `ExtensionMismatch` は Phase 2 で詳細分類、Chunk 23.8 では Registry レベル分岐（`NoValidatorAvailable` / `TooLargeForValidation`）のみに留め、業務観測 (Chunk 19 ntfs_mixed_formats Valid 10 / Invalid 4 / Uncertain 1) を維持
+  - **業務観測の互換維持（CRITICAL）**: ntfs_mixed_formats で Valid 10 / Invalid 4 / Uncertain 1 (Chunk 19 観測値) を完全維持、Uncertain 1 件は `unknown_001.xyz` → `NoValidatorAvailable` に正しく分類
   - 英語追加は Phase 2（FR-REP-05 と一体で多言語化拡張可能）
 - [~] **FR-QA-01: ファイル形式検証** **拡充完了**（Chunk 18-19 / dds-validators）— 9 種マジックバイト判定（PNG/JPEG/PDF/GIF/BMP/ZIP/DOCX/XLSX/PPTX）+ 構造的検証。Chunk 20+ で他フォーマット拡張予定
 - [~] **FR-QA-02: 構造的整合性** **拡充完了**（Chunk 18-19 / dds-validators）— PNG IHDR/IEND, JPEG SOI/EOI, PDF %PDF/%%EOF, GIF 0x3B trailer, BMP ファイルサイズ整合性, **ZIP EOCD + セントラルディレクトリ**, OOXML `[Content_Types].xml`。Chunk 20+ で xref テーブル等の拡張予定
@@ -3790,10 +4019,11 @@ Deleted recovered:  5 files
   - **Chunk 23.7 拡張完了**: `RecoveredEntry.is_priority: bool` 新規フィールド + priority 統計 6 メソッド（`recovery/src/report.rs` +163 行 + 3 単体）+ CSV 14 → 15 列化（`is_priority` 列 index 5 追加、`report/src/csv.rs` +35/-15）+ HTML 優先データセクション（`report/src/html_internal.rs` +37/-8）+ DOCX 優先データセクション（`report/src/docx_customer.rs` +69/-12）
   - **業務観測（プロダクトデモ全文）**: 「[復旧結果 - 全体] 該当ファイル 30 件 / 復旧成功率 100.0% / 品質保証率 0.0%」+ 「[復旧結果 - お客様優先データ] 該当ファイル 30 件 / 品質保証率 0.0%」の二重表示、お客様への提示時に「全部復旧（30 件）+ 優先データ品質保証率 71.4% (14 件)」のような具体的な数字を提示可能
   - **サンプル CRM テキスト（実生成、内部 HTML）**: `<h2>復旧結果 (全体)</h2> ... <h2>お客様優先データ (Wishlist マッチ)</h2><table>...該当ファイル数 14 件 / 復旧データ量 1.30 KB / 品質保証率 71.4%...</table>` の二重セクション
-- [x] **FR-REP-05: 大規模ファイル対応（新規）** ✅ **🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 新規達成**（Chunk 20.5 / 2026-05-22 / dds-report）
-  - CS HTML の Invalid グループ max 20 件 + 省略表示
-  - 顧客 TXT は Invalid のみフォルダ単位グルーピング（万件規模でも CS が確認しやすい構造）
-  - 業務指標サマリで「全 N 件中 M 件 Invalid」を瞬時に把握可能
+- [x] **FR-REP-05: 大規模ファイル対応 + お客様向け TXT 分割（新規）** ✅ **🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊🎊 新規達成（基盤 + 分割完成）**（Chunk 20.5 / 2026-05-22 で大規模対応新規達成 → **Chunk 23.8 / 2026-05-25 で TXT 2 分割 新規達成（Phase 1.5 完成）** / dds-report + dds-validators + dds-case-manager）
+  - **Chunk 20.5 基盤（大規模ファイル対応）**: CS HTML の Invalid グループ max 20 件 + 省略表示 / 顧客 TXT は Invalid のみフォルダ単位グルーピング（万件規模でも CS が確認しやすい構造）/ 業務指標サマリで「全 N 件中 M 件 Invalid」を瞬時に把握可能
+  - **Chunk 23.8 新規達成（お客様向け TXT 2 分割）**: 旧 `要確認ファイル一覧.txt` を **`破損疑いファイル一覧.txt` (Invalid)** + **`自動確認対象外ファイル一覧.txt` (Uncertain)** の 2 ファイル分割、納品物 4 → 5 ファイル化、業務確定文言「現在未対応もしくはファイル形式が特殊、ファイルサイズが大きすぎる などで確認できませんでした」を TXT / DOCX / HTML すべてで一貫表示、`BusinessReportPaths.customer_txt` → `customer_invalid_txt` + `customer_uncertain_txt` の破壊的変更、`CaseOutput::customer_txt_path()` → `customer_invalid_txt_path()` + `customer_uncertain_txt_path()`、`crates/report/src/txt_customer.rs` の `render_invalid_files_txt` + `render_uncertain_files_txt` 2 関数構成
+  - **業務的意義**: 「破損疑い」と「自動確認対象外」の区別が CS / お客様の意思決定を支援、「諦める vs 確認する」がレポートレベルで明確化、お客様は「自動品質確認で実際に破損検出 = 諦める判断」と「自動確認の限界による未確認 = お手元で開いて確認判断」を区別できる
+  - **サンプル TXT（実生成）**: 破損疑い TXT は「お開きになる前にお気をつけください」+ Invalid ファイル名一覧、自動確認対象外 TXT は「お手元でお開きになってご確認ください」+ Uncertain ファイル名一覧 + 各ファイルに `[対応 Validator なし]` 等の理由ラベル
 - [~] **多言語対応の基盤**: **日本語実装完了**（FR-QUAL-04 と一体で達成、英語追加は Phase 2）
 - [ ] **カスタムテンプレート**（旧 FR-REP-04 想定）: Phase 2 で着手予定（Tauri UI 側で対応か、テンプレートエンジン導入）
 

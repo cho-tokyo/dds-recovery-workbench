@@ -8,6 +8,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::result::ValidationResult;
+use crate::uncertain::UncertainReason;
+
+/// 検証実施のサイズ上限 (バイト)。これを超えるファイルは
+/// `UncertainReason::TooLargeForValidation` として検証スキップする（Chunk 23.8）。
+///
+/// 100 MB 暫定値。Phase 2 で業務観測に基づき調整予定。
+pub const VALIDATION_SIZE_THRESHOLD: u64 = 100 * 1024 * 1024;
 
 /// ファイル形式バリデータの共通 trait。
 ///
@@ -28,7 +35,7 @@ pub trait Validator: Send + Sync {
     /// 戻り値の status:
     /// - `Valid`: マジック + 基本構造 OK
     /// - `Invalid`: 構造破損明確
-    /// - `Uncertain`: 切り詰めなど判定不能（Phase 1 では主に拡張子未登録時に使用）
+    /// - `Uncertain(UncertainReason)`: 判定不能。Chunk 23.8 で理由分類が必須化
     fn validate(&self, content: &[u8]) -> ValidationResult;
 }
 
@@ -92,6 +99,7 @@ impl ValidatorRegistry {
     pub fn validate(&self, content: &[u8], extension: Option<&str>) -> ValidationResult {
         let Some(ext) = extension else {
             return ValidationResult::uncertain(
+                UncertainReason::NoValidatorAvailable,
                 "No extension provided",
                 "拡張子が指定されていないため、自動検証できません",
                 "拡張子なしファイル。マジック自動検出は Phase 2 対応予定。CS で内容確認",
@@ -101,6 +109,7 @@ impl ValidatorRegistry {
         let lower = ext.to_lowercase();
         let Some(validator) = self.by_extension.get(&lower) else {
             return ValidationResult::uncertain(
+                UncertainReason::NoValidatorAvailable,
                 format!("No validator for extension: .{}", lower),
                 format!(".{} 形式の自動検証は現在対応していません", lower),
                 format!(
@@ -109,6 +118,30 @@ impl ValidatorRegistry {
                 ),
             );
         };
+
+        // Chunk 23.8: サイズ超過チェック。100 MB 超は自動検証スキップ。
+        if (content.len() as u64) > VALIDATION_SIZE_THRESHOLD {
+            return ValidationResult::uncertain(
+                UncertainReason::TooLargeForValidation {
+                    size: content.len() as u64,
+                    threshold: VALIDATION_SIZE_THRESHOLD,
+                },
+                format!(
+                    "Size {} exceeds threshold {}",
+                    content.len(),
+                    VALIDATION_SIZE_THRESHOLD
+                ),
+                format!(
+                    "ファイルサイズが大きすぎるため自動検証できません（{} 超）",
+                    crate::format_bytes_helper::format_bytes(VALIDATION_SIZE_THRESHOLD)
+                ),
+                format!(
+                    "サイズ {} > {} (100MB)、CS で手動確認推奨",
+                    content.len(),
+                    VALIDATION_SIZE_THRESHOLD
+                ),
+            );
+        }
 
         validator.validate(content)
     }
@@ -234,5 +267,41 @@ mod tests {
         let reg = ValidatorRegistry::with_defaults();
         assert!(reg.validate(VALID_PNG_1X1, Some("PNG")).status.is_valid());
         assert!(reg.validate(VALID_PNG_1X1, Some("Png")).status.is_valid());
+    }
+
+    #[test]
+    fn registry_returns_no_validator_for_unknown_extension() {
+        // Chunk 23.8: 未対応拡張子は UncertainReason::NoValidatorAvailable で分類される。
+        let reg = ValidatorRegistry::with_defaults();
+        let result = reg.validate(b"some bytes", Some("xyz"));
+        assert!(result.status.is_uncertain());
+        assert_eq!(
+            result.status.uncertain_reason(),
+            Some(&UncertainReason::NoValidatorAvailable)
+        );
+
+        // 拡張子なしも同じ分類。
+        let no_ext = reg.validate(b"x", None);
+        assert_eq!(
+            no_ext.status.uncertain_reason(),
+            Some(&UncertainReason::NoValidatorAvailable)
+        );
+    }
+
+    #[test]
+    fn registry_returns_too_large_for_oversized_content() {
+        // Chunk 23.8: VALIDATION_SIZE_THRESHOLD (100 MB) 超は TooLargeForValidation。
+        let reg = ValidatorRegistry::with_defaults();
+        // 101 MB のダミーデータ。PNG 拡張子だが中身は random byte。
+        let oversized = vec![0u8; (VALIDATION_SIZE_THRESHOLD + 1024) as usize];
+        let result = reg.validate(&oversized, Some("png"));
+        assert!(result.status.is_uncertain());
+        match result.status.uncertain_reason() {
+            Some(UncertainReason::TooLargeForValidation { size, threshold }) => {
+                assert!(*size > *threshold);
+                assert_eq!(*threshold, VALIDATION_SIZE_THRESHOLD);
+            }
+            other => panic!("Expected TooLargeForValidation, got {:?}", other),
+        }
     }
 }

@@ -12,7 +12,8 @@
 //! - `RecoveredEntry::matched_wish_labels` で CSV / レポートに顧客希望紐付けを出力
 
 use chrono::{DateTime, Utc};
-use dds_validators::{ValidationResult, ValidationStatus};
+use dds_validators::{UncertainReason, ValidationResult, ValidationStatus};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -136,10 +137,10 @@ impl RecoveryReport {
                 .unwrap_or_else(|| "(未検出)".to_string());
             let stats = map.entry(format).or_default();
             stats.total += 1;
-            match validation.status {
+            match &validation.status {
                 ValidationStatus::Valid => stats.valid += 1,
                 ValidationStatus::Invalid => stats.invalid += 1,
-                ValidationStatus::Uncertain => stats.uncertain += 1,
+                ValidationStatus::Uncertain(_) => stats.uncertain += 1,
             }
         }
         map
@@ -220,6 +221,37 @@ impl RecoveryReport {
             .sum()
     }
 
+    /// Uncertain の理由内訳を計算（Chunk 23.8）。
+    ///
+    /// 全 recovered の `validation.status.uncertain_reason()` を 5 カテゴリで集計。
+    /// 業務レポート上で「自動確認対象外」の内訳をお客様に明示するために使う。
+    pub fn uncertain_breakdown(&self) -> UncertainBreakdown {
+        let mut breakdown = UncertainBreakdown::default();
+        for entry in &self.recovered {
+            if let Some(validation) = &entry.validation {
+                if let Some(reason) = validation.status.uncertain_reason() {
+                    breakdown.count_reason(reason);
+                }
+            }
+        }
+        breakdown
+    }
+
+    /// 優先データの Uncertain 理由内訳を計算（Chunk 23.8）。
+    ///
+    /// `uncertain_breakdown` の `is_priority = true` フィルタ版。
+    pub fn priority_uncertain_breakdown(&self) -> UncertainBreakdown {
+        let mut breakdown = UncertainBreakdown::default();
+        for entry in self.recovered.iter().filter(|e| e.is_priority) {
+            if let Some(validation) = &entry.validation {
+                if let Some(reason) = validation.status.uncertain_reason() {
+                    breakdown.count_reason(reason);
+                }
+            }
+        }
+        breakdown
+    }
+
     /// Invalid なファイルを「形式 + 主要顧客メッセージ冒頭」でグルーピング（Chunk 20.5）。
     ///
     /// 業務的に「PNG ヘッダー破損 N 件」「JPEG マジック不一致 N 件」のように
@@ -246,6 +278,46 @@ impl RecoveryReport {
             map.entry(reason_key).or_default().push(entry);
         }
         map
+    }
+}
+
+/// Uncertain (検証外) の理由別内訳統計（Chunk 23.8）。
+///
+/// [`RecoveryReport::uncertain_breakdown`] / [`RecoveryReport::priority_uncertain_breakdown`]
+/// の戻り値。お客様レポートの「自動確認対象外」セクションで内訳表示に使う。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UncertainBreakdown {
+    /// 対応 Validator なし（拡張子未対応、拡張子なし）。
+    pub no_validator: usize,
+    /// 暗号化されたファイル。
+    pub encrypted: usize,
+    /// サイズ超過で検証スキップ。
+    pub too_large: usize,
+    /// Validator 内部エラー（パースエラー等）。
+    pub validator_error: usize,
+    /// 拡張子と中身が不一致。
+    pub extension_mismatch: usize,
+}
+
+impl UncertainBreakdown {
+    /// 5 カテゴリの合計件数。
+    pub fn total(&self) -> usize {
+        self.no_validator
+            + self.encrypted
+            + self.too_large
+            + self.validator_error
+            + self.extension_mismatch
+    }
+
+    /// 1 つの [`UncertainReason`] を該当カテゴリにカウントする内部ヘルパー。
+    fn count_reason(&mut self, reason: &UncertainReason) {
+        match reason {
+            UncertainReason::NoValidatorAvailable => self.no_validator += 1,
+            UncertainReason::Encrypted => self.encrypted += 1,
+            UncertainReason::TooLargeForValidation { .. } => self.too_large += 1,
+            UncertainReason::ValidatorError { .. } => self.validator_error += 1,
+            UncertainReason::ExtensionMismatch { .. } => self.extension_mismatch += 1,
+        }
     }
 }
 
@@ -409,6 +481,7 @@ mod tests {
         ));
         let mut uncertain_entry = build_recovered(30);
         uncertain_entry.validation = Some(ValidationResult::uncertain(
+            UncertainReason::NoValidatorAvailable,
             "no validator",
             "自動検証の対象外です",
             "CS で確認",
@@ -571,6 +644,74 @@ mod tests {
         assert_eq!(report.priority_uncertain_count(), 0);
         assert_eq!(report.priority_total_bytes(), 200);
         assert!((report.priority_quality_assurance_rate() - 100.0).abs() < 0.01);
+    }
+
+    // === Chunk 23.8: UncertainBreakdown テスト ===
+
+    fn make_uncertain(reason: UncertainReason) -> RecoveredEntry {
+        let mut e = build_recovered(100);
+        e.validation = Some(ValidationResult::uncertain(reason, "diag", "user", "note"));
+        e
+    }
+
+    #[test]
+    fn breakdown_counts_each_reason_separately() {
+        // Chunk 23.8: 5 カテゴリの理由が独立にカウントされる。
+        let entries = vec![
+            make_uncertain(UncertainReason::NoValidatorAvailable),
+            make_uncertain(UncertainReason::NoValidatorAvailable),
+            make_uncertain(UncertainReason::Encrypted),
+            make_uncertain(UncertainReason::TooLargeForValidation {
+                size: 200_000_000,
+                threshold: 100_000_000,
+            }),
+            make_uncertain(UncertainReason::ValidatorError {
+                message: "x".into(),
+            }),
+            make_uncertain(UncertainReason::ExtensionMismatch {
+                detected_format: "PDF".into(),
+            }),
+        ];
+        let report = build_report(entries, 6);
+        let bd = report.uncertain_breakdown();
+        assert_eq!(bd.no_validator, 2);
+        assert_eq!(bd.encrypted, 1);
+        assert_eq!(bd.too_large, 1);
+        assert_eq!(bd.validator_error, 1);
+        assert_eq!(bd.extension_mismatch, 1);
+    }
+
+    #[test]
+    fn breakdown_total_sums_all_categories() {
+        // Chunk 23.8: total() が 5 カテゴリの合算と一致。
+        let entries = vec![
+            make_uncertain(UncertainReason::NoValidatorAvailable),
+            make_uncertain(UncertainReason::Encrypted),
+            make_uncertain(UncertainReason::ExtensionMismatch {
+                detected_format: "PNG".into(),
+            }),
+        ];
+        let report = build_report(entries, 3);
+        let bd = report.uncertain_breakdown();
+        assert_eq!(bd.total(), 3);
+
+        // 空のレポートでは total = 0。
+        let empty = build_report(vec![], 0);
+        assert_eq!(empty.uncertain_breakdown().total(), 0);
+    }
+
+    #[test]
+    fn priority_breakdown_only_counts_priority_entries() {
+        // Chunk 23.8: priority_uncertain_breakdown は is_priority=true のみカウント。
+        let mut e1 = make_uncertain(UncertainReason::Encrypted);
+        e1.is_priority = true;
+        let mut e2 = make_uncertain(UncertainReason::Encrypted);
+        e2.is_priority = false; // priority breakdown には含まれない
+        let report = build_report(vec![e1, e2], 2);
+        let all = report.uncertain_breakdown();
+        let pri = report.priority_uncertain_breakdown();
+        assert_eq!(all.encrypted, 2);
+        assert_eq!(pri.encrypted, 1);
     }
 
     #[test]

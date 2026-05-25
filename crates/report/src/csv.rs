@@ -48,10 +48,10 @@ pub fn render_csv(report: &RecoveryReport) -> Result<String, ReportError> {
         let (status, format, validator_name, customer_msg, internal_note, diag) =
             match entry.validation.as_ref() {
                 Some(v) => (
-                    match v.status {
+                    match &v.status {
                         ValidationStatus::Valid => "valid",
                         ValidationStatus::Invalid => "invalid",
-                        ValidationStatus::Uncertain => "uncertain",
+                        ValidationStatus::Uncertain(_) => "uncertain",
                     },
                     v.format_detected.clone().unwrap_or_default(),
                     v.validator_name.clone(),

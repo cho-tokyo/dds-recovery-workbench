@@ -106,9 +106,14 @@ fn full_business_flow_from_case_creation_to_delivery() {
         reports_dir.join("復旧レポート.docx").is_file(),
         "復旧レポート.docx missing"
     );
+    // Chunk 23.8: 要確認ファイル一覧.txt → 破損疑い + 自動確認対象外の 2 ファイルに分割
     assert!(
-        reports_dir.join("要確認ファイル一覧.txt").is_file(),
-        "要確認ファイル一覧.txt missing"
+        reports_dir.join("破損疑いファイル一覧.txt").is_file(),
+        "破損疑いファイル一覧.txt missing"
+    );
+    assert!(
+        reports_dir.join("自動確認対象外ファイル一覧.txt").is_file(),
+        "自動確認対象外ファイル一覧.txt missing"
     );
     assert!(
         reports_dir.join("業務管理レポート.html").is_file(),
@@ -199,8 +204,22 @@ fn product_demo_phase_1_5_complete() {
         result.report_paths.customer_docx.metadata().unwrap().len()
     );
     println!(
-        "          ├─ 要確認ファイル一覧.txt ({} bytes)",
-        result.report_paths.customer_txt.metadata().unwrap().len()
+        "          ├─ 破損疑いファイル一覧.txt ({} bytes)",
+        result
+            .report_paths
+            .customer_invalid_txt
+            .metadata()
+            .unwrap()
+            .len()
+    );
+    println!(
+        "          ├─ 自動確認対象外ファイル一覧.txt ({} bytes)",
+        result
+            .report_paths
+            .customer_uncertain_txt
+            .metadata()
+            .unwrap()
+            .len()
     );
     println!(
         "          ├─ 業務管理レポート.html ({} bytes)",
@@ -447,8 +466,22 @@ fn persist_chunk23_7_demo_reports() {
         result.report_paths.customer_docx.metadata().unwrap().len()
     );
     println!(
-        "│           ├─ 要確認ファイル一覧.txt ({} bytes)",
-        result.report_paths.customer_txt.metadata().unwrap().len()
+        "│           ├─ 破損疑いファイル一覧.txt ({} bytes)",
+        result
+            .report_paths
+            .customer_invalid_txt
+            .metadata()
+            .unwrap()
+            .len()
+    );
+    println!(
+        "│           ├─ 自動確認対象外ファイル一覧.txt ({} bytes)",
+        result
+            .report_paths
+            .customer_uncertain_txt
+            .metadata()
+            .unwrap()
+            .len()
     );
     println!(
         "│           ├─ 業務管理レポート.html ({} bytes)",
@@ -484,7 +517,268 @@ fn persist_chunk23_7_demo_reports() {
 
     // 業務シナリオが意図通り再現されていることの最低限の防御。
     assert!(result.report_paths.customer_docx.is_file());
-    assert!(result.report_paths.customer_txt.is_file());
+    // Chunk 23.8: TXT 分割
+    assert!(result.report_paths.customer_invalid_txt.is_file());
+    assert!(result.report_paths.customer_uncertain_txt.is_file());
+    assert!(result.report_paths.internal_html.is_file());
+    assert!(result.report_paths.csv.is_file());
+    assert!(case_json.is_file());
+}
+
+// === Chunk 23.8: Phase 1.5 最終デモ + 結合テスト ===
+
+#[test]
+fn business_reports_generates_split_txt_files() {
+    // Chunk 23.8: お客様向け TXT が「破損疑い」と「自動確認対象外」の 2 ファイルに分割され、
+    // それぞれに正しい業務文言が含まれることを end-to-end で検証。
+    let internal_storage = TempDir::new().unwrap();
+    let storage = CaseStorage::with_base_dir(internal_storage.path());
+    let delivery_drive = TempDir::new().unwrap();
+
+    let case_id = CaseId::parse("260522-04").unwrap();
+    let mut case = storage.create_new(case_id.clone()).unwrap();
+
+    let mut volume = open_fixture("ntfs_mixed_formats");
+    let wishlist = make_business_demo_wishlist();
+    let exclusions = ExclusionList::default_system_exclusions();
+
+    let result = execute_business_recovery(
+        &mut case,
+        delivery_drive.path(),
+        &mut volume,
+        &wishlist,
+        &exclusions,
+    )
+    .expect("execute_business_recovery");
+
+    // 5 ファイル全て生成。
+    assert!(result.report_paths.customer_invalid_txt.exists());
+    assert!(result.report_paths.customer_uncertain_txt.exists());
+
+    let invalid_content =
+        std::fs::read_to_string(&result.report_paths.customer_invalid_txt).unwrap();
+    assert!(invalid_content.contains("破損疑いファイル一覧"));
+
+    let uncertain_content =
+        std::fs::read_to_string(&result.report_paths.customer_uncertain_txt).unwrap();
+    assert!(uncertain_content.contains("自動確認対象外ファイル一覧"));
+    // 業務確定済み文言
+    assert!(uncertain_content.contains("現在未対応もしくはファイル形式が特殊"));
+
+    // ntfs_mixed_formats: xyz ファイルが Uncertain (NoValidatorAvailable) として
+    // 自動確認対象外 TXT に表示される。
+    assert!(
+        uncertain_content.contains("対応 Validator なし")
+            || uncertain_content.contains("該当ファイルはありません"),
+        "uncertain TXT は理由ラベルまたは「該当なし」のいずれかを含むべき"
+    );
+}
+
+#[test]
+fn product_demo_phase_1_5_final() {
+    // Chunk 23.8: Phase 1.5 完成最終デモ。`cargo test -- --nocapture` で全文確認可能。
+    let internal_storage = TempDir::new().unwrap();
+    let storage = CaseStorage::with_base_dir(internal_storage.path());
+    let delivery_drive = TempDir::new().unwrap();
+
+    let case_id = CaseId::parse("260522-04").unwrap();
+    let mut case = storage.create_new(case_id.clone()).unwrap();
+
+    let mut volume = open_fixture("ntfs_mixed_formats");
+    let wishlist = make_business_demo_wishlist(); // PNG のみ優先
+    let exclusions = ExclusionList::default_system_exclusions();
+
+    let result = execute_business_recovery(
+        &mut case,
+        delivery_drive.path(),
+        &mut volume,
+        &wishlist,
+        &exclusions,
+    )
+    .expect("execute_business_recovery");
+    storage.save(&case).unwrap();
+
+    let breakdown = result.report.uncertain_breakdown();
+
+    println!("\n=== Phase 1.5 完成 Demo (Chunk 23.8) ===\n");
+    println!("案件番号: {}", case.case_id);
+    println!("Wishlist: お客様優先: PNG 画像");
+    println!();
+
+    println!("[復旧結果 - 全体]");
+    println!("  該当ファイル: {} 件", result.report.total_matched);
+    println!("  復旧成功:     {} 件", result.report.recovered.len());
+    println!(
+        "  品質保証率:   {:.1}%",
+        result.report.quality_assurance_rate()
+    );
+    println!();
+
+    println!("[復旧結果 - お客様優先データ]");
+    println!("  該当ファイル: {} 件", result.report.priority_count());
+    println!(
+        "  品質保証率:   {:.1}%",
+        result.report.priority_quality_assurance_rate()
+    );
+    println!();
+
+    println!("[品質判定内訳]");
+    println!("  Valid:     {} 件", result.report.validated_count());
+    println!("  Invalid:   {} 件", result.report.invalid_count());
+    println!("  Uncertain: {} 件", result.report.uncertain_count());
+    println!();
+
+    if breakdown.total() > 0 {
+        println!("[Uncertain (検証外) の内訳]");
+        println!(
+            "  対応 Validator なし: {} 件",
+            breakdown.no_validator
+        );
+        println!("  暗号化:               {} 件", breakdown.encrypted);
+        println!("  サイズ超過:           {} 件", breakdown.too_large);
+        println!(
+            "  Validator エラー:     {} 件",
+            breakdown.validator_error
+        );
+        println!(
+            "  拡張子不一致:         {} 件",
+            breakdown.extension_mismatch
+        );
+        println!();
+    }
+
+    println!("[納品物 (5 ファイル、Chunk 23.8 で 4→5)]");
+    println!("  - 復旧レポート.docx");
+    println!("  - 破損疑いファイル一覧.txt        (Chunk 23.8 で rename)");
+    println!("  - 自動確認対象外ファイル一覧.txt  (Chunk 23.8 新規)");
+    println!("  - 業務管理レポート.html");
+    println!("  - report.csv");
+    println!();
+    println!("=== Phase 1.5 完成 ===");
+
+    // 機械検証: 5 ファイル全て生成。
+    assert!(result.report_paths.customer_docx.is_file());
+    assert!(result.report_paths.customer_invalid_txt.is_file());
+    assert!(result.report_paths.customer_uncertain_txt.is_file());
+    assert!(result.report_paths.internal_html.is_file());
+    assert!(result.report_paths.csv.is_file());
+
+    // 業務観測整合性: ntfs_mixed_formats では xyz ファイル 1 件が Uncertain で
+    // NoValidatorAvailable に分類されることを期待。
+    assert!(
+        breakdown.total() >= 1,
+        "ntfs_mixed_formats は xyz ファイルで Uncertain 1 件以上のはず"
+    );
+    assert!(
+        breakdown.no_validator >= 1,
+        "xyz は NoValidatorAvailable に分類されるはず"
+    );
+}
+
+#[test]
+#[ignore]
+fn persist_chunk23_8_demo_reports() {
+    // Chunk 23.8: 業務メンバー向けの永続化デモ。
+    // `cargo test -p dds-case-manager --test business_flow_integration \
+    //  persist_chunk23_8_demo_reports -- --ignored --nocapture`
+    let mut sample_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    sample_root.push("../../target/chunk23_8-samples");
+
+    if sample_root.exists() {
+        std::fs::remove_dir_all(&sample_root).expect("remove existing sample dir");
+    }
+    let internal_root = sample_root.join("internal");
+    let delivery_root = sample_root.join("delivery");
+    std::fs::create_dir_all(&internal_root).expect("create internal dir");
+    std::fs::create_dir_all(&delivery_root).expect("create delivery dir");
+
+    let storage = CaseStorage::with_base_dir(&internal_root);
+    let case_id = CaseId::parse("260522-04").unwrap();
+    let mut case = storage.create_new(case_id.clone()).unwrap();
+
+    let mut volume = open_fixture("ntfs_mixed_formats");
+    let wishlist = make_business_demo_wishlist();
+    let exclusions = ExclusionList::default_system_exclusions();
+
+    let result = execute_business_recovery(
+        &mut case,
+        &delivery_root,
+        &mut volume,
+        &wishlist,
+        &exclusions,
+    )
+    .expect("execute_business_recovery");
+    storage.save(&case).unwrap();
+
+    let sample_root_display = sample_root
+        .canonicalize()
+        .unwrap_or_else(|_| sample_root.clone());
+
+    println!("\n=== Phase 1.5 Final Persistent Demo (Chunk 23.8) ===\n");
+    println!("永続化ルート: {:?}", sample_root_display);
+    println!();
+    println!("├─ delivery/");
+    println!("│   └─ 260522-04/");
+    println!(
+        "│       ├─ 復旧データ/通常ファイル/ ({} 件)",
+        count_files_recursive(&result.case_output.live_files_dir())
+    );
+    println!(
+        "│       ├─ 復旧データ/削除ファイル/ ({} 件)",
+        count_files_recursive(&result.case_output.deleted_files_dir())
+    );
+    println!("│       └─ レポート/");
+    println!(
+        "│           ├─ 復旧レポート.docx ({} bytes)",
+        result.report_paths.customer_docx.metadata().unwrap().len()
+    );
+    println!(
+        "│           ├─ 破損疑いファイル一覧.txt ({} bytes)",
+        result
+            .report_paths
+            .customer_invalid_txt
+            .metadata()
+            .unwrap()
+            .len()
+    );
+    println!(
+        "│           ├─ 自動確認対象外ファイル一覧.txt ({} bytes)",
+        result
+            .report_paths
+            .customer_uncertain_txt
+            .metadata()
+            .unwrap()
+            .len()
+    );
+    println!(
+        "│           ├─ 業務管理レポート.html ({} bytes)",
+        result.report_paths.internal_html.metadata().unwrap().len()
+    );
+    println!(
+        "│           └─ report.csv ({} bytes)",
+        result.report_paths.csv.metadata().unwrap().len()
+    );
+    println!("└─ internal/");
+    let case_json = storage.case_file_path(&case_id);
+    println!(
+        "    └─ 260522-04/case.json ({} bytes)",
+        case_json.metadata().map(|m| m.len()).unwrap_or(0)
+    );
+    println!();
+
+    let breakdown = result.report.uncertain_breakdown();
+    println!("Uncertain 内訳:");
+    println!("  対応 Validator なし: {}", breakdown.no_validator);
+    println!("  暗号化:               {}", breakdown.encrypted);
+    println!("  サイズ超過:           {}", breakdown.too_large);
+    println!("  Validator エラー:     {}", breakdown.validator_error);
+    println!("  拡張子不一致:         {}", breakdown.extension_mismatch);
+    println!();
+    println!("→ Word / Notepad / ブラウザ / Excel で実際に開いて業務適用性を確認");
+
+    assert!(result.report_paths.customer_docx.is_file());
+    assert!(result.report_paths.customer_invalid_txt.is_file());
+    assert!(result.report_paths.customer_uncertain_txt.is_file());
     assert!(result.report_paths.internal_html.is_file());
     assert!(result.report_paths.csv.is_file());
     assert!(case_json.is_file());

@@ -123,6 +123,34 @@ pub fn render_internal_html(report: &RecoveryReport) -> Result<String, ReportErr
         qa = report.quality_assurance_rate(),
     ));
 
+    // === Chunk 23.8: Uncertain (検証外) の内訳 ===
+    let breakdown = report.uncertain_breakdown();
+    if breakdown.total() > 0 {
+        html.push_str("    <h3>Uncertain (検証外) の内訳</h3>\n    <table>\n");
+        html.push_str("      <tr><th>理由</th><th>件数</th></tr>\n");
+        html.push_str(&format!(
+            "      <tr><td>対応 Validator なし</td><td>{}</td></tr>\n",
+            breakdown.no_validator
+        ));
+        html.push_str(&format!(
+            "      <tr><td>暗号化</td><td>{}</td></tr>\n",
+            breakdown.encrypted
+        ));
+        html.push_str(&format!(
+            "      <tr><td>サイズ超過</td><td>{}</td></tr>\n",
+            breakdown.too_large
+        ));
+        html.push_str(&format!(
+            "      <tr><td>Validator エラー</td><td>{}</td></tr>\n",
+            breakdown.validator_error
+        ));
+        html.push_str(&format!(
+            "      <tr><td>拡張子不一致</td><td>{}</td></tr>\n",
+            breakdown.extension_mismatch
+        ));
+        html.push_str("    </table>\n");
+    }
+
     // データ量と時間
     html.push_str(&format!(
         "    <h2>データ量と時間</h2>\n    <table>\n\
@@ -264,7 +292,7 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use dds_recovery::{RecoveredEntry, RecoveryReport};
-    use dds_validators::ValidationResult;
+    use dds_validators::{UncertainReason, ValidationResult};
     use std::path::PathBuf;
 
     fn entry(path: &str, validation: Option<ValidationResult>) -> RecoveredEntry {
@@ -381,6 +409,35 @@ mod tests {
         let entries = vec![entry("\\a.txt", None)];
         let html = render_internal_html(&make_report(entries, 1)).unwrap();
         assert!(!html.contains("お客様優先データ"));
+    }
+
+    #[test]
+    fn internal_html_shows_uncertain_breakdown_section() {
+        // Chunk 23.8: Uncertain >= 1 件のとき「Uncertain (検証外) の内訳」セクションが表示。
+        let v_unc = ValidationResult::uncertain(
+            UncertainReason::Encrypted,
+            "diag",
+            "暗号化済み",
+            "CS メモ",
+        );
+        let html = render_internal_html(&make_report(vec![entry("\\enc.docx", Some(v_unc))], 1))
+            .unwrap();
+        assert!(html.contains("Uncertain (検証外) の内訳"));
+        assert!(html.contains("暗号化"));
+        // 5 つのラベルすべてが表内に含まれる。
+        assert!(html.contains("対応 Validator なし"));
+        assert!(html.contains("サイズ超過"));
+        assert!(html.contains("Validator エラー"));
+        assert!(html.contains("拡張子不一致"));
+    }
+
+    #[test]
+    fn internal_html_hides_uncertain_breakdown_when_zero() {
+        // Chunk 23.8: Uncertain 0 件のとき内訳セクションは省略。
+        let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
+        let html =
+            render_internal_html(&make_report(vec![entry("\\a.png", Some(v_ok))], 1)).unwrap();
+        assert!(!html.contains("Uncertain (検証外) の内訳"));
     }
 
     #[test]

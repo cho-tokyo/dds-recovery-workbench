@@ -11,31 +11,47 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::uncertain::UncertainReason;
+
 /// 検証結果の 3 値ステータス。
 ///
 /// 保守的設計: 曖昧な場合は `Uncertain` を返し、誤って `Valid` 判定するリスクを下げる。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Chunk 23.8 で破壊的変更:
+/// `Uncertain` は unit variant から `Uncertain(UncertainReason)` へ拡張され、
+/// 「なぜ確認できなかった」の業務的内訳をレポート上で表示可能になった。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status")]
 pub enum ValidationStatus {
     /// マジック + 基本構造チェック通過。ほぼ確実に開ける。
     Valid,
     /// マジック不一致 or 致命的破損。開けない or 中身が壊れている。
     Invalid,
-    /// 判定不能。Validator なし、または部分破損で判定保留。
-    Uncertain,
+    /// 判定不能。Validator なし、サイズ超過、暗号化等。
+    /// 内包する [`UncertainReason`] が業務的な理由を保持する。
+    Uncertain(UncertainReason),
 }
 
 impl ValidationStatus {
     /// `Valid` の場合のみ `true`。
-    pub fn is_valid(self) -> bool {
+    pub fn is_valid(&self) -> bool {
         matches!(self, ValidationStatus::Valid)
     }
     /// `Invalid` の場合のみ `true`。
-    pub fn is_invalid(self) -> bool {
+    pub fn is_invalid(&self) -> bool {
         matches!(self, ValidationStatus::Invalid)
     }
-    /// `Uncertain` の場合のみ `true`。
-    pub fn is_uncertain(self) -> bool {
-        matches!(self, ValidationStatus::Uncertain)
+    /// `Uncertain(_)` の場合のみ `true`。
+    pub fn is_uncertain(&self) -> bool {
+        matches!(self, ValidationStatus::Uncertain(_))
+    }
+    /// `Uncertain(reason)` のとき `reason` への参照を返す。それ以外は `None`。
+    pub fn uncertain_reason(&self) -> Option<&UncertainReason> {
+        if let ValidationStatus::Uncertain(reason) = self {
+            Some(reason)
+        } else {
+            None
+        }
     }
 }
 
@@ -103,16 +119,19 @@ impl ValidationResult {
     /// Uncertain 結果のコンストラクタ。Validator なしの場合などに使う。
     ///
     /// CS で内容確認が必要なため `internal_note_ja` は必須引数。
+    ///
+    /// Chunk 23.8: `reason: UncertainReason` 引数を追加。業務的な理由分類を必須化。
     pub fn uncertain(
-        reason: impl Into<String>,
+        reason: UncertainReason,
+        diagnostic_msg: impl Into<String>,
         user_message_ja: impl Into<String>,
         internal_note_ja: impl Into<String>,
     ) -> Self {
         Self {
-            status: ValidationStatus::Uncertain,
+            status: ValidationStatus::Uncertain(reason),
             format_detected: None,
             validator_name: "none".into(),
-            diagnostics: vec![reason.into()],
+            diagnostics: vec![diagnostic_msg.into()],
             user_message_ja: Some(user_message_ja.into()),
             internal_note_ja: Some(internal_note_ja.into()),
         }
@@ -124,13 +143,13 @@ impl ValidationResult {
     pub fn customer_message(&self) -> String {
         self.user_message_ja
             .clone()
-            .unwrap_or_else(|| match self.status {
+            .unwrap_or_else(|| match &self.status {
                 ValidationStatus::Valid => format!(
                     "{}として正常です",
                     self.format_detected.as_deref().unwrap_or("ファイル")
                 ),
                 ValidationStatus::Invalid => "ファイルに問題があります".to_string(),
-                ValidationStatus::Uncertain => "自動検証の対象外です".to_string(),
+                ValidationStatus::Uncertain(_) => "自動検証の対象外です".to_string(),
             })
     }
 
@@ -141,7 +160,7 @@ impl ValidationResult {
 
     /// CS / レポート向けの短い説明文（英語、デバッグ用）。
     pub fn summary(&self) -> String {
-        match self.status {
+        match &self.status {
             ValidationStatus::Valid => format!(
                 "[OK] {} as Valid",
                 self.format_detected.as_deref().unwrap_or("Unknown")
@@ -153,8 +172,9 @@ impl ValidationResult {
                     .map(|s| s.as_str())
                     .unwrap_or("unknown")
             ),
-            ValidationStatus::Uncertain => format!(
-                "[?] Uncertain: {}",
+            ValidationStatus::Uncertain(reason) => format!(
+                "[?] Uncertain ({}): {}",
+                reason.short_label(),
                 self.diagnostics
                     .first()
                     .map(|s| s.as_str())
@@ -174,7 +194,34 @@ mod tests {
         assert!(!ValidationStatus::Valid.is_invalid());
         assert!(!ValidationStatus::Valid.is_uncertain());
         assert!(ValidationStatus::Invalid.is_invalid());
-        assert!(ValidationStatus::Uncertain.is_uncertain());
+        assert!(ValidationStatus::Uncertain(UncertainReason::NoValidatorAvailable).is_uncertain());
+    }
+
+    #[test]
+    fn validation_status_uncertain_reason_accessor() {
+        // Chunk 23.8: Uncertain(reason) から reason への参照取得。
+        let s = ValidationStatus::Uncertain(UncertainReason::Encrypted);
+        assert_eq!(s.uncertain_reason(), Some(&UncertainReason::Encrypted));
+
+        let v = ValidationStatus::Valid;
+        assert_eq!(v.uncertain_reason(), None);
+
+        let i = ValidationStatus::Invalid;
+        assert_eq!(i.uncertain_reason(), None);
+    }
+
+    #[test]
+    fn validation_status_serde_round_trip() {
+        // Chunk 23.8: Uncertain(reason) を含む JSON 往復。
+        let original = ValidationStatus::Uncertain(UncertainReason::TooLargeForValidation {
+            size: 200 * 1024 * 1024,
+            threshold: 100 * 1024 * 1024,
+        });
+        let json = serde_json::to_string(&original).expect("serialize");
+        // tag が "kind" でディスクリミネート (ValidationStatus 自体は外側)。
+        assert!(json.contains("Uncertain"));
+        let restored: ValidationStatus = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, restored);
     }
 
     #[test]
@@ -216,6 +263,7 @@ mod tests {
     #[test]
     fn uncertain_constructor_has_no_format() {
         let r = ValidationResult::uncertain(
+            UncertainReason::NoValidatorAvailable,
             "no validator for .txt",
             ".txt 形式の自動検証は対応していません",
             ".txt は未実装。CS で確認推奨",
@@ -224,6 +272,11 @@ mod tests {
         assert!(r.format_detected.is_none());
         assert_eq!(r.validator_name, "none");
         assert!(r.internal_note().unwrap().contains("CS で確認"));
+        // Chunk 23.8: 理由が NoValidatorAvailable で取得可能。
+        assert_eq!(
+            r.status.uncertain_reason(),
+            Some(&UncertainReason::NoValidatorAvailable)
+        );
     }
 
     #[test]
@@ -272,8 +325,13 @@ mod tests {
         assert!(ValidationResult::invalid("PNG", "png_v1", "bad", "x", "y")
             .summary()
             .starts_with("[NG]"));
-        assert!(ValidationResult::uncertain("none", "x", "y")
-            .summary()
-            .starts_with("[?]"));
+        assert!(ValidationResult::uncertain(
+            UncertainReason::NoValidatorAvailable,
+            "none",
+            "x",
+            "y"
+        )
+        .summary()
+        .starts_with("[?]"));
     }
 }

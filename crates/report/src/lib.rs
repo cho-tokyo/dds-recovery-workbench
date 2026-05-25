@@ -39,7 +39,7 @@ pub use crate::csv::render_csv;
 pub use crate::docx_customer::{render_customer_docx, COMPANY_NAME};
 pub use crate::format::{format_bytes, format_duration_ms};
 pub use crate::html_internal::render_internal_html;
-pub use crate::txt_customer::render_invalid_files_txt;
+pub use crate::txt_customer::{render_invalid_files_txt, render_uncertain_files_txt};
 pub use error::ReportError;
 
 use std::path::{Path, PathBuf};

@@ -77,11 +77,12 @@ where
     // Step 3: 復旧実行。Chunk 23.7 で全件復旧 + ExclusionList で除外する設計に変更。
     let report = engine.recover_files(volume, wishlist, exclusions)?;
 
-    // Step 4: レポート 4 ファイル生成（日本語名）。
+    // Step 4: レポート 5 ファイル生成（日本語名、Chunk 23.8 で TXT 2 種類に分割）。
     let report_paths = dds_report::write_business_reports(
         &report,
         &case_output.customer_docx_path(),
-        &case_output.customer_txt_path(),
+        &case_output.customer_invalid_txt_path(),
+        &case_output.customer_uncertain_txt_path(),
         &case_output.internal_html_path(),
         &case_output.csv_path(),
     )?;

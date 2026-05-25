@@ -156,6 +156,35 @@ pub fn render_customer_docx(report: &RecoveryReport) -> Result<Vec<u8>, ReportEr
     docx = docx.add_table(Table::new(quality_rows));
     docx = docx.add_paragraph(Paragraph::new());
 
+    // === Chunk 23.8: Uncertain (自動確認対象外) の内訳 ===
+    // 5 つの理由カテゴリで「なぜ確認できなかった」を明示する。
+    let breakdown = report.uncertain_breakdown();
+    if breakdown.total() > 0 {
+        docx = docx.add_paragraph(
+            Paragraph::new().add_run(
+                Run::new()
+                    .add_text("【自動確認対象外について】")
+                    .size(24)
+                    .bold(),
+            ),
+        );
+        let breakdown_text = format!(
+            "  対応 Validator なし: {} 件\n  暗号化ファイル: {} 件\n  サイズ超過: {} 件\n  Validator エラー: {} 件\n  拡張子不一致: {} 件",
+            breakdown.no_validator,
+            breakdown.encrypted,
+            breakdown.too_large,
+            breakdown.validator_error,
+            breakdown.extension_mismatch,
+        );
+        docx = docx.add_paragraph(
+            Paragraph::new().add_run(Run::new().add_text(breakdown_text)),
+        );
+        docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text(
+            "DDS Workbench の自動品質確認は JPEG / PNG / PDF / Office (Word, Excel, PowerPoint) など主要形式に対応しています。それ以外の形式、暗号化されたファイル、極端に大きいファイル等は自動確認の対象外となります。お手元でお開きになってご確認ください。",
+        )));
+        docx = docx.add_paragraph(Paragraph::new());
+    }
+
     // === 要ご確認のファイル概要（Invalid グループのトップ 5）===
     if invalid > 0 {
         docx = docx.add_paragraph(
@@ -242,7 +271,7 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use dds_recovery::{RecoveredEntry, RecoveryReport};
-    use dds_validators::ValidationResult;
+    use dds_validators::{UncertainReason, ValidationResult};
     use std::io::Read;
     use std::path::PathBuf;
 
@@ -359,6 +388,34 @@ mod tests {
         assert!(!text.contains("ご指定優先データの結果"));
         // 「(全体)」ラベルは Wishlist 有無に関わらず常に表示。
         assert!(text.contains("復旧結果サマリ (全体)"));
+    }
+
+    #[test]
+    fn customer_docx_includes_uncertain_breakdown_when_present() {
+        // Chunk 23.8: Uncertain 件数 > 0 のとき「自動確認対象外について」セクションが含まれる。
+        let v_unc = ValidationResult::uncertain(
+            UncertainReason::NoValidatorAvailable,
+            "diag",
+            "ユーザー",
+            "メモ",
+        );
+        let report = build_report(vec![], vec![entry("\\x.xyz", Some(v_unc))]);
+        let bytes = render_customer_docx(&report).unwrap();
+        let text = extract_docx_text(&bytes);
+        assert!(text.contains("自動確認対象外について"));
+        assert!(text.contains("対応 Validator なし"));
+        // 業務説明文
+        assert!(text.contains("DDS Workbench の自動品質確認"));
+    }
+
+    #[test]
+    fn customer_docx_hides_uncertain_breakdown_when_zero() {
+        // Chunk 23.8: Uncertain 0 件のとき「自動確認対象外について」セクションは省略。
+        let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
+        let report = build_report(vec![], vec![entry("\\a.png", Some(v_ok))]);
+        let bytes = render_customer_docx(&report).unwrap();
+        let text = extract_docx_text(&bytes);
+        assert!(!text.contains("自動確認対象外について"));
     }
 
     #[test]

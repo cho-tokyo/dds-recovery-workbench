@@ -118,10 +118,10 @@ fn recovers_mixed_formats_with_correct_validation_status() {
             .as_ref()
             .expect("validation should be Some");
 
-        let actual_status = match actual.status {
+        let actual_status = match &actual.status {
             ValidationStatus::Valid => "valid",
             ValidationStatus::Invalid => "invalid",
-            ValidationStatus::Uncertain => "uncertain",
+            ValidationStatus::Uncertain(_) => "uncertain",
         };
 
         assert_eq!(
@@ -252,10 +252,10 @@ fn product_demo_recovery_with_quality_breakdown() {
             .unwrap_or_else(|| "Unknown".into());
         let counters = by_format.entry(format).or_insert((0, 0, 0));
         counters.2 += 1;
-        match v.status {
+        match &v.status {
             ValidationStatus::Valid => counters.0 += 1,
             ValidationStatus::Invalid => counters.1 += 1,
-            ValidationStatus::Uncertain => {}
+            ValidationStatus::Uncertain(_) => {}
         }
     }
 

@@ -25,55 +25,67 @@ use crate::csv::render_csv;
 use crate::docx_customer::render_customer_docx;
 use crate::error::ReportError;
 use crate::html_internal::render_internal_html;
-use crate::txt_customer::render_invalid_files_txt;
+use crate::txt_customer::{render_invalid_files_txt, render_uncertain_files_txt};
 
-/// 業務向けレポート 4 ファイルを指定された各パスへ書き出す。
+/// 業務向けレポート 5 ファイルを指定された各パスへ書き出す（Chunk 23.8 で 4→5 に拡張）。
 ///
 /// 各パスの親ディレクトリは事前に作成されているか、または同じ親ディレクトリで
 /// あることが想定される（同じ親なら 1 度だけ `create_dir_all` を呼ぶ）。
-/// 安全側で 4 つすべての親をそれぞれ `create_dir_all` する。
+/// 安全側で 5 つすべての親をそれぞれ `create_dir_all` する。
 ///
 /// 業務シナリオ:
 /// ```text
 /// G:\260522-04\レポート\
-///   ├ 復旧レポート.docx        ← customer_docx
-///   ├ 要確認ファイル一覧.txt   ← customer_txt
-///   ├ 業務管理レポート.html    ← internal_html
-///   └ report.csv               ← csv
+///   ├ 復旧レポート.docx              ← customer_docx
+///   ├ 破損疑いファイル一覧.txt       ← customer_invalid_txt (Chunk 23.8 で rename)
+///   ├ 自動確認対象外ファイル一覧.txt ← customer_uncertain_txt (Chunk 23.8 新規)
+///   ├ 業務管理レポート.html          ← internal_html
+///   └ report.csv                     ← csv
 /// ```
 pub fn write_business_reports(
     report: &RecoveryReport,
     customer_docx: &Path,
-    customer_txt: &Path,
+    customer_invalid_txt: &Path,
+    customer_uncertain_txt: &Path,
     internal_html: &Path,
     csv: &Path,
 ) -> Result<BusinessReportPaths, ReportError> {
-    for p in [customer_docx, customer_txt, internal_html, csv] {
+    for p in [
+        customer_docx,
+        customer_invalid_txt,
+        customer_uncertain_txt,
+        internal_html,
+        csv,
+    ] {
         if let Some(parent) = p.parent() {
             std::fs::create_dir_all(parent)?;
         }
     }
 
     std::fs::write(customer_docx, render_customer_docx(report)?)?;
-    std::fs::write(customer_txt, render_invalid_files_txt(report))?;
+    std::fs::write(customer_invalid_txt, render_invalid_files_txt(report))?;
+    std::fs::write(customer_uncertain_txt, render_uncertain_files_txt(report))?;
     std::fs::write(internal_html, render_internal_html(report)?)?;
     std::fs::write(csv, render_csv(report)?)?;
 
     Ok(BusinessReportPaths {
         customer_docx: customer_docx.to_path_buf(),
-        customer_txt: customer_txt.to_path_buf(),
+        customer_invalid_txt: customer_invalid_txt.to_path_buf(),
+        customer_uncertain_txt: customer_uncertain_txt.to_path_buf(),
         internal_html: internal_html.to_path_buf(),
         csv: csv.to_path_buf(),
     })
 }
 
-/// [`write_business_reports`] が生成した 4 ファイルの絶対パス。
+/// [`write_business_reports`] が生成した 5 ファイルの絶対パス（Chunk 23.8 で 4→5）。
 #[derive(Debug, Clone)]
 pub struct BusinessReportPaths {
     /// 顧客向け Word レポートのパス（`復旧レポート.docx`）。
     pub customer_docx: PathBuf,
-    /// 顧客向け要確認ファイル一覧のパス（`要確認ファイル一覧.txt`）。
-    pub customer_txt: PathBuf,
+    /// 顧客向け破損疑いファイル一覧のパス（`破損疑いファイル一覧.txt`、Chunk 23.8 で rename）。
+    pub customer_invalid_txt: PathBuf,
+    /// 顧客向け自動確認対象外ファイル一覧のパス（`自動確認対象外ファイル一覧.txt`、Chunk 23.8 新規）。
+    pub customer_uncertain_txt: PathBuf,
     /// 社内向け業務管理レポートのパス（`業務管理レポート.html`）。
     pub internal_html: PathBuf,
     /// 外部システム連携用 CSV のパス（`report.csv`）。
@@ -104,15 +116,19 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let reports_dir = tmp.path().join("260522-04").join("レポート");
         let docx = reports_dir.join("復旧レポート.docx");
-        let txt = reports_dir.join("要確認ファイル一覧.txt");
+        let invalid_txt = reports_dir.join("破損疑いファイル一覧.txt");
+        let uncertain_txt = reports_dir.join("自動確認対象外ファイル一覧.txt");
         let html = reports_dir.join("業務管理レポート.html");
         let csv = reports_dir.join("report.csv");
 
         let report = empty_report();
-        let paths = write_business_reports(&report, &docx, &txt, &html, &csv).unwrap();
+        let paths =
+            write_business_reports(&report, &docx, &invalid_txt, &uncertain_txt, &html, &csv)
+                .unwrap();
 
         assert!(paths.customer_docx.exists());
-        assert!(paths.customer_txt.exists());
+        assert!(paths.customer_invalid_txt.exists());
+        assert!(paths.customer_uncertain_txt.exists());
         assert!(paths.internal_html.exists());
         assert!(paths.csv.exists());
 
@@ -122,15 +138,21 @@ mod tests {
             .to_string_lossy()
             .ends_with("復旧レポート.docx"));
         assert!(paths
-            .customer_txt
+            .customer_invalid_txt
             .to_string_lossy()
-            .ends_with("要確認ファイル一覧.txt"));
+            .ends_with("破損疑いファイル一覧.txt"));
+        assert!(paths
+            .customer_uncertain_txt
+            .to_string_lossy()
+            .ends_with("自動確認対象外ファイル一覧.txt"));
         assert!(paths
             .internal_html
             .to_string_lossy()
             .ends_with("業務管理レポート.html"));
         // 内容も空ではない（最低 1 バイト書き出されている）。
         assert!(paths.customer_docx.metadata().unwrap().len() > 0);
+        assert!(paths.customer_invalid_txt.metadata().unwrap().len() > 0);
+        assert!(paths.customer_uncertain_txt.metadata().unwrap().len() > 0);
         assert!(paths.internal_html.metadata().unwrap().len() > 0);
         assert!(paths.csv.metadata().unwrap().len() > 0);
     }
@@ -141,11 +163,20 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let nested = tmp.path().join("a").join("b").join("レポート");
         let docx = nested.join("復旧レポート.docx");
-        let txt = nested.join("要確認ファイル一覧.txt");
+        let invalid_txt = nested.join("破損疑いファイル一覧.txt");
+        let uncertain_txt = nested.join("自動確認対象外ファイル一覧.txt");
         let html = nested.join("業務管理レポート.html");
         let csv = nested.join("report.csv");
 
-        write_business_reports(&empty_report(), &docx, &txt, &html, &csv).unwrap();
+        write_business_reports(
+            &empty_report(),
+            &docx,
+            &invalid_txt,
+            &uncertain_txt,
+            &html,
+            &csv,
+        )
+        .unwrap();
         assert!(nested.is_dir());
         assert!(docx.exists());
     }
@@ -155,11 +186,20 @@ mod tests {
         // 顧客向け .docx は OOXML ZIP として正しく書き出されること（PK\x03\x04 magic）。
         let tmp = TempDir::new().unwrap();
         let docx = tmp.path().join("復旧レポート.docx");
-        let txt = tmp.path().join("要確認ファイル一覧.txt");
+        let invalid_txt = tmp.path().join("破損疑いファイル一覧.txt");
+        let uncertain_txt = tmp.path().join("自動確認対象外ファイル一覧.txt");
         let html = tmp.path().join("業務管理レポート.html");
         let csv = tmp.path().join("report.csv");
 
-        write_business_reports(&empty_report(), &docx, &txt, &html, &csv).unwrap();
+        write_business_reports(
+            &empty_report(),
+            &docx,
+            &invalid_txt,
+            &uncertain_txt,
+            &html,
+            &csv,
+        )
+        .unwrap();
         let bytes = std::fs::read(&docx).unwrap();
         assert!(bytes.starts_with(b"PK\x03\x04"));
     }

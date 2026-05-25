@@ -44,9 +44,12 @@
 
 pub mod error;
 pub mod formats;
+mod format_bytes_helper;
 pub mod registry;
 pub mod result;
+pub mod uncertain;
 
 pub use error::ValidatorError;
 pub use registry::{Validator, ValidatorRegistry};
 pub use result::{ValidationResult, ValidationStatus};
+pub use uncertain::UncertainReason;

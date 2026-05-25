@@ -4,7 +4,7 @@
 //! 一貫したディレクトリツリーを構築する。Chunk 21 の `CaseStorage` が **社内保存**
 //! を担うのに対し、`CaseOutput` は **納品物のレイアウト** を担う（分離設計）。
 //!
-//! 想定ツリー:
+//! 想定ツリー（Chunk 23.8 で 4→5 レポート構造に拡張）:
 //!
 //! ```text
 //! {drive_root}/{案件番号}/
@@ -13,7 +13,8 @@
 //!   │   └ 削除ファイル/   ← deleted (削除) ファイル群
 //!   └ レポート/
 //!       ├ 復旧レポート.docx
-//!       ├ 要確認ファイル一覧.txt
+//!       ├ 破損疑いファイル一覧.txt         ← Chunk 23.8 で rename
+//!       ├ 自動確認対象外ファイル一覧.txt   ← Chunk 23.8 新規
 //!       ├ 業務管理レポート.html
 //!       └ report.csv
 //! ```
@@ -95,9 +96,18 @@ impl CaseOutput {
         self.reports_dir().join("復旧レポート.docx")
     }
 
-    /// 顧客向け要確認ファイル一覧 (`{reports}/要確認ファイル一覧.txt`) のパス。
-    pub fn customer_txt_path(&self) -> PathBuf {
-        self.reports_dir().join("要確認ファイル一覧.txt")
+    /// 顧客向け破損疑いファイル一覧 (`{reports}/破損疑いファイル一覧.txt`) のパス（Chunk 23.8 で rename）。
+    ///
+    /// `Invalid` 判定されたファイルのみが含まれる業務 TXT。
+    pub fn customer_invalid_txt_path(&self) -> PathBuf {
+        self.reports_dir().join("破損疑いファイル一覧.txt")
+    }
+
+    /// 顧客向け自動確認対象外ファイル一覧 (`{reports}/自動確認対象外ファイル一覧.txt`) のパス（Chunk 23.8 新規）。
+    ///
+    /// `Uncertain(_)` 判定されたファイル（自動品質確認の対象外）のみが含まれる業務 TXT。
+    pub fn customer_uncertain_txt_path(&self) -> PathBuf {
+        self.reports_dir().join("自動確認対象外ファイル一覧.txt")
     }
 
     /// 社内向け業務管理レポート (`{reports}/業務管理レポート.html`) のパス。
@@ -170,10 +180,15 @@ mod tests {
             .customer_docx_path()
             .to_string_lossy()
             .ends_with("復旧レポート.docx"));
+        // Chunk 23.8: customer_txt_path → customer_invalid_txt_path + customer_uncertain_txt_path
         assert!(out
-            .customer_txt_path()
+            .customer_invalid_txt_path()
             .to_string_lossy()
-            .ends_with("要確認ファイル一覧.txt"));
+            .ends_with("破損疑いファイル一覧.txt"));
+        assert!(out
+            .customer_uncertain_txt_path()
+            .to_string_lossy()
+            .ends_with("自動確認対象外ファイル一覧.txt"));
         assert!(out
             .internal_html_path()
             .to_string_lossy()
@@ -182,7 +197,8 @@ mod tests {
         // 全ファイルが「レポート」ディレクトリ配下にある。
         for p in [
             out.customer_docx_path(),
-            out.customer_txt_path(),
+            out.customer_invalid_txt_path(),
+            out.customer_uncertain_txt_path(),
             out.internal_html_path(),
             out.csv_path(),
         ] {
