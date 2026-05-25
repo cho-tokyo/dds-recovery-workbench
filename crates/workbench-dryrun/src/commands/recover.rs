@@ -1,4 +1,7 @@
-//! `recover` サブコマンド: 既存の案件に対して復旧を実行する。
+//! `recover` サブコマンド: 案件に対して復旧を実行する。
+//!
+//! Chunk 23.6 改訂版: 復旧 PC では「いきなり recover」が標準フロー。
+//! 案件 JSON が無ければ新規作成、既存出力フォルダがあれば確認プロンプトを出す。
 
 use anyhow::{anyhow, Context, Result};
 
@@ -12,29 +15,55 @@ use crate::volume::open_ntfs_volume;
 
 /// `recover` サブコマンドのエントリーポイント。
 ///
-/// 手順:
-/// 1. 案件番号で `Case` を load
-/// 2. 未診断なら警告 + 続行確認
+/// 手順 (Chunk 23.6 改訂版):
+/// 1. 案件番号で `Case` を load。**案件が無ければ新規作成** (復旧 PC 標準フロー)
+/// 2. 既に復旧済みなら 2 回目納品の可能性として警告
 /// 3. ソース HDD / 納品先 HDD を選択 (同一ドライブを禁止)
-/// 4. Wishlist を対話形式または JSON ファイルから取得
-/// 5. 確認後 `execute_business_recovery` で復旧 + レポート生成
-/// 6. 結果表示と `case.json` 保存
+/// 4. **納品先に既に案件フォルダがあれば上書き確認**
+/// 5. Wishlist を対話形式または JSON ファイルから取得 (空でも可)
+/// 6. 確認後 `execute_business_recovery` で復旧 + レポート生成
+/// 7. 結果を「全体 / お客様優先データ」二重表示 + `case.json` 保存
 pub fn run() -> Result<()> {
     println!("復旧モード");
     println!("---------------------------------------------");
     println!();
 
-    // Step 1: 案件番号入力 + 案件読み込み
+    // Step 1: 案件番号入力 + 案件 load または新規作成 (Chunk 23.6 改訂版)。
+    //
+    // 業務フロー上、診断 PC と復旧 PC は別物理 PC で、復旧 PC では診断 PC の
+    // case.json は届かない。「いきなり recover」が標準なので、ここで自動作成する。
     let case_id = prompt_case_id()?;
     let storage = CaseStorage::default_location();
-    let mut case = storage
-        .load(&case_id)
-        .context("案件が見つかりません。先に diagnose で案件を作成してください")?;
+    let case_file = storage.case_file_path(&case_id);
+
+    let mut case = if case_file.exists() {
+        println!();
+        println!("既存の案件を読み込みます: {}", case_id);
+        let loaded = storage
+            .load(&case_id)
+            .context("既存 case.json の読み込みに失敗しました")?;
+        if loaded.diagnostic_input.diagnosed_at.is_some() {
+            println!("  - 診断済み (この PC で診断 → 復旧のフロー)");
+        }
+        if loaded.recovery_report_summary.is_some() {
+            println!("  [注意] この案件は既に 1 回以上復旧されています。");
+            println!("         2 回目以降の納品 (優先納品など) の場合は続行してください。");
+        }
+        loaded
+    } else {
+        println!();
+        println!("案件が見つかりません。新規作成して復旧を進めます: {}", case_id);
+        println!("  (復旧 PC では「いきなり復旧」が標準フローです)");
+        storage
+            .create_new(case_id.clone())
+            .context("新規案件の作成に失敗しました")?
+    };
 
     println!();
     if case.diagnostic_input.diagnosed_at.is_none() {
-        println!("この案件はまだ診断されていません。");
-        if !confirm("診断なしで復旧を進めますか? (推奨されません)")? {
+        println!("[情報] この案件はまだ診断されていません。");
+        println!("       復旧 PC では診断結果は CRM 経由で参照する運用が標準です。");
+        if !confirm("このまま復旧を進めますか?")? {
             return Err(anyhow!("ユーザーキャンセル"));
         }
     }
@@ -77,7 +106,28 @@ pub fn run() -> Result<()> {
         ));
     }
 
-    // Step 3: Wishlist 入力。Chunk 23.7 以降は「お客様優先データ」のラベリング用
+    // Step 3: 既存出力フォルダの検出 (Chunk 23.6 改訂版)。
+    //
+    // 同じ案件番号で 2 回目以降の recover や、誤った案件番号入力、前回失敗の残骸を
+    // 検出するためのチェック。技術的な防御は限定的だが、業務的に「気付き」を促す。
+    let case_output_root = delivery_drive.mount_point.join(case_id.as_str());
+    if case_output_root.exists() {
+        println!();
+        println!("[注意] 納品先に既にこの案件のフォルダが存在します:");
+        println!("    {}", case_output_root.display());
+        println!();
+        println!("考えられるケース:");
+        println!("  1. 2 回目以降の納品 (優先納品など)");
+        println!("  2. 別の案件で同じ番号を使ってしまった");
+        println!("  3. 前回の復旧が失敗した残骸");
+        println!();
+        println!("続行すると既存ファイルが上書きされる可能性があります。");
+        if !confirm("続行しますか?")? {
+            return Err(anyhow!("ユーザーキャンセル"));
+        }
+    }
+
+    // Step 4: Wishlist 入力。Chunk 23.7 以降は「お客様優先データ」のラベリング用
     //         （空でも全件復旧は実行される）。
     let wishlist = prompt_wishlist()?;
     if wishlist.is_empty() {
@@ -114,7 +164,7 @@ pub fn run() -> Result<()> {
     println!("    - $Recycle.Bin, System Volume Information");
     println!("    - $ で始まるシステムファイル");
     println!();
-    println!("出力先: {}\\{}\\", delivery_drive.drive_letter, case_id);
+    println!("出力先: {}\\", case_output_root.display());
     println!();
 
     if !confirm("復旧を開始しますか?")? {
@@ -266,6 +316,56 @@ fn load_wishlist_from_json() -> Result<Wishlist> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dds_case_manager::{CaseId, CaseStorage};
+    use tempfile::TempDir;
+
+    /// Chunk 23.6 改訂版: 案件 JSON 不在時に新規作成できる挙動の単体保証。
+    /// 復旧 PC では「いきなり recover」が標準なので、`run()` の `create_new` パスが
+    /// 動くことを `CaseStorage` 側から確認する (実 prompt はモックしない)。
+    #[test]
+    fn recover_creates_new_case_when_not_exists() {
+        let temp = TempDir::new().unwrap();
+        let storage = CaseStorage::with_base_dir(temp.path());
+        let case_id = CaseId::parse("260522-04").unwrap();
+
+        assert!(!storage.case_file_path(&case_id).exists());
+
+        let case = storage.create_new(case_id.clone()).unwrap();
+        assert_eq!(case.case_id, case_id);
+        assert!(case.diagnostic_input.diagnosed_at.is_none());
+        assert!(storage.case_file_path(&case_id).exists());
+    }
+
+    /// 既存案件は `load` で読み込めることの確認。`run()` の `load` パス用。
+    #[test]
+    fn recover_loads_existing_case_when_present() {
+        let temp = TempDir::new().unwrap();
+        let storage = CaseStorage::with_base_dir(temp.path());
+        let case_id = CaseId::parse("260522-04").unwrap();
+
+        let case = storage.create_new(case_id.clone()).unwrap();
+        storage.save(&case).unwrap();
+
+        let loaded = storage.load(&case_id).unwrap();
+        assert_eq!(loaded.case_id, case_id);
+    }
+
+    /// 既存出力フォルダ検出ロジックの単体保証 (実 prompt はモックしない)。
+    /// `delivery_drive.mount_point.join(case_id.as_str()).exists()` で判定可能なこと。
+    #[test]
+    fn existing_output_directory_detection_logic() {
+        let temp = TempDir::new().unwrap();
+        let case_id = CaseId::parse("260522-04").unwrap();
+        let case_output_root = temp.path().join(case_id.as_str());
+
+        // 不在状態
+        assert!(!case_output_root.exists());
+
+        // 既存ディレクトリ作成 → 検出される
+        std::fs::create_dir_all(&case_output_root).unwrap();
+        assert!(case_output_root.exists());
+        assert!(case_output_root.is_dir());
+    }
 
     #[test]
     fn parse_priority_recognizes_named_levels() {

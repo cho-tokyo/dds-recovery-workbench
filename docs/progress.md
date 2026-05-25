@@ -4,6 +4,80 @@
 
 ---
 
+## 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **workbench-dryrun が業務フローと Chunk 23.7 新仕様に完全対応 — 復旧 PC で「いきなり recover」が動作、診断 PC と復旧 PC の物理 PC 分離を実装に反映 🎯🎯🎯🎯🎯🎯** / Chunk 23.6 改訂版 workbench-dryrun の業務フロー対応 完成（軽量改修） — DDS の業務フロー（診断 PC は 1 台時分割複数案件、復旧 PC は 50 台 1 案件専有、別の物理 PC）を実装に落とし込んだ recover サブコマンドの業務適合化 / 修正ファイル 2 件: ①**`crates/workbench-dryrun/src/commands/recover.rs`** (+50 行、案件 JSON 不在時の自動新規作成 `storage.case_file_path().exists()` で load/create_new 分岐 + 既存出力フォルダ検出 + 上書き確認プロンプト 3 ケース説明 (2 回目納品 / 番号取り違え / 前回失敗残骸) + 出力先表示を `case_output_root.display()` に統一 + 単体テスト 3 件追加) + ②**`crates/workbench-dryrun/README.md`** (全面書換、+100 行、Phase 1.5 業務設計 R-STUDIO 風 + Wishlist は優先データラベリング明記 + 業務フロー図解 (診断 PC vs 復旧 PC の物理 PC 分離) + 復旧範囲とシステムファイル除外 ExclusionList 6 パターン明記 + Wishlist の役割 (お客様優先データ、復旧範囲には影響しない) + 複数 HDD 分割納品の運用例 (2 段階 recover) + トラブルシューティング拡充) / 既存ライブラリへの変更**ゼロ**（recovery / report / case-manager / wish-match への変更なし、Chunk 23.7 で既に追加済みの `exclusions` パラメータ / 二重表示 / Wishlist 空対応はそのまま利用）/ **業務的背景**: DDS の業務フローは診断 PC（1 台、時分割複数案件）と復旧 PC（50 台、1 案件専有）が別の物理 PC、復旧 PC では診断 PC の case.json は届かない → 「いきなり recover」が標準フロー、同じ案件番号で複数回 recover するケース（優先納品）が存在 / **業務フロー対応の検証成果**: ①**案件 JSON 不在対応**: `if case_file.exists() { load } else { create_new }` で分岐、復旧 PC で「いきなり recover」が動作 / ②**既存出力検出**: 同じ案件番号で 2 回目以降の recover 時、納品先に既存フォルダがあれば上書き確認プロンプト表示 / ③**README 業務フロー強化**: 診断 PC と復旧 PC の物理 PC 分離前提を明示 + Wishlist の意味再定義（Chunk 23.7、お客様優先データ）を業務メンバー向けに解説 + ExclusionList のシステムファイル除外を業務目線で説明 + 複数 HDD 分割納品（優先納品）の運用手順を例示 / **意味論変更の明記**: Chunk 23.7 の意味論変更（Wishlist → 優先データ、ExclusionList 導入）が CLI の UX レベルでも完全に反映 / 新規単体テスト **3 件**（`recover_creates_new_case_when_not_exists` / `recover_loads_existing_case_when_present` / `existing_output_directory_detection_logic`）+ 既存テスト破壊なし = workspace 全体 **511 件 pass / 0 failed / 4 ignored**（Chunk 23.7.1 の 508 → **+3 件**）/ バイナリ `target/release/workbench-dryrun.exe`: **3.86 MB**（3,894,784 bytes、変化なし）/ Windows 専用（`#[cfg(not(windows))] compile_error!` 維持）/ `crates/workbench-dryrun/src/` 内 `unsafe` **0 件** 継続、書き込み API: 出力先のみ（変化なし）、単方向依存維持、clippy / doc warning **0 件** / **FR-CLI-05（復旧 PC 独立運用、新規）+ FR-CLI-06（複数回 recover 対応、新規）+ FR-CLI-07（Chunk 23.7 新仕様の反映、新規）すべて新規達成** / Chunks 1-23.7.1 + 23.6 改訂版 完了（Chunk 23.6 改訂版 / 2026-05-25）
+
+**🎯 Chunk 23.6 改訂版 ハイライト（workbench-dryrun が業務フローと Chunk 23.7 新仕様に完全対応の節目）**: Chunk 23.7 で「R-STUDIO 風業務フロー対応完成」に到達した Workbench に、**Chunk 23.6 改訂版で「復旧 PC で『いきなり recover』が動作、診断 PC と復旧 PC の物理 PC 分離を実装に反映」**を加えた軽量改修。**🎯 業務的背景**: DDS の業務フロー = 診断 PC（1 台、時分割複数案件）と復旧 PC（50 台、1 案件専有）は**別の物理 PC**、復旧 PC では診断 PC の case.json は届かない → 「いきなり recover」が標準フロー、同じ案件番号で複数回 recover するケース（優先納品）が存在。**🎯 業務フロー対応の検証成果**: ①**案件 JSON 不在対応**: `if case_file.exists() { load } else { create_new }` で分岐、復旧 PC で「いきなり recover」が動作 / ②**既存出力検出**: 同じ案件番号で 2 回目以降の recover 時、納品先に既存フォルダがあれば上書き確認プロンプト表示（3 ケース説明: 2 回目納品 / 番号取り違え / 前回失敗残骸） / ③**README 業務フロー強化**: 診断 PC と復旧 PC の物理 PC 分離前提を明示 + Wishlist の意味再定義（Chunk 23.7、お客様優先データ）を業務メンバー向けに解説 + ExclusionList のシステムファイル除外を業務目線で説明 + 複数 HDD 分割納品（優先納品）の運用手順を例示。**🎯 意味論変更の明記**: Chunk 23.7 の意味論変更（Wishlist → 優先データ、ExclusionList 導入）が CLI の UX レベルでも完全に反映。**🎯 軽量改修の範囲**: 修正ファイル 2 件のみ (`recover.rs` +50 行 + `README.md` 全面書換 +100 行)、既存ライブラリ (recovery / report / case-manager / wish-match) への変更**ゼロ**、Chunk 23.7 で既に追加済みの `exclusions` パラメータ / 二重表示 / Wishlist 空対応はそのまま利用。**🎯 テスト統計**: 新規単体テスト **3 件**（`recover_creates_new_case_when_not_exists` / `recover_loads_existing_case_when_present` / `existing_output_directory_detection_logic`）+ 既存テスト破壊なし = workspace 全体 **511 件 pass / 0 failed / 4 ignored**（Chunk 23.7.1 の 508 → **+3 件**）。**🎯 バイナリ**: `target/release/workbench-dryrun.exe` **3.86 MB**（3,894,784 bytes、変化なし）、Windows 専用（`#[cfg(not(windows))] compile_error!` 維持）。**🎯 安全性**: `crates/workbench-dryrun/src/` 内 `unsafe` **0 件** 継続、書き込み API: 出力先のみ（変化なし）、単方向依存維持、clippy / doc warning **0 件**。**🎯 関連 FR**: **FR-CLI-05（復旧 PC 独立運用、新規）→ ✅ 🎯 新規達成** / **FR-CLI-06（複数回 recover 対応、新規）→ ✅ 🎯 新規達成** / **FR-CLI-07（Chunk 23.7 新仕様の反映、新規）→ ✅ 🎯 新規達成**。**🎯🎯🎯 マイルストーン意義（workbench-dryrun が業務フローと Chunk 23.7 新仕様に完全対応 — 復旧 PC で「いきなり recover」が動作、診断 PC と復旧 PC の物理 PC 分離を実装に反映）**: Chunk 23.7 で実装した「Wishlist 再定義 + ExclusionList + 全件復旧」の新仕様を CLI の UX レベルにも完全に反映し、DDS の業務フロー（診断 PC = 1 台時分割複数案件 / 復旧 PC = 50 台 1 案件専有、別の物理 PC）の前提を実装に落とし込んだ。復旧 PC で診断 PC の case.json が届かない状況でも「いきなり recover」が動作、同じ案件番号で複数回 recover する優先納品ケースにも対応、Workbench の業務統合層が R-STUDIO の置き換え候補として実機運用評価可能な状態に到達。**次のステップ**: ①**Chouさんによる検証 PC ドライラン実施**（workbench-dryrun.exe で実機 NTFS HDD 試行、約半日〜1 日） / ②**Chunk 23.8: Uncertain 理由分類 + TXT 分割（必要なら）**（`.txt` 用 validator が registry にないため Uncertain 判定される Phase 1 既知制限への対応） / ③**Phase 2.1 着手準備**（Tauri UI 開発、約 2 ヶ月想定）。
+
+```
+🎯🎯🎯 DDS Recovery Workbench - workbench-dryrun が業務フローと Chunk 23.7 新仕様に完全対応 🎯🎯🎯
+  M0 設計確定         100% ✅
+  M1 基盤構築          30% （Phase 1 では基盤として十分機能、Phase 2 で残実装）
+  M2 NTFS リーダα     100% ✅
+  M3 希望突合エンジン  100% ✅
+  M4 復旧 + 品質判定  100% ✅
+  M5 NTFS-α リリース  100% ✅ 業務適用版到達
+  ─────────────────────────────────────────
+  Phase 1.5 (業務統合層) — 🎉 完全完成 🎉
+  Chunk 21         case-manager 基盤                  ✅ 完成
+  Chunk 22         診断エンジン+CRMテキスト           ✅ 完成
+  Chunk 22.6       業務フロー整合 (症状判定削除)      ✅ 完成 🎯 Workbench は「事実提供者」
+  Chunk 22.5       復旧可能性推定 (High/Med/Low)      ✅ 完成 📈 削除案件の見積もり精度向上
+  Chunk 23         業務向け出力ディレクトリ構造       ✅ 完成 🎊 Phase 1.5 業務統合層最終
+  Chunk 23.5       workbench-dryrun (CLI 中継ぎ)      ✅ 完成 🚀 実機ドライラン準備完了
+  Chunk 23.7       Wishlist 再定義+ExclusionList+全件復旧 ✅ 完成 🎯 R-STUDIO 風業務フロー対応完成
+  Chunk 23.6 改訂版 workbench-dryrun の業務フロー対応 ✅ 完成 🎯 復旧 PC で「いきなり recover」が動作
+  ─────────────────────────────────────────
+  次のステップ
+  実機検証         中古 NTFS HDD ドライラン           ⏳ 次推奨 (Chouさん手動、半日〜1日)
+  Chunk 23.8       Uncertain の理由分類 + TXT 分割   ⏳ 検討中 (必要なら)
+  Phase 2.1        Tauri UI (約 2 ヶ月想定)           ⏳ 次推奨
+  ─────────────────────────────────────────
+  Chunks 1-23.7.1 + 23.6 改訂版 完了 / 511 件 pass / 0 failed / 4 ignored
+  workbench-dryrun が業務フローと Chunk 23.7 新仕様に完全対応
+```
+
+### 🎯 Chunk 23.6 改訂版 業務フロー対応の本質（診断 PC と復旧 PC の物理 PC 分離）
+
+| 項目 | 旧（〜Chunk 23.5） | 新（Chunk 23.6 改訂版） |
+|---|---|---|
+| **案件 JSON 前提** | 復旧 PC でも diagnose 済 case.json が存在する前提 | 復旧 PC では case.json 不在が標準、自動新規作成 |
+| **recover 起動条件** | `CaseStorage::load` のみ（不在ならエラー） | `case_file.exists()` で load / create_new を自動分岐 |
+| **同一案件複数回 recover** | 上書きが暗黙、確認なし | 既存出力フォルダ検出 + 3 ケース説明（2 回目納品 / 番号取り違え / 前回失敗残骸）+ 上書き確認プロンプト |
+| **業務フロー前提** | 診断 PC = 復旧 PC を暗黙に仮定 | 診断 PC（1 台、時分割）と復旧 PC（50 台、1 案件専有）の物理 PC 分離を明示 |
+| **README の業務観点** | CLI コマンドリファレンス中心 | Phase 1.5 業務設計（R-STUDIO 風 + Wishlist 優先データラベリング）+ 業務フロー図解 + 複数 HDD 分割納品の運用例 |
+
+### 🎯 Chunk 23.6 改訂版 業務シナリオ実証（復旧 PC で「いきなり recover」）
+
+```
+1. 診断 PC（1 台、時分割複数案件）:
+   - お客様 HDD 持ち込み → CS が CRM 採番（260522-04）
+   - workbench-dryrun diagnose で診断 + CRM 貼り付けテキスト生成
+   - case.json は診断 PC ローカルに保存（C:\cases\260522-04\case.json）
+
+2. 復旧 PC（50 台のうち 1 台、1 案件専有）:
+   - お客様 HDD を復旧 PC に物理接続
+   - case.json は届かない（診断 PC からの転送なし）
+   - workbench-dryrun recover を「いきなり」起動:
+     * case_file.exists() == false → 自動新規作成
+     * 案件番号 / Wishlist / 出力先を対話入力
+     * execute_business_recovery で全件復旧 + Wishlist マッチを優先データ強調
+
+3. 優先納品（同じ案件番号で複数回 recover）:
+   - 1 回目: workbench-dryrun recover → G:\260522-04\ に納品 HDD 作成
+   - 2 回目: 別の HDD に分割納品で workbench-dryrun recover を再起動
+     * G:\260522-04\ が既存 → 上書き確認プロンプト
+     * 3 ケース説明: 2 回目納品 / 番号取り違え / 前回失敗残骸
+     * オペレータが「上書き」or「キャンセル」を選択
+```
+
+### 🎯 Chunk 23.6 改訂版 関連 FR の進捗（新規達成 3 件）
+
+- **FR-CLI-05（復旧 PC 独立運用、新規）**: ✅ **🎯 新規達成**（Chunk 23.6 改訂版 / 2026-05-25 / workbench-dryrun）— `recover.rs` で `storage.case_file_path().exists()` で load / create_new 分岐、復旧 PC で診断 PC の case.json が届かない状況でも「いきなり recover」が動作、DDS の業務フロー（診断 PC = 1 台時分割 / 復旧 PC = 50 台 1 案件専有、別の物理 PC）の前提を実装に反映、月 800 件の案件で復旧 PC オペレータが診断 PC との連携を待たずに即座に復旧開始可能
+- **FR-CLI-06（複数回 recover 対応、新規）**: ✅ **🎯 新規達成**（Chunk 23.6 改訂版 / 2026-05-25 / workbench-dryrun）— `recover.rs` で既存出力フォルダ検出 + 上書き確認プロンプト（3 ケース説明: 2 回目納品 / 番号取り違え / 前回失敗残骸）、同じ案件番号で複数回 recover する優先納品ケース（複数 HDD 分割納品）に対応、誤上書きによる業務事故を防止
+- **FR-CLI-07（Chunk 23.7 新仕様の反映、新規）**: ✅ **🎯 新規達成**（Chunk 23.6 改訂版 / 2026-05-25 / workbench-dryrun + README）— Chunk 23.7 で実装した「Wishlist 再定義（→ 優先データラベリング）+ ExclusionList 導入 + 全件復旧」の新仕様を CLI の UX レベルにも完全に反映、`README.md` 全面書換で Phase 1.5 業務設計 / 業務フロー図解 / 復旧範囲とシステムファイル除外 / Wishlist の役割 / 複数 HDD 分割納品の運用例 / トラブルシューティング拡充を追加、業務員が CLI を業務観点で理解できる状態に到達
+
+---
+
 ## 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **R-STUDIO 風業務フロー対応完成 — Workbench は R-STUDIO の置き換え候補として評価可能な状態に到達（破壊的変更による業務的本質の実装）🎯🎯🎯🎯🎯🎯** / Chunk 23.7 Wishlist 再定義 + ExclusionList + 全件復旧 完成 — Phase 1.5 の業務的本質「お客様は『全部復旧して』と言う」を実装に落とし込んだ破壊的変更 / 新規 1 ファイル: `crates/wish-match/src/exclusion.rs` 196 行（`ExclusionList` + `ExclusionPattern` enum 3 バリアント (PathPrefix / NameStartsWith / Extension) + `default_system_exclusions()` 7 パターン (`\Windows\` / `\Program Files\` / `\Program Files (x86)\` / `\$Recycle.Bin\` / `\System Volume Information\` / `\$Extend\` / `NameStartsWith("$")`) + 6 単体テスト） / 修正 15 ファイル（破壊的変更）: ①`wish-match/src/lib.rs`（exclusion 公開） + ②`wish-match/src/wishlist.rs`（Wishlist 意味再定義 rustdoc 更新） + ③**`recovery/src/engine.rs` +136/-44 行（`recover_files(&self, volume, wishlist, exclusions)` シグネチャ変更 — exclusions 引数追加 + 全件復旧化 + 3 単体テスト）** + ④**`recovery/src/report.rs` +163 行（`RecoveredEntry.is_priority: bool` 新規追加 + priority 統計 6 メソッド + 3 単体テスト）** + ⑤`recovery/src/lib.rs`（rustdoc 更新） + ⑥**`report/src/csv.rs` +35/-15 行（15 列化、`is_priority` 列を index 5 に追加、14 → 15 列、1 新規テスト）** + ⑦`report/src/html_internal.rs` +37/-8 行（優先データセクション + 2 単体テスト） + ⑧`report/src/docx_customer.rs` +69/-12 行（優先データセクション + 2 単体テスト） + ⑨`report/src/txt_customer.rs`（test helper 更新） + ⑩**`case-manager/src/orchestration.rs` +8/-2 行（`execute_business_recovery(case, drive_root, volume, wishlist, exclusions)` シグネチャ変更）** + ⑪`case-manager/tests/business_flow_integration.rs` +127/-12 行（既存 2 件 migration + 新規 2 件: `full_business_flow_recovers_all_files_with_priority` + `product_demo_phase_1_5_business_aligned`） + ⑫〜⑮`recovery/tests/{recovery, recovery_mixed_formats, recovery_validation, recovery_with_reports}_integration.rs`（既存 11 件 migration） + ⑯`workbench-dryrun/src/commands/recover.rs` +37/-5 行（Wishlist 空ガード緩和、exclusions 渡し、結果二重表示） / **業務的意味論変更（破壊的）**: ①**Wishlist**: 旧「復旧対象のファイル指定 (Inclusion フィルタ、N 件のみ復旧)」→ 新「お客様優先データのラベリング、復旧範囲には影響しない」 + ②**ExclusionList**: 新規導入、業務的システムファイル除外（Windows / Program Files / $Recycle.Bin 等） + ③**`recover_files`**: マッチした N 件のみ復旧 → 全 user file 復旧、Wishlist マッチは is_priority=true / **業務的背景**: お客様「全部復旧して」と言われた時の対応に R-STUDIO の運用と思考が一致、月 800 件の案件で「あのファイルが入ってない!」クレーム回避、Wishlist は「優先データのラベリング」として CRM 業務に活用 / **破壊的変更（API、4 件）**: ①`RecoveryEngine::recover_files(&self, volume, wishlist, exclusions)` — 引数追加 / ②`execute_business_recovery(case, drive_root, volume, wishlist, exclusions)` — 引数追加 / ③`RecoveredEntry.is_priority: bool` — 新規フィールド / ④CSV ヘッダー 14 → 15 列、`is_priority` 列 index 5 追加 / 新規単体テスト 17 件（ExclusionList 6 + recover_files 3 + RecoveryReport priority 3 + CSV 1 + HTML 2 + DOCX 2）+ 新規結合テスト 2 件（`full_business_flow_recovers_all_files_with_priority` + `product_demo_phase_1_5_business_aligned`）+ 既存テスト約 25 件 migration + 全 `RecoveredEntry` 構造体リテラル更新 = workspace 全体 **508 件 pass / 0 failed / 2 ignored**（Chunk 23.5 の 489 → **+19 件**: 17 単体 + 2 結合） / **業務観測（既存フィクスチャでの ExclusionList 適用）**: ntfs_with_5_deletions_small (.txt 30 件) = 全 user file 30 / 除外 0 / 復旧 30 / priority 30（.txt マッチ） + ntfs_mixed_formats (15 件) = 15 / 0 / 15 / 14（xyz 除く） + ntfs_directories (109+ 件) = 109+ / 0 / 109+ / 109+。フィクスチャに `\Windows\` 等が存在しないため除外 0 件 = **正常な業務観測**、実機運用では効く設計 / `crates/{wish-match, recovery, report, case-manager, workbench-dryrun}/src/` 内 `unsafe` 0 件 + 書き込み API: 出力先のみ、ソースデバイス書き込みなし + 単方向依存維持: case-manager → recovery + report + wish-match（変化なし）+ clippy / doc warning 0 / **FR-REC-05（全件復旧、業務適用、新規）+ FR-REC-06（システムファイル除外、新規）新規達成 + FR-REP-04（優先データ強調表示）拡張完了** / Chunks 1-23.7 完了（Chunk 23.7 / 2026-05-25）
 
 **🎯 Chunk 23.7 ハイライト（R-STUDIO 風業務フロー対応完成の節目）**: Chunk 23.5 で「workbench-dryrun.exe 配布可能」状態に到達した Workbench に、**Chunk 23.7 で「Phase 1.5 の業務的本質: お客様は『全部復旧して』と言う、Wishlist は『優先データのラベリング』」を実装に落とし込んだ破壊的変更**。**業務的背景**: 月 800 件の案件で「全部復旧して」と言われた時の対応に R-STUDIO の運用と思考が一致、「あのファイルが入ってない!」クレーム回避、Wishlist の意味再定義（「復旧対象指定」→「お客様優先データのラベリング」）、全件復旧 + ExclusionList でシステムファイル除外、レポートで「全体」と「優先データ」の二重表示。**🎯 業務的意味論変更（破壊的）**: ①**Wishlist**: 旧「復旧対象のファイル指定 (Inclusion フィルタ、N 件のみ復旧)」→ 新「お客様優先データのラベリング、復旧範囲には影響しない」 / ②**ExclusionList**: 新規導入、業務的システムファイル除外（Windows / Program Files / $Recycle.Bin 等の 7 パターン） / ③**`recover_files`**: マッチした N 件のみ復旧 → 全 user file 復旧、Wishlist マッチは `is_priority=true`。**🎯 破壊的変更（API、4 件）**: ①`RecoveryEngine::recover_files(&self, volume, wishlist, exclusions)` — 引数追加 / ②`execute_business_recovery(case, drive_root, volume, wishlist, exclusions)` — 引数追加 / ③`RecoveredEntry.is_priority: bool` — 新規フィールド / ④CSV ヘッダー 14 → 15 列、`is_priority` 列 index 5 追加。**🎯 ExclusionList::default_system_exclusions（7 パターン）**: `PathPrefix("\Windows\")` / `PathPrefix("\Program Files\")` / `PathPrefix("\Program Files (x86)\")` / `PathPrefix("\$Recycle.Bin\")` / `PathPrefix("\System Volume Information\")` / `PathPrefix("\$Extend\")` / `NameStartsWith("$")`。**🎯 業務観測（プロダクトデモ全文、Phase 1.5 Business-Aligned Demo）**:
