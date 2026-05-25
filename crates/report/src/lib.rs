@@ -25,6 +25,7 @@
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
 
+pub mod business;
 pub mod csv;
 pub mod docx_customer;
 pub mod error;
@@ -33,6 +34,7 @@ pub mod format;
 pub mod html_internal;
 pub mod txt_customer;
 
+pub use crate::business::{write_business_reports, BusinessReportPaths};
 pub use crate::csv::render_csv;
 pub use crate::docx_customer::{render_customer_docx, COMPANY_NAME};
 pub use crate::format::{format_bytes, format_duration_ms};

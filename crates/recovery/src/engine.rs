@@ -23,13 +23,57 @@ use crate::sanitize::{insert_deleted_marker, sanitize_filename};
 /// 衝突時リネームの試行上限。これを超えたら `UniqueFilenameExhausted`。
 const MAX_RENAME_ATTEMPTS: u32 = 999;
 
+/// 復旧時の出力先パス設定 (Chunk 23)。
+///
+/// 通常ファイル（生存）と削除ファイルの出力先を明示的に指定する。Chunk 17 までは
+/// 「単一の `output_dir` 配下に `live/` と `deleted/` を作る」固定構造だったが、
+/// Chunk 23 で業務向けに任意のディレクトリへ振り分けられるよう拡張した。
+///
+/// 既存 API (`RecoveryEngine::new(output_dir)`) は内部的に
+/// [`RecoveryConfig::from_single_dir`] を使うことで互換維持される。
+#[derive(Debug, Clone)]
+pub struct RecoveryConfig {
+    /// 生存ファイルの出力先。
+    pub live_files_dir: PathBuf,
+    /// 削除ファイルの出力先。
+    pub deleted_files_dir: PathBuf,
+}
+
+impl RecoveryConfig {
+    /// 単一の `output_dir` から従来構造 (`{output_dir}/live`, `{output_dir}/deleted`)
+    /// を構築する。既存 API 互換用。
+    pub fn from_single_dir(output_dir: impl AsRef<Path>) -> Self {
+        let base = output_dir.as_ref();
+        Self {
+            live_files_dir: base.join("live"),
+            deleted_files_dir: base.join("deleted"),
+        }
+    }
+
+    /// 明示的にパスを指定する。Chunk 23 の `execute_business_recovery` から
+    /// `CaseOutput::live_files_dir()` / `deleted_files_dir()` を渡して使う。
+    pub fn with_paths(live: impl Into<PathBuf>, deleted: impl Into<PathBuf>) -> Self {
+        Self {
+            live_files_dir: live.into(),
+            deleted_files_dir: deleted.into(),
+        }
+    }
+}
+
 /// 復旧パイプラインのメインエントリ。
 ///
 /// `output_dir` 配下にのみ書き込みを行う。ソースディスクへの書き込みは絶対に
 /// しない設計。`recover_files` は個別ファイルの失敗で全体を止めず、レポートに
 /// `failed` / `skipped` として記録して継続する（業務的に「1 件壊れても他は救う」）。
 pub struct RecoveryEngine {
+    /// 既存 API 互換用ベースディレクトリ。
+    /// `separate_live_and_deleted = false` のとき、または `prepare_output_dir`
+    /// の canonical 検証の起点として使う（Chunk 17 仕様維持）。
     output_dir: PathBuf,
+    /// Chunk 23 で追加: 通常 / 削除の振り分け先。
+    /// `RecoveryEngine::new` 経由なら `RecoveryConfig::from_single_dir(output_dir)`、
+    /// `with_config` 経由なら呼び出し元指定の値が入る。
+    config: RecoveryConfig,
     options: RecoveryOptions,
 }
 
@@ -41,15 +85,44 @@ impl RecoveryEngine {
 
     /// カスタムオプションで新規エンジンを生成する。
     pub fn with_options(output_dir: impl Into<PathBuf>, options: RecoveryOptions) -> Self {
+        let output_dir = output_dir.into();
+        let config = RecoveryConfig::from_single_dir(&output_dir);
         Self {
-            output_dir: output_dir.into(),
+            output_dir,
+            config,
+            options,
+        }
+    }
+
+    /// Chunk 23: 業務向け [`RecoveryConfig`] からエンジンを構築する。
+    ///
+    /// `output_dir` は `live_files_dir` をそのまま流用する（`prepare_output_dir`
+    /// の canonical 検証で利用）。`separate_live_and_deleted = false` の場合は
+    /// `config.live_files_dir` 単体に出力される（業務的にはほぼ使わないユースケース）。
+    pub fn with_config(config: RecoveryConfig) -> Self {
+        Self::with_config_and_options(config, RecoveryOptions::default())
+    }
+
+    /// Chunk 23: 業務向け [`RecoveryConfig`] とカスタムオプションでエンジンを構築する。
+    pub fn with_config_and_options(config: RecoveryConfig, options: RecoveryOptions) -> Self {
+        Self {
+            output_dir: config.live_files_dir.clone(),
+            config,
             options,
         }
     }
 
     /// 設定されている出力ディレクトリを取得する。
+    ///
+    /// 既存 API 互換のため `new` / `with_options` で渡された値（または
+    /// `with_config` の場合は `config.live_files_dir` のコピー）を返す。
     pub fn output_dir(&self) -> &Path {
         &self.output_dir
+    }
+
+    /// Chunk 23: 設定中の [`RecoveryConfig`] を取得する。
+    pub fn config(&self) -> &RecoveryConfig {
+        &self.config
     }
 
     /// マッチしたファイルを実際にディスクに復旧する。
@@ -126,8 +199,14 @@ impl RecoveryEngine {
     }
 
     /// 出力ディレクトリを作成し、ディレクトリとして利用可能か検証する。
+    ///
+    /// Chunk 23 で「業務向けに任意のパス」を受け取れるようになったため、
+    /// `config.live_files_dir` と `config.deleted_files_dir` の両方を作成する
+    /// ように拡張（既存テスト互換のため `output_dir` も継続作成）。
     fn prepare_output_dir(&self) -> Result<(), RecoveryError> {
         fs::create_dir_all(&self.output_dir)?;
+        fs::create_dir_all(&self.config.live_files_dir)?;
+        fs::create_dir_all(&self.config.deleted_files_dir)?;
         let canonical =
             self.output_dir
                 .canonicalize()
@@ -225,16 +304,21 @@ impl RecoveryEngine {
     ///
     /// パストラバーサル防御: 各パスセグメントが `..` を含んでいないか厳格に
     /// チェック。`..` 自体だけでなく `a..b` のような部分一致もエラー化（保守的）。
+    ///
+    /// Chunk 23: `separate_live_and_deleted = true` のときは
+    /// [`RecoveryConfig::live_files_dir`] / [`RecoveryConfig::deleted_files_dir`]
+    /// を直接ベースに使う（業務向け任意パス対応）。`false` のときは
+    /// 既存 API 互換のため `output_dir` をベースに使う。
     pub fn build_output_path(&self, ntfs_file: &NtfsFile) -> Result<PathBuf, RecoveryError> {
-        let mut path = self.output_dir.clone();
-
-        if self.options.separate_live_and_deleted {
-            path.push(if ntfs_file.is_deleted {
-                "deleted"
+        let mut path = if self.options.separate_live_and_deleted {
+            if ntfs_file.is_deleted {
+                self.config.deleted_files_dir.clone()
             } else {
-                "live"
-            });
-        }
+                self.config.live_files_dir.clone()
+            }
+        } else {
+            self.output_dir.clone()
+        };
 
         // NTFS パスは `\` 区切り。空セグメントは除外（先頭 `\` 由来等）。
         let segments: Vec<&str> = ntfs_file
@@ -439,5 +523,64 @@ mod tests {
         let p = engine.build_output_path(&f).unwrap();
         // パス中に `_CON` ディレクトリが現れる。
         assert!(p.to_string_lossy().contains("_CON"), "got: {:?}", p);
+    }
+
+    #[test]
+    fn recovery_config_from_single_dir_keeps_legacy_structure() {
+        // Chunk 23: 既存 API 互換: `{output_dir}/live`、`{output_dir}/deleted` を維持。
+        let base = Path::new("G:\\").join("output");
+        let cfg = RecoveryConfig::from_single_dir(&base);
+        assert_eq!(cfg.live_files_dir, base.join("live"));
+        assert_eq!(cfg.deleted_files_dir, base.join("deleted"));
+    }
+
+    #[test]
+    fn recovery_config_with_paths_uses_explicit_paths() {
+        // Chunk 23: 業務向けに任意のパスを指定可能。
+        let live = Path::new("G:\\").join("260522-04").join("通常ファイル");
+        let deleted = Path::new("G:\\").join("260522-04").join("削除ファイル");
+        let cfg = RecoveryConfig::with_paths(&live, &deleted);
+        assert_eq!(cfg.live_files_dir, live);
+        assert_eq!(cfg.deleted_files_dir, deleted);
+    }
+
+    #[test]
+    fn engine_with_config_uses_explicit_live_deleted_paths() {
+        // Chunk 23: with_config 経由で build_output_path が config の paths を直接使うこと。
+        let temp = tempfile::tempdir().unwrap();
+        let live = temp.path().join("通常ファイル");
+        let deleted = temp.path().join("削除ファイル");
+        let cfg = RecoveryConfig::with_paths(&live, &deleted);
+        let engine = RecoveryEngine::with_config(cfg);
+
+        let live_file = make_file(10, "\\dir\\report.docx", false);
+        let live_path = engine.build_output_path(&live_file).unwrap();
+        assert!(
+            live_path.starts_with(&live),
+            "live path should start with 通常ファイル: {:?}",
+            live_path
+        );
+
+        let del_file = make_file(20, "\\dir\\old.txt", true);
+        let del_path = engine.build_output_path(&del_file).unwrap();
+        assert!(
+            del_path.starts_with(&deleted),
+            "deleted path should start with 削除ファイル: {:?}",
+            del_path
+        );
+    }
+
+    #[test]
+    fn engine_new_preserves_legacy_output_dir_getter() {
+        // 既存 API 互換: output_dir() は new() で渡された値をそのまま返す。
+        let temp = tempfile::tempdir().unwrap();
+        let engine = RecoveryEngine::new(temp.path());
+        assert_eq!(engine.output_dir(), temp.path());
+        // 内部 config も派生していること。
+        assert_eq!(engine.config().live_files_dir, temp.path().join("live"));
+        assert_eq!(
+            engine.config().deleted_files_dir,
+            temp.path().join("deleted")
+        );
     }
 }

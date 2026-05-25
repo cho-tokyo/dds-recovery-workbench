@@ -47,7 +47,7 @@ pub mod options;
 pub mod report;
 pub mod sanitize;
 
-pub use engine::RecoveryEngine;
+pub use engine::{RecoveryConfig, RecoveryEngine};
 pub use error::RecoveryError;
 pub use options::{ConflictStrategy, RecoveryOptions};
 pub use report::{FailedEntry, FormatStats, RecoveredEntry, RecoveryReport, SkippedEntry};

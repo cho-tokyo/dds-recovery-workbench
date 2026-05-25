@@ -13,6 +13,12 @@ serde_json.workspace = true
 thiserror.workspace = true
 dds-core.workspace = true
 dds-wish-match.workspace = true
+# Chunk 23: 業務オーケストレーション (`execute_business_recovery`) のため。
+# 単方向依存維持: case-manager → recovery / report / fs-ntfs（逆向きはなし）。
+dds-recovery.workspace = true
+dds-report.workspace = true
+dds-fs-ntfs.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+zstd = "0.13"

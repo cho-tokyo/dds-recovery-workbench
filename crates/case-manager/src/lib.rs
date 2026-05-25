@@ -21,10 +21,15 @@
 //! 本クレートは**薄い層**として「現在進行中の 1 案件の情報を JSON で永続化」のみを担う。
 //!
 //! ## 依存方向
-//! `case-manager → wish-match → core` の単方向のみ。
-//! `recovery` / `report` / `fs-ntfs` / `validators` には**依存しない**（整合性は CLI / UI 層で取る）。
 //!
-//! 関連 FR: FR-CASE-01 ~ FR-CASE-04。
+//! Chunk 22.6 まで: `case-manager → wish-match → core` の単方向のみ。
+//!
+//! Chunk 23 で意図的に拡大: `case-manager → recovery / report / fs-ntfs` も追加。
+//! これは Phase 1.5 で「業務オーケストレーション層」を case-manager に置く
+//! ための **必要悪**。recovery / report / fs-ntfs からの逆向き依存は無いまま、
+//! 循環依存は発生していない（[`orchestration`] モジュール参照）。
+//!
+//! 関連 FR: FR-CASE-01 ~ FR-CASE-04, FR-OUT-01 ~ FR-OUT-04。
 
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
@@ -33,6 +38,8 @@ pub mod case;
 pub mod case_id;
 pub mod diagnostic;
 pub mod error;
+pub mod orchestration;
+pub mod output;
 pub mod storage;
 
 pub use case::{Case, RecoveryReportSummary};
@@ -41,4 +48,6 @@ pub use diagnostic::{
     DeletedFileStats, DiagnosticInput, FilesystemFindings, RecoverabilityEstimate,
 };
 pub use error::CaseError;
+pub use orchestration::{execute_business_recovery, BusinessRecoveryError, BusinessRecoveryResult};
+pub use output::CaseOutput;
 pub use storage::CaseStorage;
