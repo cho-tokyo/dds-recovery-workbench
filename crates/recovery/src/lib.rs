@@ -17,26 +17,31 @@
 //!
 //! ```no_run
 //! use dds_recovery::{RecoveryEngine, RecoveryOptions};
-//! use dds_wish_match::{Wishlist, Wish, WishItem, Priority};
+//! use dds_wish_match::{ExclusionList, Wishlist, Wish, WishItem, Priority};
 //! # use dds_fs_ntfs::NtfsVolume;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # let mut volume: NtfsVolume<Box<dyn FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>>> =
 //! #     unimplemented!();
 //!
+//! // Chunk 23.7: Wishlist は「優先データ」のラベリング。全件復旧 + 除外パターン
+//! //             で「ご指定のものはラベル付きで強調」する R-STUDIO 風業務フロー。
 //! let wishlist = Wishlist::new().add(
-//!     Wish::new(WishItem::Extension("docx".into()), "全ての Word 文書")
+//!     Wish::new(WishItem::Extension("docx".into()), "Word ファイル")
 //!         .with_priority(Priority::High),
 //! );
+//! let exclusions = ExclusionList::default_system_exclusions();
 //!
 //! let engine = RecoveryEngine::new("./recovered_files");
-//! let report = engine.recover_files(&mut volume, &wishlist)?;
-//! println!("Recovered: {}", report.recovered.len());
+//! let report = engine.recover_files(&mut volume, &wishlist, &exclusions)?;
+//! println!("Recovered: {} (priority: {})",
+//!     report.recovered.len(), report.priority_count());
 //! # Ok(())
 //! # }
 //! ```
 //!
 //! 関連 FR: FR-REC-01 (目標優先抽出), FR-REC-02 (出力先指定),
-//! FR-REC-03 (衝突解決), FR-REC-04 (データ整合性)。
+//! FR-REC-03 (衝突解決), FR-REC-04 (データ整合性),
+//! FR-REC-05 (全件復旧), FR-REC-06 (システム除外)。
 
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]

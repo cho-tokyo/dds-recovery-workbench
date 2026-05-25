@@ -92,9 +92,9 @@ pub fn render_internal_html(report: &RecoveryReport) -> Result<String, ReportErr
         report.total_matched,
     ));
 
-    // 復旧結果
+    // 復旧結果 (全体) - Chunk 23.7 で「全体」ラベル明示
     html.push_str(&format!(
-        "    <h2>復旧結果</h2>\n    <table>\n\
+        "    <h2>復旧結果 (全体)</h2>\n    <table>\n\
          <tr><th>復旧成功</th><td><span class=\"metric\">{rec}</span> 件 <span class=\"ratio\">(該当の {rate:.1}%)</span></td></tr>\n\
          <tr><th>復旧失敗</th><td>{fail} 件</td></tr>\n\
          <tr><th>スキップ</th><td>{skip} 件</td></tr>\n\
@@ -132,6 +132,30 @@ pub fn render_internal_html(report: &RecoveryReport) -> Result<String, ReportErr
         bytes = escape_html(&format_bytes(report.total_bytes_written())),
         dur = escape_html(&format_duration_ms(report.duration_ms())),
     ));
+
+    // === Chunk 23.7: お客様優先データセクション ===
+    // priority_count == 0 のとき（Wishlist が空 or マッチなし）は省略。
+    let priority_count = report.priority_count();
+    if priority_count > 0 {
+        html.push_str(&format!(
+            "  <h2>お客様優先データ (Wishlist マッチ)</h2>\n  <table>\n\
+             <tr><th>該当ファイル数</th><td><span class=\"metric\">{pc}</span> 件</td></tr>\n\
+             <tr><th>復旧データ量</th><td>{bytes}</td></tr>\n\
+             <tr><th>品質保証率</th><td><span class=\"metric\">{qa:.1}%</span></td></tr>\n\
+             </table>\n  <table>\n\
+             <tr><th>判定</th><th>件数</th></tr>\n\
+             <tr><td>Valid (正常)</td><td>{v}</td></tr>\n\
+             <tr><td>Invalid (要確認)</td><td>{i}</td></tr>\n\
+             <tr><td>Uncertain (検証外)</td><td>{u}</td></tr>\n\
+             </table>\n",
+            pc = priority_count,
+            bytes = escape_html(&format_bytes(report.priority_total_bytes())),
+            qa = report.priority_quality_assurance_rate(),
+            v = report.priority_validated_count(),
+            i = report.priority_invalid_count(),
+            u = report.priority_uncertain_count(),
+        ));
+    }
 
     // === 形式別ブレイクダウン ===
     let breakdown = report.format_breakdown();
@@ -254,6 +278,7 @@ mod tests {
             sha256: Some("aa".repeat(32)),
             validation,
             matched_wish_labels: vec![],
+            is_priority: false,
         }
     }
 
@@ -335,6 +360,27 @@ mod tests {
         // 2 つの distinct reason グループが invalid-group div として現れる。
         let group_count = html.matches("class=\"invalid-group\"").count();
         assert_eq!(group_count, 2, "two distinct invalid-reason groups");
+    }
+
+    #[test]
+    fn internal_html_shows_priority_section_when_priority_present() {
+        // Chunk 23.7: is_priority=true のエントリがあれば「お客様優先データ」セクションを表示。
+        let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
+        let mut priority_entry = entry("\\photo.png", Some(v_ok));
+        priority_entry.is_priority = true;
+        let html = render_internal_html(&make_report(vec![priority_entry], 1)).unwrap();
+        assert!(html.contains("お客様優先データ"));
+        assert!(html.contains("Wishlist マッチ"));
+        // 全体ラベルも併記されること。
+        assert!(html.contains("復旧結果 (全体)"));
+    }
+
+    #[test]
+    fn internal_html_hides_priority_section_when_no_priority() {
+        // Chunk 23.7: priority_count == 0 のときセクションは省略される。
+        let entries = vec![entry("\\a.txt", None)];
+        let html = render_internal_html(&make_report(entries, 1)).unwrap();
+        assert!(!html.contains("お客様優先データ"));
     }
 
     #[test]

@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use dds_fs_ntfs::{parse_boot_sector, NtfsVolume};
 use dds_recovery::RecoveryEngine;
 use dds_validators::ValidationStatus;
-use dds_wish_match::{Priority, Wish, WishItem, Wishlist};
+use dds_wish_match::{ExclusionList, Priority, Wish, WishItem, Wishlist};
 use tempfile::TempDir;
 
 /// `ntfs_mixed_formats` フィクスチャを開く。
@@ -69,15 +69,22 @@ fn recovers_mixed_formats_with_correct_validation_status() {
     let temp_dir = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(temp_dir.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist_all_15())
+        .recover_files(
+            &mut volume,
+            &wishlist_all_15(),
+            &ExclusionList::default_system_exclusions(),
+        )
         .expect("recover_files");
 
+    // Chunk 23.7: 全 user file が復旧対象（15 件、全て root 直下で除外対象外）。
     assert_eq!(
         report.recovered.len(),
         15,
-        "All 15 files should be recovered (got {})",
+        "All 15 user files should be recovered (got {})",
         report.recovered.len()
     );
+    // Wishlist マッチも 15 件全件（xyz 含めて全拡張子指定）。
+    assert_eq!(report.priority_count(), 15, "all 15 are wishlist matches");
 
     // ground truth の expected_validation_status / expected_format を実結果と照合。
     let expected: HashMap<String, (String, Option<String>)> = ground_truth["files"]
@@ -146,7 +153,11 @@ fn extension_content_mismatch_detected_as_invalid() {
     let temp_dir = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(temp_dir.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist_all_15())
+        .recover_files(
+            &mut volume,
+            &wishlist_all_15(),
+            &ExclusionList::default_system_exclusions(),
+        )
         .expect("recover_files");
 
     let mismatch_entry = report
@@ -179,7 +190,11 @@ fn corrupted_samples_marked_as_invalid() {
     let temp_dir = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(temp_dir.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist_all_15())
+        .recover_files(
+            &mut volume,
+            &wishlist_all_15(),
+            &ExclusionList::default_system_exclusions(),
+        )
         .expect("recover_files");
 
     let broken_paths = ["\\broken_001.png", "\\broken_002.jpg", "\\broken_003.pdf"];
@@ -207,11 +222,12 @@ fn corrupted_samples_marked_as_invalid() {
 fn product_demo_recovery_with_quality_breakdown() {
     let mut volume = open_mixed_formats_volume();
     let wishlist = wishlist_business_14();
+    let exclusions = ExclusionList::default_system_exclusions();
 
     let temp_dir = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(temp_dir.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist)
+        .recover_files(&mut volume, &wishlist, &exclusions)
         .expect("recover_files");
 
     println!("\n=== DDS Recovery Workbench - Quality Breakdown Demo ===\n");
@@ -283,13 +299,21 @@ fn product_demo_recovery_with_quality_breakdown() {
         report.uncertain_count()
     );
 
-    // 期待値: valid 10 (PNG×3, JPEG×2, PDF×2, GIF×1, BMP×1, DOCX×1),
-    //         invalid 4 (3 corrupted + 1 mismatch), uncertain 0 (xyz 除外)
+    // Chunk 23.7: 全件復旧設計に変更。xyz ファイルも復旧されるが、Wishlist
+    // (business_14) には含まれないので priority_count から外れる。
+    // 期待値:
+    //   recovered: 15 (xyz も含む全 user file)
+    //   priority_count: 14 (business_14 ヒット = xyz 以外)
+    //   valid 10 (PNG×3, JPEG×2, PDF×2, GIF×1, BMP×1, DOCX×1)
+    //   invalid 4 (3 corrupted + 1 mismatch)
+    //   uncertain 1 (xyz は Validator 未対応)
     assert_eq!(
         report.recovered.len(),
-        14,
-        "14 files matched (xyz excluded)"
+        15,
+        "all 15 user files recovered (Chunk 23.7 全件復旧)"
     );
+    assert_eq!(report.priority_count(), 14, "14 wishlist matches (xyz 除外)");
     assert_eq!(report.validated_count(), 10, "10 Valid expected");
     assert_eq!(report.invalid_count(), 4, "4 Invalid expected");
+    assert_eq!(report.uncertain_count(), 1, "1 Uncertain (xyz)");
 }

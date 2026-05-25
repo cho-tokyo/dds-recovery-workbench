@@ -148,7 +148,18 @@ impl Wish {
     }
 }
 
-/// お客様の希望リスト全体。複数の `Wish` をまとめて保持。
+/// お客様優先データのラベリング（品質チェックの強調用）。
+///
+/// **Phase 1 までの意味（Chunks 15-23.6）**: 復旧対象のファイル指定（Inclusion フィルタ）。
+/// `Wishlist` にマッチしたファイル「のみ」が復旧された。
+///
+/// **Phase 1.5 Chunk 23.7 以降**: お客様優先データのラベリング。
+/// 復旧範囲には影響しない（[`crate::ExclusionList`] で除外されない全 user file が
+/// 復旧される）。`Wishlist` にマッチしたファイルは `RecoveredEntry::is_priority = true`
+/// となり、レポート上で「お客様優先データ」として強調表示される。
+///
+/// この再定義により、Workbench は R-STUDIO 風の業務フロー（全件復旧 + 除外）
+/// と「お客様希望データの強調」を両立する。
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct Wishlist {
     /// 含まれる希望（順序は UI 表示順）。

@@ -33,7 +33,7 @@ use std::path::Path;
 
 use dds_fs_ntfs::NtfsVolume;
 use dds_recovery::{RecoveryConfig, RecoveryEngine, RecoveryError, RecoveryReport};
-use dds_wish_match::Wishlist;
+use dds_wish_match::{ExclusionList, Wishlist};
 
 use crate::case::{Case, RecoveryReportSummary};
 use crate::output::CaseOutput;
@@ -46,6 +46,9 @@ use crate::output::CaseOutput;
 ///
 /// `drive_root` は納品 HDD のルート (`"G:\\"`) または検証用 `TempDir::path()`。
 ///
+/// `exclusions` は [`ExclusionList::default_system_exclusions`] を渡すのが業務標準
+/// （Chunk 23.7 で追加。Windows / NTFS のシステム系を除外する）。
+///
 /// # エラー
 ///
 /// 内部の `create_dir_all` / `RecoveryEngine` / `write_business_reports` で
@@ -55,6 +58,7 @@ pub fn execute_business_recovery<F>(
     drive_root: impl AsRef<Path>,
     volume: &mut NtfsVolume<F>,
     wishlist: &Wishlist,
+    exclusions: &ExclusionList,
 ) -> Result<BusinessRecoveryResult, BusinessRecoveryError>
 where
     F: FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>,
@@ -70,8 +74,8 @@ where
     );
     let engine = RecoveryEngine::with_config(config);
 
-    // Step 3: 復旧実行。
-    let report = engine.recover_files(volume, wishlist)?;
+    // Step 3: 復旧実行。Chunk 23.7 で全件復旧 + ExclusionList で除外する設計に変更。
+    let report = engine.recover_files(volume, wishlist, exclusions)?;
 
     // Step 4: レポート 4 ファイル生成（日本語名）。
     let report_paths = dds_report::write_business_reports(

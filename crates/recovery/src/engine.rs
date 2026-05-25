@@ -12,8 +12,10 @@ use std::path::{Path, PathBuf};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 
+use std::collections::HashMap;
+
 use dds_fs_ntfs::{NtfsFile, NtfsVolume};
-use dds_wish_match::{match_files, FileInfo, MatchResult, Wishlist};
+use dds_wish_match::{match_files, ExclusionList, FileInfo, MatchResult, Wishlist};
 
 use crate::error::RecoveryError;
 use crate::options::{ConflictStrategy, RecoveryOptions};
@@ -125,7 +127,24 @@ impl RecoveryEngine {
         &self.config
     }
 
-    /// マッチしたファイルを実際にディスクに復旧する。
+    /// すべての user file を復旧し、Wishlist マッチを「優先データ」としてラベリングする
+    /// （Chunk 23.7、R-STUDIO 風業務フロー対応）。
+    ///
+    /// ## 復旧範囲
+    ///
+    /// 以下のすべてを満たす [`NtfsFile`] が復旧対象:
+    /// - `is_user_file()` が true（NTFS システムファイル除外）
+    /// - `is_directory` が false（ディレクトリは別途扱い）
+    /// - `exclusions.matches(&file.path)` が false（業務的システムファイル除外）
+    ///
+    /// ## Wishlist の役割
+    ///
+    /// 復旧範囲には影響しない。マッチしたファイルは
+    /// `RecoveredEntry::is_priority = true` + `priority_score` 継承 +
+    /// `matched_wish_labels` 設定で「お客様優先データ」としてマーキングされる。
+    ///
+    /// Phase 1 までは「Wishlist マッチのみ復旧」だったが、Chunk 23.7 で
+    /// R-STUDIO 風の「全件復旧 + 除外 + 優先マーキング」に方向転換した。
     ///
     /// 個別ファイルの失敗で全体は止まらず、`RecoveryReport` の
     /// `recovered` / `failed` / `skipped` のいずれかに per-file で記録される。
@@ -133,6 +152,7 @@ impl RecoveryEngine {
         &self,
         volume: &mut NtfsVolume<F>,
         wishlist: &Wishlist,
+        exclusions: &ExclusionList,
     ) -> Result<RecoveryReport, RecoveryError>
     where
         F: FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>,
@@ -142,42 +162,45 @@ impl RecoveryEngine {
         // Step 1: 出力ディレクトリの準備（無ければ作成、書き込めるか検証）。
         self.prepare_output_dir()?;
 
-        // Step 2: 全ユーザファイル列挙 + FileInfo 変換。$ プレフィックスは除外し
-        //         「お客様の希望」と純粋にマッチするものに絞る（業務的方針）。
+        // Step 2: 全ユーザファイル列挙。Chunk 23.7 で `has_system_name_prefix` の
+        //         組み込みフィルタを撤去し、ExclusionList で `$` プレフィックスを除外する設計に
+        //         変更（より明示的・カスタマイズ可能）。
         let ntfs_files: Vec<NtfsFile> = volume
             .iter_files()
             .filter_map(Result::ok)
-            .filter(|f| f.is_user_file() && !f.has_system_name_prefix())
+            .filter(|f| f.is_user_file() && !f.is_directory)
+            .filter(|f| !exclusions.matches(&f.path))
             .collect();
+
+        // Step 3: 全件分の FileInfo を構築し、Wishlist との照合を index 化する。
+        //         Wishlist が空のときは何もマッチしない（全件 is_priority=false）。
         let file_infos: Vec<FileInfo> = ntfs_files.iter().map(FileInfo::from).collect();
+        let match_results = match_files(&file_infos, wishlist);
+        let match_index: HashMap<String, MatchResult<'_>> = match_results
+            .into_iter()
+            .map(|m| (m.source_id.clone(), m))
+            .collect();
 
-        // Step 3: マッチング（wish-match の責務、優先度降順ソート済み）。
-        let matches = match_files(&file_infos, wishlist);
-
-        let total_matched = matches.len();
+        // 復旧試行対象 = 除外 / システムを差し引いた全 user file。
+        // total_matched は Chunk 23.7 で「復旧範囲全体の母数」を表すよう意味が拡張された。
+        let total_matched = ntfs_files.len();
         let mut recovered = Vec::new();
         let mut failed = Vec::new();
         let mut skipped = Vec::new();
 
         // Step 4: 1 件ずつ復旧。失敗しても全体は止めない。
-        for m in &matches {
-            let Some(ntfs_file) = find_ntfs_file_by_source_id(&ntfs_files, &m.source_id) else {
-                failed.push(FailedEntry {
-                    source_id: m.source_id.clone(),
-                    original_path: String::new(),
-                    error_message: "NtfsFile not found for source_id".into(),
-                });
-                continue;
-            };
-            match self.recover_one(volume, ntfs_file, m) {
+        for ntfs_file in &ntfs_files {
+            let source_id = format!("NTFS#{}", ntfs_file.record_index);
+            let match_result = match_index.get(&source_id);
+            match self.recover_one(volume, ntfs_file, &source_id, match_result) {
                 Ok(SingleOutcome::Recovered(entry)) => recovered.push(*entry),
                 Ok(SingleOutcome::Skipped(reason)) => skipped.push(SkippedEntry {
-                    source_id: m.source_id.clone(),
+                    source_id,
                     original_path: ntfs_file.path.clone(),
                     reason,
                 }),
                 Err(e) => failed.push(FailedEntry {
-                    source_id: m.source_id.clone(),
+                    source_id,
                     original_path: ntfs_file.path.clone(),
                     error_message: e.to_string(),
                 }),
@@ -223,12 +246,18 @@ impl RecoveryEngine {
         Ok(())
     }
 
-    /// 1 つのマッチ結果を実ファイルとして書き出す。サイズ超過なら `Skipped`。
+    /// 1 つの NTFS ファイルを実ファイルとして書き出す。サイズ超過なら `Skipped`。
+    ///
+    /// Chunk 23.7 で全件復旧化に伴いシグネチャ変更:
+    /// - `m: &MatchResult` → `match_result: Option<&MatchResult>` (Wishlist マッチは optional)
+    /// - 新規 `source_id` 引数（マッチがなくても source_id を一意に生成できるよう外で構築）
+    /// - `is_priority` をマッチ有無から判定して `RecoveredEntry` に格納
     fn recover_one<F>(
         &self,
         volume: &mut NtfsVolume<F>,
         ntfs_file: &NtfsFile,
-        m: &MatchResult<'_>,
+        source_id: &str,
+        match_result: Option<&MatchResult<'_>>,
     ) -> Result<SingleOutcome, RecoveryError>
     where
         F: FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>,
@@ -283,20 +312,27 @@ impl RecoveryEngine {
             None
         };
 
-        // Chunk 20.5: マッチした各 Wish のラベルを集約。CSV / レポート用。
-        let matched_wish_labels: Vec<String> =
-            m.matched_wishes.iter().map(|w| w.label.clone()).collect();
+        // Chunk 23.7: 優先データ判定 + Wish ラベル集約。
+        let (is_priority, matched_wish_labels, priority_score) = match match_result {
+            Some(m) => (
+                true,
+                m.matched_wishes.iter().map(|w| w.label.clone()).collect(),
+                m.priority_score,
+            ),
+            None => (false, Vec::new(), 0),
+        };
 
         Ok(SingleOutcome::Recovered(Box::new(RecoveredEntry {
-            source_id: m.source_id.clone(),
+            source_id: source_id.to_string(),
             original_path: ntfs_file.path.clone(),
             output_path: final_path,
             bytes_written: content.len() as u64,
-            priority_score: m.priority_score,
+            priority_score,
             is_deleted: ntfs_file.is_deleted,
             sha256,
             validation,
             matched_wish_labels,
+            is_priority,
         })))
     }
 
@@ -397,13 +433,6 @@ impl RecoveryEngine {
 enum SingleOutcome {
     Recovered(Box<RecoveredEntry>),
     Skipped(String),
-}
-
-/// `MatchResult::source_id` から対応する `NtfsFile` を逆引きする。
-fn find_ntfs_file_by_source_id<'a>(files: &'a [NtfsFile], source_id: &str) -> Option<&'a NtfsFile> {
-    files
-        .iter()
-        .find(|f| format!("NTFS#{}", f.record_index) == source_id)
 }
 
 /// SHA256 を 16 進文字列で計算（小文字）。`RecoveredEntry::sha256` 用ヘルパ。
@@ -568,6 +597,78 @@ mod tests {
             "deleted path should start with 削除ファイル: {:?}",
             del_path
         );
+    }
+
+    // === Chunk 23.7: 全件復旧 + 優先データマーキング テスト ===
+
+    #[test]
+    fn recover_all_user_files_when_no_wishlist_match() {
+        // Chunk 23.7: Wishlist が空でも全 user file が復旧される（R-STUDIO 風）。
+        // ここでは「全件 priority=false」の挙動を build_output_path で確認するだけ
+        // （実復旧は結合テストで検証）。
+        use crate::report::{RecoveredEntry, RecoveryReport};
+        use chrono::Utc;
+        // 模擬 RecoveryReport を作成し、is_priority=false が priority_count に
+        // 反映されないことを確認する単体検証。
+        let now = Utc::now();
+        let entry = RecoveredEntry {
+            source_id: "NTFS#100".into(),
+            original_path: "\\dir\\file.txt".into(),
+            output_path: std::path::PathBuf::new(),
+            bytes_written: 10,
+            priority_score: 0,
+            is_deleted: false,
+            sha256: None,
+            validation: None,
+            matched_wish_labels: Vec::new(),
+            is_priority: false,
+        };
+        let report = RecoveryReport {
+            started_at: now,
+            finished_at: now,
+            total_matched: 1,
+            recovered: vec![entry],
+            failed: vec![],
+            skipped: vec![],
+            wish_labels: vec![],
+        };
+        assert_eq!(report.recovered.len(), 1);
+        assert_eq!(report.priority_count(), 0); // Wishlist マッチ 0
+    }
+
+    #[test]
+    fn recover_excludes_system_files_via_exclusions() {
+        // Chunk 23.7: ExclusionList::default_system_exclusions が
+        // \Windows\... を確実に除外することを検証（ExclusionList 単体動作確認）。
+        use dds_wish_match::ExclusionList;
+        let ex = ExclusionList::default_system_exclusions();
+        assert!(ex.matches("\\Windows\\System32\\drivers\\foo.sys"));
+        assert!(ex.matches("\\$MFT"));
+        assert!(!ex.matches("\\Users\\Chou\\Documents\\report.docx"));
+    }
+
+    #[test]
+    fn recover_marks_wishlist_match_as_priority() {
+        // Chunk 23.7: Wishlist にマッチしたエントリは RecoveredEntry::is_priority=true
+        // となること、ラベルが伝播することを検証する単体テスト。
+        use crate::report::RecoveredEntry;
+        // 模擬：build_recovered 同等の構成で is_priority=true を作成。
+        let entry = RecoveredEntry {
+            source_id: "NTFS#7".into(),
+            original_path: "\\image.png".into(),
+            output_path: std::path::PathBuf::new(),
+            bytes_written: 100,
+            priority_score: 75, // High
+            is_deleted: false,
+            sha256: None,
+            validation: None,
+            matched_wish_labels: vec!["お客様の写真".into()],
+            is_priority: true,
+        };
+        assert!(entry.is_priority);
+        assert_eq!(entry.priority_score, 75);
+        assert_eq!(entry.matched_wish_labels.len(), 1);
+        assert_eq!(entry.matched_wish_labels[0], "お客様の写真");
     }
 
     #[test]

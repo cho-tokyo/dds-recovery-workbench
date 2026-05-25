@@ -13,7 +13,7 @@ use std::fs;
 
 use dds_fs_ntfs::{parse_boot_sector, NtfsVolume};
 use dds_recovery::{RecoveredEntry, RecoveryEngine};
-use dds_wish_match::{Priority, Wish, WishItem, Wishlist};
+use dds_wish_match::{ExclusionList, Priority, Wish, WishItem, Wishlist};
 use tempfile::TempDir;
 
 fn open_fixture(name: &str) -> NtfsVolume<impl FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>> {
@@ -39,18 +39,24 @@ fn recovers_all_5_deleted_txt_files() {
         Wish::new(WishItem::Extension("txt".into()), "全 .txt ファイル")
             .with_priority(Priority::High),
     );
+    // Chunk 23.7: フィクスチャは user files のみで構成。デフォルト exclusions だと
+    // $ プレフィックスファイルが除外されるが、このフィクスチャには存在しない想定。
+    let exclusions = ExclusionList::default_system_exclusions();
 
     let tmp = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(tmp.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist)
+        .recover_files(&mut volume, &wishlist, &exclusions)
         .expect("recover_files");
 
-    // 30 ファイル全件（live 25 + deleted 5）が wish-match でマッチ、全件復旧成功。
+    // Chunk 23.7: 全 user file が復旧対象（フィクスチャは 30 件全て .txt）。
+    // 30 ファイル全件（live 25 + deleted 5）が復旧成功 + 全件 priority。
     assert_eq!(report.total_matched, 30, "total_matched");
     assert_eq!(report.recovered.len(), 30, "recovered count");
     assert_eq!(report.failed.len(), 0, "no failures");
     assert_eq!(report.skipped.len(), 0, "no skips");
+    // Wishlist マッチ = 全 30 件（拡張子 .txt のため）。
+    assert_eq!(report.priority_count(), 30, "all 30 are wishlist matches");
 
     // 削除済み 5 件は `deleted/` サブディレクトリに。
     let deleted_dir = tmp.path().join("deleted");
@@ -101,14 +107,15 @@ fn recovered_files_match_ground_truth_sha256() {
         .collect();
 
     let wishlist = Wishlist::new().add(Wish::new(WishItem::Extension("txt".into()), "全 .txt"));
+    let exclusions = ExclusionList::default_system_exclusions();
 
     let tmp = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(tmp.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist)
+        .recover_files(&mut volume, &wishlist, &exclusions)
         .expect("recover_files");
 
-    // 109 ファイル全件復旧（全て live）。
+    // 109 ファイル全件復旧（全て live、全て .txt なので全件 priority）。
     assert!(
         report.recovered.len() >= 100,
         "expected >= 100 recovered, got {}",
@@ -161,11 +168,12 @@ fn product_demo_end_to_end_recovery() {
         )
         .with_priority(Priority::Critical),
     );
+    let exclusions = ExclusionList::default_system_exclusions();
 
     let tmp = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(tmp.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist)
+        .recover_files(&mut volume, &wishlist, &exclusions)
         .expect("recover_files");
 
     println!("\n=== DDS Recovery Workbench - Phase 1 End-to-End Demo ===\n");

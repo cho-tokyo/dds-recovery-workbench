@@ -12,7 +12,7 @@ mod common;
 
 use dds_fs_ntfs::{parse_boot_sector, NtfsVolume};
 use dds_recovery::RecoveryEngine;
-use dds_wish_match::{Priority, Wish, WishItem, Wishlist};
+use dds_wish_match::{ExclusionList, Priority, Wish, WishItem, Wishlist};
 use tempfile::TempDir;
 
 fn open_fixture(name: &str) -> NtfsVolume<impl FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>> {
@@ -28,11 +28,12 @@ fn recovery_with_validation_marks_txt_as_uncertain() {
     let mut volume = open_fixture("ntfs_directories");
     let wishlist = Wishlist::new()
         .add(Wish::new(WishItem::Extension("txt".into()), "全 .txt").with_priority(Priority::High));
+    let exclusions = ExclusionList::default_system_exclusions();
 
     let tmp = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(tmp.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist)
+        .recover_files(&mut volume, &wishlist, &exclusions)
         .expect("recover_files");
 
     // .txt は Validator なしなので Valid / Invalid は 0 件。
@@ -73,11 +74,12 @@ fn product_demo_recovery_with_validation() {
         Wish::new(WishItem::Extension("txt".into()), "テキスト全般")
             .with_priority(Priority::Critical),
     );
+    let exclusions = ExclusionList::default_system_exclusions();
 
     let tmp = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(tmp.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist)
+        .recover_files(&mut volume, &wishlist, &exclusions)
         .expect("recover_files");
 
     println!("\n=== DDS Recovery Workbench - Recovery + Validation Demo (Chunk 18) ===\n");

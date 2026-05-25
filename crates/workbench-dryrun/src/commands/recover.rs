@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context, Result};
 
 use dds_case_manager::{execute_business_recovery, CaseStorage};
 use dds_core::format::format_bytes;
-use dds_wish_match::{Priority, Wish, WishItem, Wishlist};
+use dds_wish_match::{ExclusionList, Priority, Wish, WishItem, Wishlist};
 
 use crate::drives::list_drives;
 use crate::prompts::{confirm, prompt_case_id, prompt_number, prompt_string};
@@ -77,11 +77,20 @@ pub fn run() -> Result<()> {
         ));
     }
 
-    // Step 3: Wishlist 入力
+    // Step 3: Wishlist 入力。Chunk 23.7 以降は「お客様優先データ」のラベリング用
+    //         （空でも全件復旧は実行される）。
     let wishlist = prompt_wishlist()?;
     if wishlist.is_empty() {
-        return Err(anyhow!("Wishlist が空です。少なくとも 1 つの希望が必要です。"));
+        println!();
+        println!("[注意] Wishlist が空ですが、全 user file を復旧します（R-STUDIO 風）。");
+        println!("       お客様優先データの強調表示は行われません。");
+        if !confirm("Wishlist 空のまま続行しますか?")? {
+            return Err(anyhow!("ユーザーキャンセル"));
+        }
     }
+
+    // Chunk 23.7: 除外パターンは業務標準のデフォルトを使用。
+    let exclusions = ExclusionList::default_system_exclusions();
 
     // Step 4: 確認
     println!();
@@ -95,10 +104,15 @@ pub fn run() -> Result<()> {
         "  納品先:         {} ({})",
         delivery_drive.drive_letter, delivery_drive.label
     );
-    println!("  希望データ数:   {}", wishlist.len());
+    println!("  お客様優先データ: {} 件", wishlist.len());
     for (i, wish) in wishlist.wishes.iter().enumerate() {
         println!("    {}: 「{}」", i + 1, wish.label);
     }
+    println!();
+    println!("  除外パターン (業務標準):");
+    println!("    - Windows / Program Files フォルダ");
+    println!("    - $Recycle.Bin, System Volume Information");
+    println!("    - $ で始まるシステムファイル");
     println!();
     println!("出力先: {}\\{}\\", delivery_drive.drive_letter, case_id);
     println!();
@@ -118,6 +132,7 @@ pub fn run() -> Result<()> {
         delivery_drive.mount_point.clone(),
         &mut volume,
         &wishlist,
+        &exclusions,
     )
     .context("復旧の実行に失敗しました")?;
 
@@ -125,8 +140,8 @@ pub fn run() -> Result<()> {
     println!("[復旧完了 - {:.2} 秒]", elapsed.as_secs_f64());
     println!();
 
-    // Step 6: 結果表示
-    println!("結果:");
+    // Step 6: 結果表示。Chunk 23.7 で「全体 + 優先データ」二重表示。
+    println!("結果 (全体):");
     println!("  該当ファイル:   {} 件", result.report.total_matched);
     println!(
         "  復旧成功:       {} 件 ({:.1}%)",
@@ -142,6 +157,19 @@ pub fn run() -> Result<()> {
         format_bytes(result.report.total_bytes_written())
     );
     println!();
+    if result.report.priority_count() > 0 {
+        println!("結果 (お客様優先データ):");
+        println!("  該当ファイル:   {} 件", result.report.priority_count());
+        println!(
+            "  品質保証率:     {:.1}%",
+            result.report.priority_quality_assurance_rate()
+        );
+        println!(
+            "  復旧データ量:   {}",
+            format_bytes(result.report.priority_total_bytes())
+        );
+        println!();
+    }
 
     println!("生成ファイル:");
     println!("  {}", result.case_output.root().display());

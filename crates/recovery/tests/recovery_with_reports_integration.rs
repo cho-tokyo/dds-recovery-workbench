@@ -16,7 +16,7 @@ use std::io::Read;
 
 use dds_fs_ntfs::{parse_boot_sector, NtfsVolume};
 use dds_recovery::RecoveryEngine;
-use dds_wish_match::{Priority, Wish, WishItem, Wishlist};
+use dds_wish_match::{ExclusionList, Priority, Wish, WishItem, Wishlist};
 use tempfile::TempDir;
 
 /// `ntfs_mixed_formats` フィクスチャを開く。
@@ -72,7 +72,11 @@ fn generates_four_report_files_in_business_format() {
 
     let engine = RecoveryEngine::new(&recovery_dir);
     let report = engine
-        .recover_files(&mut volume, &business_wishlist())
+        .recover_files(
+            &mut volume,
+            &business_wishlist(),
+            &ExclusionList::default_system_exclusions(),
+        )
         .expect("recover_files");
 
     let paths = dds_report::write_all_reports(&report, &report_dir).expect("write_all_reports");
@@ -105,7 +109,11 @@ fn customer_docx_must_not_contain_internal_notes() {
     let temp_dir = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(temp_dir.path().join("recovered"));
     let report = engine
-        .recover_files(&mut volume, &business_wishlist())
+        .recover_files(
+            &mut volume,
+            &business_wishlist(),
+            &ExclusionList::default_system_exclusions(),
+        )
         .expect("recover_files");
 
     let docx_bytes = dds_report::render_customer_docx(&report).expect("render_customer_docx");
@@ -136,6 +144,7 @@ fn product_demo_business_grade_reports() {
     //        product_demo_business_grade_reports -- --nocapture`
     let mut volume = open_mixed_formats_volume();
     let wishlist = business_wishlist();
+    let exclusions = ExclusionList::default_system_exclusions();
 
     let temp_dir = TempDir::new().unwrap();
     let recovery_dir = temp_dir.path().join("recovered");
@@ -143,7 +152,7 @@ fn product_demo_business_grade_reports() {
 
     let engine = RecoveryEngine::new(&recovery_dir);
     let report = engine
-        .recover_files(&mut volume, &wishlist)
+        .recover_files(&mut volume, &wishlist, &exclusions)
         .expect("recover_files");
 
     let paths = dds_report::write_all_reports(&report, &report_dir).expect("write_all_reports");
@@ -218,12 +227,13 @@ fn product_demo_business_grade_reports() {
     assert!(internal.contains("品質保証率"));
     assert!(internal.contains("形式別ブレイクダウン") || internal.contains("ブレイクダウン"));
 
-    // CSV ヘッダーが 14 列
+    // CSV ヘッダーが 15 列（Chunk 23.7 で is_priority 列追加）
     let csv = std::fs::read_to_string(&paths.csv).unwrap();
     let first_line = csv.lines().next().unwrap();
     let col_count = first_line.split(',').count();
-    assert_eq!(col_count, 14, "CSV ヘッダーは 14 列: {}", first_line);
+    assert_eq!(col_count, 15, "CSV ヘッダーは 15 列: {}", first_line);
     assert!(first_line.contains("matched_wishes"));
+    assert!(first_line.contains("is_priority"));
 }
 
 /// 通常 CI からは除外する開発者用デモ: 生成された 4 レポートを
@@ -238,7 +248,11 @@ fn persist_chunk20_5_demo_reports() {
     let temp_dir = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(temp_dir.path().join("recovered"));
     let report = engine
-        .recover_files(&mut volume, &business_wishlist())
+        .recover_files(
+            &mut volume,
+            &business_wishlist(),
+            &ExclusionList::default_system_exclusions(),
+        )
         .expect("recover_files");
 
     // workspace ルート target/chunk20_5-samples に永続化。

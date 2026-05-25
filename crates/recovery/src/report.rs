@@ -145,6 +145,81 @@ impl RecoveryReport {
         map
     }
 
+    // === Chunk 23.7: お客様優先データ統計（Wishlist マッチ分のみ） ===
+
+    /// 優先データ（`is_priority = true`）の件数（Chunk 23.7）。
+    ///
+    /// 全件復旧 + Wishlist ラベリング設計（Chunk 23.7）の下で、
+    /// 「お客様が特に希望されたデータ」の件数をレポート上で強調するために使う。
+    pub fn priority_count(&self) -> usize {
+        self.recovered.iter().filter(|e| e.is_priority).count()
+    }
+
+    /// 優先データ中の Valid 件数（Chunk 23.7）。
+    pub fn priority_validated_count(&self) -> usize {
+        self.recovered
+            .iter()
+            .filter(|e| e.is_priority)
+            .filter(|e| {
+                e.validation
+                    .as_ref()
+                    .map(|v| v.status.is_valid())
+                    .unwrap_or(false)
+            })
+            .count()
+    }
+
+    /// 優先データ中の Invalid 件数（Chunk 23.7）。
+    pub fn priority_invalid_count(&self) -> usize {
+        self.recovered
+            .iter()
+            .filter(|e| e.is_priority)
+            .filter(|e| {
+                e.validation
+                    .as_ref()
+                    .map(|v| v.status.is_invalid())
+                    .unwrap_or(false)
+            })
+            .count()
+    }
+
+    /// 優先データ中の Uncertain 件数（Chunk 23.7）。
+    ///
+    /// `uncertain_count` と同様、`validation` が `None` のものも Uncertain 扱い。
+    pub fn priority_uncertain_count(&self) -> usize {
+        self.recovered
+            .iter()
+            .filter(|e| e.is_priority)
+            .filter(|e| {
+                e.validation
+                    .as_ref()
+                    .map(|v| v.status.is_uncertain())
+                    .unwrap_or(true)
+            })
+            .count()
+    }
+
+    /// 優先データの品質保証率（パーセント、Chunk 23.7）。
+    ///
+    /// = `priority_validated_count` / `priority_count` × 100。
+    /// `priority_count == 0` のときは `0.0`（業務的に「優先データが 0 件なら品質保証率の概念は無意味」）。
+    pub fn priority_quality_assurance_rate(&self) -> f64 {
+        let count = self.priority_count();
+        if count == 0 {
+            return 0.0;
+        }
+        (self.priority_validated_count() as f64) / (count as f64) * 100.0
+    }
+
+    /// 優先データの合計書込バイト数（Chunk 23.7）。
+    pub fn priority_total_bytes(&self) -> u64 {
+        self.recovered
+            .iter()
+            .filter(|e| e.is_priority)
+            .map(|e| e.bytes_written)
+            .sum()
+    }
+
     /// Invalid なファイルを「形式 + 主要顧客メッセージ冒頭」でグルーピング（Chunk 20.5）。
     ///
     /// 業務的に「PNG ヘッダー破損 N 件」「JPEG マジック不一致 N 件」のように
@@ -222,6 +297,13 @@ pub struct RecoveredEntry {
     /// このファイルにマッチした `Wish::label` のリスト（Chunk 20.5）。
     /// CSV / レポートで「何の希望と紐付いたか」を示すために使う。
     pub matched_wish_labels: Vec<String>,
+
+    /// このファイルが「お客様優先データ」か（Chunk 23.7）。
+    ///
+    /// Phase 1.5 Chunk 23.7 で導入。Wishlist にマッチしたファイルは `true`、
+    /// それ以外（全件復旧で復旧されたが Wishlist にマッチしなかった user file）
+    /// は `false`。レポート上で「お客様優先データ」セクションの集計対象になる。
+    pub is_priority: bool,
 }
 
 /// 復旧失敗したファイル 1 件。レポートで原因確認できるようにする。
@@ -262,6 +344,7 @@ mod tests {
             sha256: None,
             validation: None,
             matched_wish_labels: Vec::new(),
+            is_priority: false,
         }
     }
 
@@ -408,6 +491,86 @@ mod tests {
         let jpeg = bd.get("JPEG").expect("JPEG present");
         assert_eq!(jpeg.valid, 2);
         assert_eq!(jpeg.total, 2);
+    }
+
+    // === Chunk 23.7: 優先データ統計テスト ===
+
+    #[test]
+    fn priority_count_only_counts_marked_entries() {
+        // 全 5 件の recovered のうち、is_priority=true のもの 2 件だけ priority_count にカウント。
+        let mut entries = Vec::new();
+        for i in 0..5 {
+            let mut e = build_recovered(i as u64);
+            e.is_priority = i < 2; // 最初の 2 件のみ priority
+            entries.push(e);
+        }
+        let report = build_report(entries, 5);
+        assert_eq!(report.priority_count(), 2);
+        assert_eq!(report.recovered.len(), 5);
+    }
+
+    #[test]
+    fn priority_quality_assurance_rate_calculated_separately() {
+        // 優先データのみ 4 件 (Valid 3, Invalid 1) → 品質保証率 75.0%
+        // 非優先データは混在するが priority_quality_assurance_rate には影響しない。
+        let mut entries = Vec::new();
+        let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "ok", None);
+        let v_ng = ValidationResult::invalid("PNG", "png_v1", "x", "壊れ", "メモ");
+        for _ in 0..3 {
+            let mut e = build_recovered(0);
+            e.is_priority = true;
+            e.validation = Some(v_ok.clone());
+            entries.push(e);
+        }
+        let mut bad = build_recovered(0);
+        bad.is_priority = true;
+        bad.validation = Some(v_ng.clone());
+        entries.push(bad);
+        // 非優先データ：Invalid 5 件あっても priority_quality_assurance_rate には影響しない。
+        for _ in 0..5 {
+            let mut e = build_recovered(0);
+            e.is_priority = false;
+            e.validation = Some(v_ng.clone());
+            entries.push(e);
+        }
+        let report = build_report(entries, 9);
+        assert_eq!(report.priority_count(), 4);
+        assert!((report.priority_quality_assurance_rate() - 75.0).abs() < 0.01);
+        // 全体の品質保証率はもっと悪い (3/9 = 33.3%)
+        assert!((report.quality_assurance_rate() - 33.333).abs() < 0.1);
+    }
+
+    #[test]
+    fn report_can_compute_both_overall_and_priority_stats() {
+        // 「全体 + 優先データ」の二重表示が成立する：両方の集計が同時に取れる。
+        let mut entries = Vec::new();
+        let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "ok", None);
+        // 優先データ 2 件 (Valid)
+        for _ in 0..2 {
+            let mut e = build_recovered(100);
+            e.is_priority = true;
+            e.validation = Some(v_ok.clone());
+            entries.push(e);
+        }
+        // 非優先データ 3 件 (Valid)
+        for _ in 0..3 {
+            let mut e = build_recovered(50);
+            e.is_priority = false;
+            e.validation = Some(v_ok.clone());
+            entries.push(e);
+        }
+        let report = build_report(entries, 5);
+        // 全体集計
+        assert_eq!(report.recovered.len(), 5);
+        assert_eq!(report.validated_count(), 5);
+        assert_eq!(report.total_bytes_written(), 100 * 2 + 50 * 3);
+        // 優先データ集計
+        assert_eq!(report.priority_count(), 2);
+        assert_eq!(report.priority_validated_count(), 2);
+        assert_eq!(report.priority_invalid_count(), 0);
+        assert_eq!(report.priority_uncertain_count(), 0);
+        assert_eq!(report.priority_total_bytes(), 200);
+        assert!((report.priority_quality_assurance_rate() - 100.0).abs() < 0.01);
     }
 
     #[test]

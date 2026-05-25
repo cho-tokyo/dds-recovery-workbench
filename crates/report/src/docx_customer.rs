@@ -73,9 +73,57 @@ pub fn render_customer_docx(report: &RecoveryReport) -> Result<Vec<u8>, ReportEr
     }
     docx = docx.add_paragraph(Paragraph::new());
 
-    // === 復旧結果サマリ ===
+    // === Chunk 23.7: お客様優先データセクション ===
+    // 全件復旧 + Wishlist ラベリング設計（R-STUDIO 風）の下で、
+    // 「ご指定優先データ」の結果を「全体」とは別にお客様に伝える。
+    if report.priority_count() > 0 {
+        docx = docx.add_paragraph(
+            Paragraph::new().add_run(
+                Run::new()
+                    .add_text("■ ご指定優先データの結果")
+                    .size(28)
+                    .bold(),
+            ),
+        );
+        let priority_rows = vec![
+            make_kv_row(
+                "該当ファイル数",
+                &format!("{} 件", report.priority_count()),
+            ),
+            make_kv_row(
+                "復旧データ量",
+                &crate::format::format_bytes(report.priority_total_bytes()),
+            ),
+            make_kv_row(
+                "正常確認済み",
+                &format!(
+                    "{} 件 ({:.1}%)",
+                    report.priority_validated_count(),
+                    report.priority_quality_assurance_rate()
+                ),
+            ),
+            make_kv_row(
+                "要ご確認",
+                &format!("{} 件", report.priority_invalid_count()),
+            ),
+            make_kv_row(
+                "自動確認対象外",
+                &format!("{} 件", report.priority_uncertain_count()),
+            ),
+        ];
+        docx = docx.add_table(Table::new(priority_rows));
+        docx = docx.add_paragraph(Paragraph::new());
+    }
+
+    // === 復旧結果サマリ (全体) ===
+    // Chunk 23.7 で「(全体)」ラベル明示。優先データセクションとの混同を防ぐ。
     docx = docx.add_paragraph(
-        Paragraph::new().add_run(Run::new().add_text("■ 復旧結果サマリ").size(28).bold()),
+        Paragraph::new().add_run(
+            Run::new()
+                .add_text("■ 復旧結果サマリ (全体)")
+                .size(28)
+                .bold(),
+        ),
     );
     let summary_rows = vec![
         make_kv_row("該当ファイル数", &format!("{} 件", report.total_matched)),
@@ -223,6 +271,7 @@ mod tests {
             sha256: None,
             validation,
             matched_wish_labels: vec![],
+            is_priority: false,
         }
     }
 
@@ -282,6 +331,34 @@ mod tests {
             "CS 内部メモは顧客 .docx に含まれてはならない"
         );
         assert!(!text.contains("CS 確認案件"));
+    }
+
+    #[test]
+    fn customer_docx_shows_priority_section_when_priority_present() {
+        // Chunk 23.7: 優先データありの場合「ご指定優先データの結果」セクションが含まれる。
+        let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
+        let mut e = entry("\\photo.png", Some(v_ok));
+        e.is_priority = true;
+        let report = build_report(vec!["写真".into()], vec![e]);
+        let bytes = render_customer_docx(&report).unwrap();
+        let text = extract_docx_text(&bytes);
+        assert!(text.contains("ご指定優先データの結果"));
+        // 全体ラベルも併記。
+        assert!(text.contains("復旧結果サマリ (全体)"));
+    }
+
+    #[test]
+    fn customer_docx_hides_priority_section_when_no_priority() {
+        // Chunk 23.7: priority_count == 0 のとき「ご指定優先データの結果」は省略。
+        let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
+        let e = entry("\\photo.png", Some(v_ok));
+        // is_priority は false のまま。
+        let report = build_report(vec![], vec![e]);
+        let bytes = render_customer_docx(&report).unwrap();
+        let text = extract_docx_text(&bytes);
+        assert!(!text.contains("ご指定優先データの結果"));
+        // 「(全体)」ラベルは Wishlist 有無に関わらず常に表示。
+        assert!(text.contains("復旧結果サマリ (全体)"));
     }
 
     #[test]

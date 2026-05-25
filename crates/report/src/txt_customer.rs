@@ -135,6 +135,7 @@ mod tests {
             sha256: None,
             validation: Some(validation),
             matched_wish_labels: vec![],
+            is_priority: false,
         }
     }
 
@@ -150,6 +151,7 @@ mod tests {
             sha256: None,
             validation: Some(validation),
             matched_wish_labels: vec![],
+            is_priority: false,
         }
     }
 

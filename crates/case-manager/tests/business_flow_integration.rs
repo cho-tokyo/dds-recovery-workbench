@@ -17,7 +17,7 @@ use tempfile::TempDir;
 
 use dds_case_manager::{execute_business_recovery, CaseId, CaseStorage};
 use dds_fs_ntfs::{parse_boot_sector, NtfsVolume};
-use dds_wish_match::{Priority, Wish, WishItem, Wishlist};
+use dds_wish_match::{ExclusionList, Priority, Wish, WishItem, Wishlist};
 
 use common::{count_files_recursive, decompress_fixture, make_image_reader};
 
@@ -55,10 +55,16 @@ fn full_business_flow_from_case_creation_to_delivery() {
     // 3. Wishlist 作成。
     let wishlist = make_wishlist();
 
-    // 4. 業務復旧実行。
-    let result =
-        execute_business_recovery(&mut case, delivery_drive.path(), &mut volume, &wishlist)
-            .expect("execute_business_recovery");
+    // 4. 業務復旧実行。Chunk 23.7: 全件復旧 + デフォルト除外パターン。
+    let exclusions = ExclusionList::default_system_exclusions();
+    let result = execute_business_recovery(
+        &mut case,
+        delivery_drive.path(),
+        &mut volume,
+        &wishlist,
+        &exclusions,
+    )
+    .expect("execute_business_recovery");
 
     // 5. case.json 永続化。
     storage.save(&case).unwrap();
@@ -141,10 +147,16 @@ fn product_demo_phase_1_5_complete() {
 
     let mut volume = open_fixture("ntfs_with_5_deletions_small");
     let wishlist = make_wishlist();
+    let exclusions = ExclusionList::default_system_exclusions();
 
-    let result =
-        execute_business_recovery(&mut case, delivery_drive.path(), &mut volume, &wishlist)
-            .expect("execute_business_recovery");
+    let result = execute_business_recovery(
+        &mut case,
+        delivery_drive.path(),
+        &mut volume,
+        &wishlist,
+        &exclusions,
+    )
+    .expect("execute_business_recovery");
     storage.save(&case).unwrap();
 
     println!("\n=== Phase 1.5 Complete Demo (Chunk 23) ===\n");
@@ -205,4 +217,108 @@ fn product_demo_phase_1_5_complete() {
     assert!(case.output_dir.is_some());
     assert!(case.recovery_report_summary.is_some());
     assert!(case.wishlist.is_some());
+}
+
+#[test]
+fn full_business_flow_recovers_all_files_with_priority() {
+    // Chunk 23.7: R-STUDIO 風業務フロー (全件復旧 + Wishlist は優先データ)。
+    // Wishlist には .txt のみ指定。フィクスチャ ntfs_with_5_deletions_small は
+    // 30 件全て .txt なので全 user file が priority になる業務シナリオ。
+    let internal_storage = TempDir::new().unwrap();
+    let storage = CaseStorage::with_base_dir(internal_storage.path());
+    let delivery_drive = TempDir::new().unwrap();
+
+    let case_id = CaseId::parse("260522-04").unwrap();
+    let mut case = storage.create_new(case_id.clone()).unwrap();
+
+    let mut volume = open_fixture("ntfs_with_5_deletions_small");
+    let wishlist = make_wishlist(); // .txt 全部
+    let exclusions = ExclusionList::default_system_exclusions();
+
+    let result = execute_business_recovery(
+        &mut case,
+        delivery_drive.path(),
+        &mut volume,
+        &wishlist,
+        &exclusions,
+    )
+    .expect("execute_business_recovery");
+
+    // 全 30 件復旧（全件復旧設計）。
+    assert_eq!(result.report.recovered.len(), 30);
+    // 全 30 件が .txt にマッチ → priority。
+    assert_eq!(result.report.priority_count(), 30);
+    // 優先データ全件の original_path が .txt 拡張子。
+    let priority_paths: Vec<_> = result
+        .report
+        .recovered
+        .iter()
+        .filter(|e| e.is_priority)
+        .map(|e| e.original_path.clone())
+        .collect();
+    assert!(priority_paths
+        .iter()
+        .all(|p| p.to_lowercase().ends_with(".txt")));
+}
+
+#[test]
+fn product_demo_phase_1_5_business_aligned() {
+    // Chunk 23.7 完成デモ: R-STUDIO 風業務フロー対応。
+    // `cargo test -p dds-case-manager -- --nocapture` で確認。
+    let internal_storage = TempDir::new().unwrap();
+    let storage = CaseStorage::with_base_dir(internal_storage.path());
+    let delivery_drive = TempDir::new().unwrap();
+
+    let case_id = CaseId::parse("260522-04").unwrap();
+    let mut case = storage.create_new(case_id.clone()).unwrap();
+
+    let mut volume = open_fixture("ntfs_with_5_deletions_small");
+    let wishlist = make_wishlist();
+    let exclusions = ExclusionList::default_system_exclusions();
+
+    let result = execute_business_recovery(
+        &mut case,
+        delivery_drive.path(),
+        &mut volume,
+        &wishlist,
+        &exclusions,
+    )
+    .expect("execute_business_recovery");
+    storage.save(&case).unwrap();
+
+    println!("\n=== Phase 1.5 Business-Aligned Demo (Chunk 23.7) ===\n");
+    println!("[業務フロー]");
+    println!("  Workbench は R-STUDIO 風の全件復旧を実施");
+    println!("  Wishlist は『お客様優先データ』としてレポートで強調");
+    println!();
+    println!("案件番号: {}", case.case_id);
+    println!();
+    println!("[復旧結果 - 全体]");
+    println!("  該当ファイル: {} 件", result.report.total_matched);
+    println!(
+        "  復旧成功率:   {:.1}%",
+        result.report.recovery_success_rate()
+    );
+    println!(
+        "  品質保証率:   {:.1}%",
+        result.report.quality_assurance_rate()
+    );
+    println!();
+    println!("[復旧結果 - お客様優先データ]");
+    println!("  該当ファイル: {} 件", result.report.priority_count());
+    println!(
+        "  品質保証率:   {:.1}%",
+        result.report.priority_quality_assurance_rate()
+    );
+    println!();
+    println!("[除外パターン]");
+    println!("  Windows / Program Files");
+    println!("  $Recycle.Bin / System Volume Information");
+    println!("  $ で始まるシステムファイル");
+    println!();
+    println!("=== R-STUDIO 風業務フロー対応完成 ===");
+
+    // 業務的アサーション: 全件復旧 + 優先データもカウントされている。
+    assert_eq!(result.report.recovered.len(), 30);
+    assert_eq!(result.report.priority_count(), 30);
 }
