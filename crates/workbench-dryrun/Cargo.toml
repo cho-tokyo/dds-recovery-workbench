@@ -1,0 +1,33 @@
+[package]
+name = "dds-workbench-dryrun"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "DDS Recovery Workbench - 実機ドライラン用暫定 CLI (Chunk 23.5)"
+
+[[bin]]
+name = "workbench-dryrun"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+sysinfo.workspace = true
+anyhow.workspace = true
+
+dds-core.workspace = true
+dds-case-manager.workspace = true
+dds-diagnostic.workspace = true
+dds-disk-io.workspace = true
+dds-fs-ntfs.workspace = true
+dds-recovery.workspace = true
+dds-report.workspace = true
+dds-wish-match.workspace = true
+
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

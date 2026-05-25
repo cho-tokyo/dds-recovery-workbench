@@ -4,6 +4,76 @@
 
 ---
 
+## 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **実機ドライラン準備完了 — workbench-dryrun.exe 配布可能（Phase 2.1 Tauri UI 完成までの中継ぎ）🚀🚀🚀🚀🚀🚀** / Chunk 23.5 workbench-dryrun (実機ドライラン用暫定 CLI) 完成 — Phase 1.5 完成機能を検証 PC で実機 HDD に対して試せる状態に到達 / 新規クレート `crates/workbench-dryrun/` 11 ファイル（`Cargo.toml` + `README.md` 149 行 + `src/main.rs` 117 行（Windows 専用 `#[cfg(not(windows))] compile_error!` + clap 4.5 Cli/Commands enum + dispatch + 6 単体）+ `src/prompts.rs` 110 行（prompt_string / prompt_number / confirm / prompt_case_id + 6 単体）+ `src/drives.rs` 138 行（DriveInfo + sysinfo 0.32 経由列挙 + 5 単体）+ `src/volume.rs` 134 行（open_ntfs_volume + ClusterReader type alias + 3 単体）+ `src/commands/{mod.rs, list_drives.rs, diagnose.rs, recover.rs, show.rs}`（4 サブコマンド実装 + recover 3 単体）/ 4 サブコマンド: `list-drives`（接続中の論理ドライブ一覧、システム/NTFS マーカー、容量、access_path）+ `diagnose`（案件作成/更新 + 診断 + CRM 貼り付けテキスト生成 `診断結果_CRM貼り付け用.txt`）+ `recover`（execute_business_recovery 経由の業務復旧パイプライン実行）+ `show`（案件 JSON 整形表示、診断 / Wishlist / 復旧の 3 セクション）/ workspace deps 追加（既存ファイル唯一の変更）: `Cargo.toml` に `clap = "4.5"` + `sysinfo = "0.32"` workspace deps 追加、`crates/workbench-dryrun` members 追加、**既存 14 クレートへの変更ゼロ**（ライブラリ部分は完全に無変更） / 仕様書からの主要変更点: ①`Priority::Medium` 不在 → `parse_priority` を `Critical / High / Normal / Low` 4 段階（既存 enum 整合） / ②`make_cluster_reader` セマンティクス: `(lcn, count) -> cluster_size * count` バイト読込 / ③`ClusterReader` type alias = `Box<dyn FnMut(...)>` で lifetime 複雑性回避 / ④`recover` で drives.len() < 2 明示エラー / ⑤`show` の wishlist.len() 表示 + filesystem_findings 整形 / 単体テスト 23 件（main 6 + prompts 6 + drives 5 + volume 3 + recover 3）+ 結合テストなし（実機テストで代替）= workspace 全体 **489 件 pass / 0 failed**（Chunk 23 の 466 → **+23 件**） / バイナリ `target/release/workbench-dryrun.exe`: **3.86 MB**（3,868,160 bytes、目安 10 MB 以下クリア）/ Windows 専用（Linux/Mac ビルド時に `compile_error!` で明示拒否）/ 論理ドライブ (`\\.\E:`) ベース、物理ドライブ (`\\.\PhysicalDriveN`) は使わない（unsafe 回避）/ `crates/workbench-dryrun/src/` 内 `unsafe` 0 件（doc comment 1 件のみ）+ 書き込み API: case.json 保存 + 復旧データ出力 + レポート出力のみ（出力先のみ、ソースデバイス書き込みなし）+ `OpenOptions::new().read(true)` のみ使用（ソース read-only）+ clippy / doc warning 0 / 既存 Phase 1 + Phase 1.5 既存 466 件すべて pass 継続、workbench-dryrun はライブラリ呼出のみで既存挙動に影響なし / **FR-CLI-01（実機ドライラン用 CLI、新規）+ FR-CLI-02（対話形式 UX、新規）+ FR-CLI-03（案件情報の保存）+ FR-CLI-04（業務向け出力構造）すべて達成** / Chunks 1-23.5 完了（Chunk 23.5 / 2026-05-25）
+
+**🚀 Chunk 23.5 ハイライト（実機ドライラン準備完了の節目）**: Chunk 23 で Phase 1.5 完全完成（業務統合層完成）に到達した Workbench に、**Chunk 23.5 で「Phase 2.1 (Tauri UI) 完成までの中継ぎとして workbench-dryrun.exe バイナリを配布可能」な状態を実装に到達**。**業務的背景**: Phase 2.1 Tauri UI 開発（約 2 ヶ月想定）が完成するまで、Phase 1.5 で実装した全機能（execute_business_recovery / 診断エンジン / CRM 貼り付けテキスト / 業務向け出力構造 / 復旧可能性推定）を検証 PC で実機 HDD に対して試せる状態が必要。**🚀 業務シナリオ実証（検証 PC での想定フロー）**: ① 管理者として cmd 起動 → ② `workbench-dryrun list-drives` でドライブ確認 → ③ テスト用 NTFS USB HDD 接続 → ④ `workbench-dryrun diagnose` で診断実行 → ⑤ CRM 貼り付けテキストを実際の CRM フォームに貼ってレビュー → ⑥ 納品先 HDD 接続 → ⑦ `workbench-dryrun recover` で復旧実行 → ⑧ 納品先 HDD の `{案件番号}\` 構造をエクスプローラで確認 → ⑨ `workbench-dryrun show` で案件情報表示。**🚀 設計判断**: ①**Windows 専用**（`#[cfg(not(windows))] compile_error!("workbench-dryrun は Windows のみサポートしています");`、検証 PC は Windows 前提）/ ②**論理ドライブベース**（`\\.\E:` ベース、物理ドライブ `\\.\PhysicalDriveN` は使わない = unsafe 回避）/ ③**既存 14 クレートへの変更ゼロ**（ライブラリ部分は完全に無変更、workbench-dryrun は薄い CLI ラッパとして実装）/ ④**ClusterReader type alias** = `Box<dyn FnMut(...)>` で lifetime 複雑性回避 / ⑤**Priority 4 段階**（Critical / High / Normal / Low、既存 enum 整合、Medium 不在）。**🚀 業務観測（`cargo run -- list-drives` 実行結果）**: 「[1] C: Windows [システム] NTFS / 容量: 475.67 GB / 空き容量: 324.90 GB / FS: NTFS / アクセス: \\.\C:」+ 「対象 HDD を Workbench で読み込むには、上記の「アクセス」パスを使用します。」業務員が cmd で 1 コマンド実行すれば検証 PC の論理ドライブ一覧が見える状態に到達。**🚀 配布情報**: 場所 `C:\Users\dds.r8d\Documents\Claude\Projects\dds-recovery-workbench\target\release\workbench-dryrun.exe` / サイズ 3.86 MB (3,868,160 bytes、目安 10 MB 以下クリア) / Windows 専用、管理者権限で実行 / USB メモリ等で検証 PC にコピー可能。**🚀 安全性**: `crates/workbench-dryrun/src/` 内 `unsafe` **0 件**（doc comment 1 件のみ）、書き込み API: case.json 保存 + 復旧データ出力 + レポート出力のみ（出力先のみ、ソースデバイス書き込みなし）、`OpenOptions::new().read(true)` のみ使用（ソース read-only）、clippy / doc warning **0 件**。**🚀 テスト統計**: 単体テスト 23 件（main 6 + prompts 6 + drives 5 + volume 3 + recover 3）+ 結合テストなし（実機テストで代替）= workspace 全体 **489 件 pass / 0 failed**（Chunk 23 の 466 → +23 件）。**Tester からの軽微な指摘（Phase 2.1 候補）**: ①`recover.rs` 266 行は将来 `prompts::wishlist` モジュール分離検討（現状 builder 判断妥当）/ ②list-drives 出力の「[システム] NTFS」表示整形は Phase 2.1 UI で改善 / ③Ctrl+C 中断時の case.json 原子性は Phase 2.1 で検討。**🚀🚀🚀 マイルストーン意義（実機ドライラン準備完了 — Phase 2.1 Tauri UI 完成までの中継ぎ確立）**: Phase 1.5 完成機能を検証 PC で実機 HDD に対して試せる状態に到達、Phase 2.1 (Tauri UI) 完成までの中継ぎとして workbench-dryrun.exe バイナリを配布可能。**次のステップ**: ①**Chouさんによる検証 PC ドライラン実施**（中古 NTFS HDD で手動検証、約半日〜1 日）→ フィードバック収集 → 必要なら Chunk 23.6 で微調整 / ②**Phase 2.1 着手準備**（Tauri UI 開発、約 2 ヶ月想定）。
+
+```
+🚀🚀🚀 DDS Recovery Workbench - 実機ドライラン準備完了（workbench-dryrun.exe 配布可能） 🚀🚀🚀
+  M0 設計確定         100% ✅
+  M1 基盤構築          30% （Phase 1 では基盤として十分機能、Phase 2 で残実装）
+  M2 NTFS リーダα     100% ✅
+  M3 希望突合エンジン  100% ✅
+  M4 復旧 + 品質判定  100% ✅
+  M5 NTFS-α リリース  100% ✅ 業務適用版到達
+  ─────────────────────────────────────────
+  Phase 1.5 (業務統合層) — 🎉 完全完成 🎉
+  Chunk 21    case-manager 基盤              ✅ 完成
+  Chunk 22    診断エンジン+CRMテキスト       ✅ 完成
+  Chunk 22.6  業務フロー整合 (症状判定削除)  ✅ 完成 🎯 Workbench は「事実提供者」
+  Chunk 22.5  復旧可能性推定 (High/Med/Low)  ✅ 完成 📈 削除案件の見積もり精度向上
+  Chunk 23    業務向け出力ディレクトリ構造   ✅ 完成 🎊 Phase 1.5 業務統合層最終
+  Chunk 23.5  workbench-dryrun (CLI 中継ぎ)  ✅ 完成 🚀 実機ドライラン準備完了
+  ─────────────────────────────────────────
+  次のステップ
+  実機検証    中古 NTFS HDD ドライラン       ⏳ 次推奨 (Chouさん手動、半日〜1日)
+  Phase 2.1   Tauri UI (約 2 ヶ月想定)       ⏳ 次推奨
+  ─────────────────────────────────────────
+  Chunks 1-23.5 完了 / 489 件 pass / 0 failed / 3 ignored / 実機ドライラン準備完了
+```
+
+### 🚀 Chunk 23.5 業務観測（`cargo run -- list-drives` 実行結果）
+
+```
+DDS Recovery Workbench (Phase 1.5)
+============================================
+
+接続中の論理ドライブ:
+
+  [1] C: Windows  [システム]  NTFS
+       容量:       475.67 GB
+       空き容量:   324.90 GB
+       FS:         NTFS
+       アクセス:   \\.\C:
+
+対象 HDD を Workbench で読み込むには、上記の「アクセス」パスを使用します。
+```
+
+→ 業務員が cmd で 1 コマンド実行すれば検証 PC の論理ドライブ一覧が見える状態に到達。対象 HDD の「アクセス」パスを次の `diagnose` / `recover` コマンドに渡せる。
+
+### 🚀 Chunk 23.5 業務シナリオ実証（検証 PC での想定フロー）
+
+```
+1. 管理者として cmd 起動
+2. workbench-dryrun list-drives  (ドライブ確認)
+3. テスト用 NTFS USB HDD 接続
+4. workbench-dryrun diagnose     (診断実行)
+5. CRM 貼り付けテキストを実際の CRM フォームに貼ってレビュー
+6. 納品先 HDD 接続
+7. workbench-dryrun recover      (復旧実行)
+8. 納品先 HDD の {案件番号}\ 構造をエクスプローラで確認
+9. workbench-dryrun show         (案件情報表示)
+```
+
+### 🚀 Chunk 23.5 関連 FR の進捗（新規達成 2 件 + 既存達成 2 件）
+
+- **FR-CLI-01（実機ドライラン用 CLI、新規）**: ✅ **🚀 新規達成**（Chunk 23.5 / 2026-05-25 / workbench-dryrun）— `workbench-dryrun.exe` バイナリ（3.86 MB、Windows 専用）で Phase 1.5 完成機能を検証 PC で実機 HDD に対して試せる状態を確立、clap 4.5 ベースの 4 サブコマンド（`list-drives` / `diagnose` / `recover` / `show`）、`#[cfg(not(windows))] compile_error!` で Linux/Mac ビルド時に明示拒否、論理ドライブ (`\\.\E:`) ベースで unsafe 回避
+- **FR-CLI-02（対話形式 UX、新規）**: ✅ **🚀 新規達成**（Chunk 23.5 / 2026-05-25 / workbench-dryrun）— `prompts.rs` 110 行で `prompt_string` / `prompt_number` / `confirm` / `prompt_case_id`（CaseId yymmdd-NN 9 文字厳密 newtype 整合）を提供、業務員が cmd で対話的に案件番号 / Wishlist / 出力先を入力可能、Phase 2.1 Tauri UI 完成までの中継ぎ UX
+- **FR-CLI-03（案件情報の保存）**: ✅ **🚀 達成**（Chunk 23.5 / 2026-05-25 / workbench-dryrun + dds-case-manager）— Chunk 21 で実装した `CaseStorage` (`case.json` JSON ファイル永続化) を `diagnose` サブコマンドから呼出、案件作成 / 更新 / 診断結果保存 + CRM 貼り付けテキスト生成（`診断結果_CRM貼り付け用.txt`）を 1 コマンドで実行
+- **FR-CLI-04（業務向け出力構造）**: ✅ **🚀 達成**（Chunk 23.5 / 2026-05-25 / workbench-dryrun + dds-case-manager + dds-recovery + dds-report）— Chunk 23 で実装した `execute_business_recovery` を `recover` サブコマンドから呼出、納品 HDD `G:\260522-04\` (復旧データ + 4 レポート、お客様送付) と社内保存 `C:\cases\260522-04\case.json` (案件情報) を 1 コマンドで自動生成
+
+---
+
 ## 🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 **Phase 1.5 完全完成 — 業務統合層完成 / Phase 2.1 (Tauri UI) への移行準備完了 🎊🎊🎊🎊🎊🎊** / Chunk 23 業務向け出力ディレクトリ構造完成 — 業務員が CRM 採番した案件番号で「G:\260522-04\ をお客様にそのまま納品できる」状態に到達 / 新規 5 ファイル: `crates/case-manager/src/output.rs` 204 行（`CaseOutput` struct + 12 メソッド: root / live_files_dir / deleted_files_dir / reports_dir / customer_docx_path / customer_txt_path / internal_html_path / csv_path / create_all_dirs 等 + 5 単体テスト）+ `crates/case-manager/src/orchestration.rs` 190 行（`execute_business_recovery` + `BusinessRecoveryResult` + `BusinessRecoveryError` + 3 単体テスト）+ `crates/report/src/business.rs` 166 行（`write_business_reports(report, &Path×4)` + `BusinessReportPaths` + 3 単体テスト）+ `crates/case-manager/tests/business_flow_integration.rs` 208 行（2 結合テスト）+ `crates/case-manager/tests/common/mod.rs` 63 行（fixture ヘルパー + `count_files_recursive` std 実装） / 修正 5 ファイル: `crates/recovery/src/engine.rs` +142 行（`RecoveryConfig` struct + `with_config` / `with_config_and_options` + 4 単体テスト、既存 `output_dir` 維持で backward compat）+ `recovery/src/lib.rs`（`RecoveryConfig` export）+ `report/src/lib.rs`（`business` module + export）+ `case-manager/src/lib.rs`（`orchestration` / `output` module + re-export）+ `case-manager/Cargo.toml`（`dds-recovery` / `dds-report` / `dds-fs-ntfs` 依存追加 = **Phase 1.5 意図的拡大**、dev `zstd 0.13` 追加） / 業務的納品ディレクトリ構造完成: `G:\260522-04\ ├ 復旧データ\ │   ├ 通常ファイル\ │   └ 削除ファイル\ └ レポート\ ├ 復旧レポート.docx ├ 要確認ファイル一覧.txt ├ 業務管理レポート.html └ report.csv` + 社内保存（お客様には見せない）`C:\cases\260522-04\case.json` / 新規単体テスト 15 件（case-manager output 5 + orchestration 3 + recovery RecoveryConfig 4 + report business 3）+ 新規結合テスト 2 件（`full_business_flow_from_case_creation_to_delivery` + `product_demo_phase_1_5_complete`） / workspace 全体 **466 件 pass / 0 failed / 3 ignored**（Chunk 22.5 の 448 → **+18 件**） / 既存 API 完全互換維持（`RecoveryEngine::new(output_dir)` / `with_options(output_dir, options)` / `output_dir()` getter / `RecoveryOptions { separate_live_and_deleted: false }` 経路 / `dds_report::write_all_reports(report, output_dir)` / Chunk 17 以来の既存テスト全 pass） / case-manager 依存拡大（Phase 1.5 意図的）: Before（Chunks 21-22.5）case-manager → wish-match + core のみ → After（Chunk 23）case-manager → wish-match + core + **recovery + report + fs-ntfs**（理由: `execute_business_recovery` で全体オーケストレーションを実現、循環なし確認 cargo tree 検証済 / Phase 2 で別クレート `dds-orchestrator` 等に分離検討可能） / `crates/case-manager/src/` + `crates/recovery/src/` + `crates/report/src/` 内 `unsafe` 0 件 + 書き込み API は出力先のみ + 単方向依存（拡大後も循環なし）+ clippy / doc warning 0 件 / Windows 日本語パス対応（「復旧データ」「通常ファイル」「削除ファイル」「レポート」「復旧レポート.docx」「要確認ファイル一覧.txt」「業務管理レポート.html」UTF-8 で正常作成、実 tempfile (Windows AppData) 上で全動作確認） / **FR-OUT-01（案件番号付きルートディレクトリ）+ FR-OUT-02（通常 / 削除ファイル分離）+ FR-OUT-03（日本語フォルダ名・ファイル名）+ FR-OUT-04（社内保存と納品物分離）すべて新規達成 + FR-CASE-05（案件のエクスポート）達成** / Chunks 1-23 完了（Chunk 23 / 2026-05-25）
 
 **🎉 Chunk 23 ハイライト（Phase 1.5 完全完成の節目）**: Chunk 22.5 で「定量的見積もり精度向上」を実装に落とし込んだ Workbench に、**Chunk 23 で「業務員が CRM 採番した案件番号で『G:\260522-04\ をお客様にそのまま納品できる』状態」を実装に到達**。**業務的背景**: 月 700-800 件案件の納品物が業務員ごとにバラバラなディレクトリ構造で出力されていたものを、案件番号付きルートディレクトリで自動生成、業務観点で整理された納品物として CS フローに直接乗せられる状態を確立。**🎉 業務的納品ディレクトリ構造（完成）**: `G:\260522-04\ ├ 復旧データ\ │   ├ 通常ファイル\ (生存ファイル) │   └ 削除ファイル\ (削除エントリ) └ レポート\ ├ 復旧レポート.docx (顧客向け Word) ├ 要確認ファイル一覧.txt (顧客向け Notepad) ├ 業務管理レポート.html (CS 内部用) └ report.csv (外部システム連携)` + 社内保存（お客様には見せない）`C:\cases\260522-04\case.json`（Chunk 21 で実装済み）。**🎉 設計判断**: ①`write_business_reports(report, &Path×4)` — `CaseOutput` を引数に取ると report → case-manager 循環依存になるため、4 パスを直接受け取る形に / ②`RecoveryEngine` の二重保持 — `output_dir` + `config` を両方保持で backward compat 維持 / ③`count_files_recursive` — walkdir 不依存、std::fs::read_dir 再帰実装 / ④`RecoveryConfig::from_case_output` は recovery に置かず — 循環依存回避、case-manager 側で `RecoveryConfig::with_paths(...)` を呼ぶ。**🎉 case-manager 依存拡大（Phase 1.5 意図的）**: Before（Chunks 21-22.5）case-manager → wish-match + core のみ → After（Chunk 23）case-manager → wish-match + core + **recovery + report + fs-ntfs**、理由: `execute_business_recovery` で全体オーケストレーションを実現、循環なし確認 cargo tree 検証済（recovery / report は case-manager に依存しない）。Phase 2 で別クレート（`dds-orchestrator` 等）に分離検討可能。**🎉 業務観測（プロダクトデモ全文）**: 案件番号 260522-04 / 納品 HDD `G:\` (tempfile) で「260522-04/復旧データ/通常ファイル/ (25 件) + 削除ファイル/ (5 件) + レポート/復旧レポート.docx (23125 bytes) + 要確認ファイル一覧.txt (352 bytes) + 業務管理レポート.html (3202 bytes) + report.csv (14145 bytes)」+ 社内保存 `C:\cases\` (tempfile) で「260522-04/case.json（案件情報、お客様には見せない）」+ 業務指標（該当ファイル 30 件 / 復旧成功率 100.0% / 品質保証率 0.0%）+ CS のフロー（① 納品 HDD を取り出す → `G:\` / ② お客様に `G:\` を送付 → お客様は `G:\260522-04\` を開くだけで全部見える / ③ 社内には案件情報が残る (再復旧依頼に備えて)）。**注: 品質保証率 0.0% は `ntfs_with_5_deletions_small` 内が `.txt` のみで validators が Uncertain 判定するため正常な業務観測（Tester 確認済）**。**🎉 業務インパクト**: HDD 接続 → `execute_business_recovery` 1 関数呼出 → 「G:\ をお客様にそのまま納品できる」状態 / 月 700-800 件案件の納品物自動生成 / CS 業務フロー: ① 納品 HDD 取り出し → ② お客様送付 → ③ 社内 case.json 保持。**🎉 安全性**: `crates/case-manager/src/` + `crates/recovery/src/` + `crates/report/src/` 内 `unsafe` **0 件**、書き込み API は出力先のみ、ソースデバイス書き込みなし、単方向依存（拡大後も循環なし、cargo tree 検証済）、clippy / doc warning **0 件**。**🎉 Windows 日本語パス対応**: 「復旧データ」「通常ファイル」「削除ファイル」「レポート」ディレクトリ UTF-8 で正常作成 + 「復旧レポート.docx」「要確認ファイル一覧.txt」「業務管理レポート.html」ファイル正常作成 + 実 tempfile (Windows AppData) 上で全動作確認。**🎉 テスト統計**: 新規単体テスト 15 件（case-manager output 5 + orchestration 3 + recovery RecoveryConfig 4 + report business 3）+ 新規結合テスト 2 件（`full_business_flow_from_case_creation_to_delivery` + `product_demo_phase_1_5_complete`）= workspace 全体 **466 件 pass / 0 failed / 3 ignored**（Chunk 22.5 の 448 → +18 件）。**🎊🎊🎊 マイルストーン意義（Phase 1.5 完全完成 — 業務統合層完成 / Phase 2.1 (Tauri UI) への移行準備完了）**: Phase 1（NTFS-α 業務適用版、Chunks 1-20.5）+ Phase 1.5（業務統合層、Chunks 21-23 含む 22.6, 22.5）の全機能が業務的に整理された納品物として自動生成される状態に到達。**Phase 1 + Phase 1.5 完成後の業務フロー**: ① お客様: HDD 持ち込み → ② CS: ヒアリング + CRM 採番（260522-04）→ ③ Workbench: `execute_business_recovery` 1 回呼出 → ④ 自動生成: 納品 HDD `G:\260522-04\` (復旧データ + 4 レポート) + 社内 `C:\cases\260522-04\case.json` (案件情報) → ⑤ CS: 納品 HDD をお客様送付、case.json で業務記録。**次のステップ**: ①**検証 PC で実機ドライラン**（Chouさん手動、中古 NTFS HDD でフィクスチャでは検証できない実機特有の問題発見） / ②**Phase 2.1 着手準備**（Tauri UI 開発、約 2 ヶ月想定）。
@@ -3350,6 +3420,15 @@ Deleted recovered:  5 files
 - [x] **FR-OUT-02: 通常 / 削除ファイル分離（新規）** ✅ **🎊 新規達成**（Chunk 23 / 2026-05-25 / dds-case-manager + dds-recovery）— `live_files_dir()` (`{root}\復旧データ\通常ファイル\`) + `deleted_files_dir()` (`{root}\復旧データ\削除ファイル\`) で生存ファイル / 削除エントリを業務観点で分離、`RecoveryConfig` struct + `with_config` / `with_config_and_options` メソッドで出力先を制御、既存 `RecoveryOptions { separate_live_and_deleted: false }` 経路維持で backward compat
 - [x] **FR-OUT-03: 日本語フォルダ名・ファイル名（新規）** ✅ **🎊 新規達成**（Chunk 23 / 2026-05-25 / dds-case-manager + dds-report）— ディレクトリ「復旧データ」「通常ファイル」「削除ファイル」「レポート」+ ファイル「復旧レポート.docx」「要確認ファイル一覧.txt」「業務管理レポート.html」UTF-8 で正常作成、Windows 日本語パス対応を実 tempfile (AppData) 上で全動作確認、`write_business_reports(report, &Path×4)` 関数で 4 レポート同時生成（顧客向け Word + 顧客向け Notepad + CS 内部用 HTML + 外部システム連携 CSV）
 - [x] **FR-OUT-04: 社内保存と納品物分離（新規）** ✅ **🎊 新規達成**（Chunk 23 / 2026-05-25 / dds-case-manager）— 納品 HDD `G:\260522-04\` (お客様送付、復旧データ + 4 レポート) と社内保存 `C:\cases\260522-04\case.json` (案件情報、お客様には見せない、Chunk 21 で実装済み) を独立した出力先として分離、CS の業務フロー（① 納品 HDD 取り出し → ② お客様送付 → ③ 社内 case.json 保持、再復旧依頼に備えて）に整合、`execute_business_recovery` で両出力先を 1 関数呼出で自動生成
+
+### CLI ツール (FR-CLI)
+
+**🚀 実機ドライラン準備完了（Chunk 23.5 / 2026-05-25 / workbench-dryrun）** — Phase 1.5 完成機能を検証 PC で実機 HDD に対して試せる状態に到達。Phase 2.1 (Tauri UI) 完成までの中継ぎとして `workbench-dryrun.exe` バイナリ（3.86 MB、Windows 専用）を配布可能。FR-CLI-01/02 新規達成 + FR-CLI-03/04 達成。
+
+- [x] **FR-CLI-01: 実機ドライラン用 CLI（新規）** ✅ **🚀 新規達成**（Chunk 23.5 / 2026-05-25 / workbench-dryrun）— `workbench-dryrun.exe` バイナリ（3.86 MB、3,868,160 bytes、目安 10 MB 以下クリア）で Phase 1.5 完成機能を検証 PC で実機 HDD に対して試せる状態を確立、clap 4.5 ベースの Cli/Commands enum + dispatch、4 サブコマンド（`list-drives` / `diagnose` / `recover` / `show`）、`#[cfg(not(windows))] compile_error!("workbench-dryrun は Windows のみサポートしています");` で Linux/Mac ビルド時に明示拒否、論理ドライブ (`\\.\E:`) ベースで unsafe 回避（物理ドライブ `\\.\PhysicalDriveN` は使わない）、sysinfo 0.32 経由でドライブ列挙
+- [x] **FR-CLI-02: 対話形式 UX（新規）** ✅ **🚀 新規達成**（Chunk 23.5 / 2026-05-25 / workbench-dryrun）— `crates/workbench-dryrun/src/prompts.rs` 110 行で `prompt_string` / `prompt_number` / `confirm` / `prompt_case_id`（Chunk 21 で実装した `CaseId` yymmdd-NN 9 文字厳密 newtype 整合）を提供、業務員が cmd で対話的に案件番号 / Wishlist / 出力先を入力可能、Phase 2.1 Tauri UI 完成までの中継ぎ UX として 6 単体テスト pass
+- [x] **FR-CLI-03: 案件情報の保存** ✅ **🚀 達成**（Chunk 23.5 / 2026-05-25 / workbench-dryrun + dds-case-manager）— Chunk 21 で実装した `CaseStorage` (`case.json` JSON ファイル永続化、create_new / load / save / delete / list_all) を `diagnose` サブコマンドから呼出、案件作成 / 更新 / 診断結果保存 + CRM 貼り付けテキスト生成（`診断結果_CRM貼り付け用.txt`）を 1 コマンドで実行、案件番号ベースで社内保存ディレクトリ `C:\cases\{案件番号}\case.json` に永続化
+- [x] **FR-CLI-04: 業務向け出力構造** ✅ **🚀 達成**（Chunk 23.5 / 2026-05-25 / workbench-dryrun + dds-case-manager + dds-recovery + dds-report）— Chunk 23 で実装した `execute_business_recovery` を `recover` サブコマンドから呼出、納品 HDD `G:\260522-04\` (復旧データ + 4 レポート、お客様送付) と社内保存 `C:\cases\260522-04\case.json` (案件情報) を 1 コマンドで自動生成、`drives.len() < 2` 時は明示エラーで業務員に納品先 HDD 接続を促す
 
 ### 診断 (FR-DIAG)
 
