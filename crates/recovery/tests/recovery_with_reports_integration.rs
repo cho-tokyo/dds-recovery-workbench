@@ -15,7 +15,7 @@ mod common;
 use std::io::Read;
 
 use dds_fs_ntfs::{parse_boot_sector, NtfsVolume};
-use dds_recovery::RecoveryEngine;
+use dds_recovery::{NoopProgressReporter, RecoveryEngine};
 use dds_wish_match::{ExclusionList, Priority, Wish, WishItem, Wishlist};
 use tempfile::TempDir;
 
@@ -76,6 +76,7 @@ fn generates_four_report_files_in_business_format() {
             &mut volume,
             &business_wishlist(),
             &ExclusionList::default_system_exclusions(),
+            &NoopProgressReporter,
         )
         .expect("recover_files");
 
@@ -113,6 +114,7 @@ fn customer_docx_must_not_contain_internal_notes() {
             &mut volume,
             &business_wishlist(),
             &ExclusionList::default_system_exclusions(),
+            &NoopProgressReporter,
         )
         .expect("recover_files");
 
@@ -152,7 +154,7 @@ fn product_demo_business_grade_reports() {
 
     let engine = RecoveryEngine::new(&recovery_dir);
     let report = engine
-        .recover_files(&mut volume, &wishlist, &exclusions)
+        .recover_files(&mut volume, &wishlist, &exclusions, &NoopProgressReporter)
         .expect("recover_files");
 
     let paths = dds_report::write_all_reports(&report, &report_dir).expect("write_all_reports");
@@ -253,6 +255,7 @@ fn persist_chunk20_5_demo_reports() {
             &mut volume,
             &business_wishlist(),
             &ExclusionList::default_system_exclusions(),
+            &NoopProgressReporter,
         )
         .expect("recover_files");
 

@@ -22,3 +22,5 @@ dds-fs-ntfs.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 zstd = "0.13"
+# Chunk 24b: perf_demo_chunk24b_recovery_speed でワーカー数表示に使用。
+num_cpus.workspace = true

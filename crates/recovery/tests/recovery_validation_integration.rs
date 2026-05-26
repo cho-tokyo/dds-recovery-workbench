@@ -11,7 +11,7 @@
 mod common;
 
 use dds_fs_ntfs::{parse_boot_sector, NtfsVolume};
-use dds_recovery::RecoveryEngine;
+use dds_recovery::{NoopProgressReporter, RecoveryEngine};
 use dds_wish_match::{ExclusionList, Priority, Wish, WishItem, Wishlist};
 use tempfile::TempDir;
 
@@ -33,7 +33,7 @@ fn recovery_with_validation_marks_txt_as_uncertain() {
     let tmp = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(tmp.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist, &exclusions)
+        .recover_files(&mut volume, &wishlist, &exclusions, &NoopProgressReporter)
         .expect("recover_files");
 
     // .txt は Validator なしなので Valid / Invalid は 0 件。
@@ -79,7 +79,7 @@ fn product_demo_recovery_with_validation() {
     let tmp = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(tmp.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist, &exclusions)
+        .recover_files(&mut volume, &wishlist, &exclusions, &NoopProgressReporter)
         .expect("recover_files");
 
     println!("\n=== DDS Recovery Workbench - Recovery + Validation Demo (Chunk 18) ===\n");

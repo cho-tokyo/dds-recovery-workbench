@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::fs;
 
 use dds_fs_ntfs::{parse_boot_sector, NtfsVolume};
-use dds_recovery::{RecoveredEntry, RecoveryEngine};
+use dds_recovery::{NoopProgressReporter, ProgressReporter, RecoveredEntry, RecoveryEngine};
 use dds_wish_match::{ExclusionList, Priority, Wish, WishItem, Wishlist};
 use tempfile::TempDir;
 
@@ -46,7 +46,7 @@ fn recovers_all_5_deleted_txt_files() {
     let tmp = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(tmp.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist, &exclusions)
+        .recover_files(&mut volume, &wishlist, &exclusions, &NoopProgressReporter)
         .expect("recover_files");
 
     // Chunk 23.7: 全 user file が復旧対象（フィクスチャは 30 件全て .txt）。
@@ -112,7 +112,7 @@ fn recovered_files_match_ground_truth_sha256() {
     let tmp = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(tmp.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist, &exclusions)
+        .recover_files(&mut volume, &wishlist, &exclusions, &NoopProgressReporter)
         .expect("recover_files");
 
     // 109 ファイル全件復旧（全て live、全て .txt なので全件 priority）。
@@ -173,7 +173,7 @@ fn product_demo_end_to_end_recovery() {
     let tmp = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(tmp.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist, &exclusions)
+        .recover_files(&mut volume, &wishlist, &exclusions, &NoopProgressReporter)
         .expect("recover_files");
 
     println!("\n=== DDS Recovery Workbench - Phase 1 End-to-End Demo ===\n");
@@ -224,4 +224,90 @@ fn product_demo_end_to_end_recovery() {
     );
     assert_eq!(report.failed.len(), 0, "No failures expected");
     assert_eq!(report.recovered.len(), 30, "30 total recovered");
+}
+
+// === Chunk 24b 結合テスト: 並列化 + 進捗表示 ===
+
+/// Mock ProgressReporter。`Send + Sync` 制約を満たし、call の履歴を記録する。
+struct MockProgressReporter {
+    calls: std::sync::Mutex<Vec<(usize, usize, String)>>,
+}
+
+impl MockProgressReporter {
+    fn new() -> Self {
+        Self {
+            calls: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+    fn call_count(&self) -> usize {
+        self.calls.lock().unwrap().len()
+    }
+    fn last_current(&self) -> Option<usize> {
+        self.calls.lock().unwrap().last().map(|(c, _, _)| *c)
+    }
+    fn last_total(&self) -> Option<usize> {
+        self.calls.lock().unwrap().last().map(|(_, t, _)| *t)
+    }
+}
+
+impl ProgressReporter for MockProgressReporter {
+    fn report(&self, current: usize, total: usize, current_path: &str) {
+        self.calls
+            .lock()
+            .unwrap()
+            .push((current, total, current_path.to_string()));
+    }
+}
+
+#[test]
+fn parallel_recovery_processes_all_files() {
+    // Chunk 24b: 並列化された recover_files で全ファイル復旧されること。
+    let mut volume = open_fixture("ntfs_with_5_deletions_small");
+    let wishlist = Wishlist::new();
+    let exclusions = ExclusionList::default_system_exclusions();
+
+    let tmp = TempDir::new().unwrap();
+    let engine = RecoveryEngine::new(tmp.path());
+    let report = engine
+        .recover_files(&mut volume, &wishlist, &exclusions, &NoopProgressReporter)
+        .expect("recover_files");
+
+    // 並列化前と同じく 30 件全件復旧。
+    assert_eq!(report.recovered.len(), 30, "all 30 recovered");
+    assert_eq!(report.failed.len(), 0, "no failures");
+    assert_eq!(report.skipped.len(), 0, "no skips");
+}
+
+#[test]
+fn parallel_recovery_progress_called_for_each_file() {
+    // Chunk 24b: ProgressReporter::report が各ファイル分呼ばれ、最終は (total, total) に達すること。
+    let mut volume = open_fixture("ntfs_with_5_deletions_small");
+    let wishlist = Wishlist::new();
+    let exclusions = ExclusionList::default_system_exclusions();
+
+    let tmp = TempDir::new().unwrap();
+    let engine = RecoveryEngine::new(tmp.path());
+    let progress = MockProgressReporter::new();
+
+    let report = engine
+        .recover_files(&mut volume, &wishlist, &exclusions, &progress)
+        .expect("recover_files");
+
+    // 30 ファイル + 最終の (total, total) 報告。プロデューサが各 ntfs_file 投入時に
+    // 1 回ずつ呼び、最後に 100% で 1 回呼ぶため、call_count >= 30 + 1。
+    assert!(
+        progress.call_count() >= 30,
+        "expected at least 30 progress calls, got {}",
+        progress.call_count()
+    );
+    // 最終呼び出しは (total, total) すなわち 100%。
+    assert_eq!(
+        progress.last_current(),
+        Some(30),
+        "last current should be 30"
+    );
+    assert_eq!(progress.last_total(), Some(30), "last total should be 30");
+
+    // 復旧件数とも一致。
+    assert_eq!(report.recovered.len(), 30);
 }

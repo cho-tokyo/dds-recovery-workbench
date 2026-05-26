@@ -7,6 +7,7 @@ use anyhow::{anyhow, Context, Result};
 
 use dds_case_manager::{execute_business_recovery, CaseStorage};
 use dds_core::format::format_bytes;
+use dds_recovery::ConsoleProgressReporter;
 use dds_wish_match::{ExclusionList, Priority, Wish, WishItem, Wishlist};
 
 use crate::drives::list_drives;
@@ -178,9 +179,14 @@ pub fn run() -> Result<()> {
     }
 
     // Step 5: 復旧実行
+    // Chunk 24b: 進捗表示 (5 秒おき) + 並列化により処理速度向上。
     println!();
-    println!("[復旧中... 完了まで時間がかかる場合があります]");
+    println!("[復旧開始]");
+    println!("  進捗は 5 秒おきに stderr に表示されます。");
     let start = std::time::Instant::now();
+
+    // Chunk 24b: ConsoleProgressReporter を生成。stderr に「N/M ファイル、経過時間、現在パス」を出力。
+    let progress = ConsoleProgressReporter::new();
 
     let mut volume = open_ntfs_volume(&source_drive.access_path)?;
     let result = execute_business_recovery(
@@ -190,11 +196,17 @@ pub fn run() -> Result<()> {
         &wishlist,
         &exclusions,
         &storage,
+        &progress,
     )
     .context("復旧の実行に失敗しました")?;
 
     let elapsed = start.elapsed();
     println!("[復旧完了 - {:.2} 秒]", elapsed.as_secs_f64());
+
+    // Chunk 24b: 速度表示（業務的に「目標 100 MB/s 達成」の検証用）。
+    let mb_per_sec = (result.report.total_bytes_written() as f64 / 1_048_576.0)
+        / elapsed.as_secs_f64().max(0.001);
+    println!("  速度:           {:.1} MB/s", mb_per_sec);
     println!();
 
     // Step 6: 結果表示。Chunk 24a で「品質保証率」表示削除 (お客様向け簡素化方針)。

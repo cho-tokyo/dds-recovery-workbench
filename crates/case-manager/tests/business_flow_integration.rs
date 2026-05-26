@@ -14,6 +14,7 @@ use tempfile::TempDir;
 
 use dds_case_manager::{execute_business_recovery, CaseId, CaseStorage};
 use dds_fs_ntfs::{parse_boot_sector, NtfsVolume};
+use dds_recovery::NoopProgressReporter;
 use dds_wish_match::{ExclusionList, Priority, Wish, WishItem, Wishlist};
 
 use common::{count_files_recursive, decompress_fixture, make_image_reader};
@@ -63,6 +64,7 @@ fn full_business_flow_from_case_creation_to_delivery() {
         &wishlist,
         &exclusions,
         &storage,
+        &NoopProgressReporter,
     )
     .expect("execute_business_recovery");
 
@@ -187,6 +189,7 @@ fn business_reports_separated_between_delivery_and_internal() {
         &wishlist,
         &exclusions,
         &storage,
+        &NoopProgressReporter,
     )
     .expect("execute_business_recovery");
 
@@ -250,6 +253,7 @@ fn recovered_files_preserve_original_timestamps() {
         &wishlist,
         &exclusions,
         &storage,
+        &NoopProgressReporter,
     )
     .expect("execute_business_recovery");
 
@@ -312,6 +316,7 @@ fn product_demo_phase_1_5_final() {
         &wishlist,
         &exclusions,
         &storage,
+        &NoopProgressReporter,
     )
     .expect("execute_business_recovery");
     storage.save(&case).unwrap();
@@ -407,6 +412,7 @@ fn persist_chunk24a_demo_reports() {
         &wishlist,
         &exclusions,
         &storage,
+        &NoopProgressReporter,
     )
     .expect("execute_business_recovery");
     storage.save(&case).unwrap();
@@ -453,4 +459,112 @@ fn persist_chunk24a_demo_reports() {
     assert!(result.report_paths.internal_html.is_file());
     assert!(result.report_paths.csv.is_file());
     assert!(case_json.is_file());
+}
+
+/// Chunk 24b: ConsoleProgressReporter の stderr 出力サンプルを業務メンバーが確認するための demo。
+///
+/// 実行: `cargo test -p dds-case-manager --test business_flow_integration \
+///        demo_chunk24b_console_progress_output -- --ignored --nocapture 2>&1`
+#[test]
+#[ignore]
+fn demo_chunk24b_console_progress_output() {
+    use std::time::Duration;
+    let internal_storage = TempDir::new().unwrap();
+    let storage = CaseStorage::with_base_dir(internal_storage.path());
+    let delivery_drive = TempDir::new().unwrap();
+
+    let case_id = CaseId::parse("260522-04").unwrap();
+    let mut case = storage.create_new(case_id.clone()).unwrap();
+
+    let mut volume = open_fixture("ntfs_with_5_deletions_small");
+    let wishlist = make_wishlist();
+    let exclusions = ExclusionList::default_system_exclusions();
+
+    // テスト用に間隔を 1ms に短縮して、フィクスチャでも毎ファイル出力させる。
+    let progress = dds_recovery::ConsoleProgressReporter::with_interval(Duration::from_millis(1));
+
+    eprintln!("\n=== Chunk 24b ConsoleProgressReporter Sample Output ===");
+    let _ = execute_business_recovery(
+        &mut case,
+        delivery_drive.path(),
+        &mut volume,
+        &wishlist,
+        &exclusions,
+        &storage,
+        &progress,
+    )
+    .expect("execute_business_recovery");
+    eprintln!("=== Sample End ===\n");
+}
+
+/// Chunk 24b: パフォーマンス計測 demo。`--ignored --nocapture` で実行。
+///
+/// フィクスチャ `ntfs_mixed_formats` は 15 ファイル / 数 KB と非常に小さく、並列化
+/// オーバーヘッドが目立つ可能性が高い。**ここでは絶対速度の到達は目的ではなく**、
+/// 「並列化された recover_files が動作している」「MB/s 計測が出る」ことを担保する。
+/// 実機ベンチマークは Chouさんが Chunk 24b 完了後に手動で実施する。
+///
+/// 実行:
+/// ```text
+/// cargo test --release -p dds-case-manager --test business_flow_integration \
+///   perf_demo_chunk24b_recovery_speed -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore]
+fn perf_demo_chunk24b_recovery_speed() {
+    use std::time::Instant;
+
+    let internal_storage = TempDir::new().unwrap();
+    let storage = CaseStorage::with_base_dir(internal_storage.path());
+    let delivery_drive = TempDir::new().unwrap();
+
+    let case_id = CaseId::parse("260522-04").unwrap();
+    let mut case = storage.create_new(case_id.clone()).unwrap();
+
+    let mut volume = open_fixture("ntfs_mixed_formats");
+    let wishlist = make_business_demo_wishlist();
+    let exclusions = ExclusionList::default_system_exclusions();
+
+    let progress = NoopProgressReporter; // 進捗表示は別 demo で確認
+    let start = Instant::now();
+    let result = execute_business_recovery(
+        &mut case,
+        delivery_drive.path(),
+        &mut volume,
+        &wishlist,
+        &exclusions,
+        &storage,
+        &progress,
+    )
+    .expect("execute_business_recovery");
+    let elapsed = start.elapsed();
+
+    let total_bytes = result.report.total_bytes_written();
+    let mb_per_sec = (total_bytes as f64 / 1_048_576.0) / elapsed.as_secs_f64().max(0.001);
+    let worker_count = num_cpus::get().clamp(1, 4);
+
+    println!("\n=== Chunk 24b Performance Demo ===");
+    println!(
+        "ワーカー数:   {} (CPU コア数 = {})",
+        worker_count,
+        num_cpus::get()
+    );
+    println!("ファイル数:   {} 件", result.report.recovered.len());
+    println!(
+        "データ量:    {} bytes ({:.2} MB)",
+        total_bytes,
+        total_bytes as f64 / 1_048_576.0
+    );
+    println!("経過時間:    {:.3} 秒", elapsed.as_secs_f64());
+    println!("速度:        {:.1} MB/s", mb_per_sec);
+    println!();
+    println!("注: ベースライン (Chunk 24a 実機): 約 4 MB/s");
+    println!("    目標 (Chunk 24b):              50-100 MB/s (実機で検証)");
+    println!("    本デモはフィクスチャが小さいため絶対値は参考程度。");
+    println!("=== Performance Demo End ===\n");
+
+    assert!(
+        !result.report.recovered.is_empty(),
+        "should recover at least one file"
+    );
 }

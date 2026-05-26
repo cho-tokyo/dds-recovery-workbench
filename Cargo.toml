@@ -51,6 +51,8 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 
 # Parallel processing
 rayon = "1.10"
+crossbeam-channel = "0.5"
+num_cpus = "1.16"
 
 # Patterns
 aho-corasick = "1.1"

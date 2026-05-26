@@ -47,4 +47,9 @@ pub enum RecoveryError {
         /// 試行回数。
         attempts: u32,
     },
+
+    /// Chunk 24b: 並列化された復旧で worker スレッドが panic した。
+    /// 並列化のプロデューサ／コンシューマスレッド合流時に検出される。
+    #[error("ワーカースレッドが panic しました")]
+    WorkerPanic,
 }

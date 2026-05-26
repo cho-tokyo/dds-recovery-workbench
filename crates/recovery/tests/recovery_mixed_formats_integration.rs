@@ -11,7 +11,7 @@ mod common;
 use std::collections::HashMap;
 
 use dds_fs_ntfs::{parse_boot_sector, NtfsVolume};
-use dds_recovery::RecoveryEngine;
+use dds_recovery::{NoopProgressReporter, RecoveryEngine};
 use dds_validators::ValidationStatus;
 use dds_wish_match::{ExclusionList, Priority, Wish, WishItem, Wishlist};
 use tempfile::TempDir;
@@ -73,6 +73,7 @@ fn recovers_mixed_formats_with_correct_validation_status() {
             &mut volume,
             &wishlist_all_15(),
             &ExclusionList::default_system_exclusions(),
+            &NoopProgressReporter,
         )
         .expect("recover_files");
 
@@ -157,6 +158,7 @@ fn extension_content_mismatch_detected_as_invalid() {
             &mut volume,
             &wishlist_all_15(),
             &ExclusionList::default_system_exclusions(),
+            &NoopProgressReporter,
         )
         .expect("recover_files");
 
@@ -194,6 +196,7 @@ fn corrupted_samples_marked_as_invalid() {
             &mut volume,
             &wishlist_all_15(),
             &ExclusionList::default_system_exclusions(),
+            &NoopProgressReporter,
         )
         .expect("recover_files");
 
@@ -227,7 +230,7 @@ fn product_demo_recovery_with_quality_breakdown() {
     let temp_dir = TempDir::new().unwrap();
     let engine = RecoveryEngine::new(temp_dir.path());
     let report = engine
-        .recover_files(&mut volume, &wishlist, &exclusions)
+        .recover_files(&mut volume, &wishlist, &exclusions, &NoopProgressReporter)
         .expect("recover_files");
 
     println!("\n=== DDS Recovery Workbench - Quality Breakdown Demo ===\n");

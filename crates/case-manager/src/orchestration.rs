@@ -32,7 +32,9 @@
 use std::path::Path;
 
 use dds_fs_ntfs::NtfsVolume;
-use dds_recovery::{RecoveryConfig, RecoveryEngine, RecoveryError, RecoveryReport};
+use dds_recovery::{
+    ProgressReporter, RecoveryConfig, RecoveryEngine, RecoveryError, RecoveryReport,
+};
 use dds_wish_match::{ExclusionList, Wishlist};
 
 use crate::case::{Case, RecoveryReportSummary};
@@ -54,16 +56,18 @@ use crate::storage::CaseStorage;
 ///
 /// 内部の `create_dir_all` / `RecoveryEngine` / `write_business_reports` で
 /// 発生したエラーを [`BusinessRecoveryError`] にまとめて返す。
-pub fn execute_business_recovery<F>(
+pub fn execute_business_recovery<F, P>(
     case: &mut Case,
     drive_root: impl AsRef<Path>,
     volume: &mut NtfsVolume<F>,
     wishlist: &Wishlist,
     exclusions: &ExclusionList,
     storage: &CaseStorage,
+    progress: &P,
 ) -> Result<BusinessRecoveryResult, BusinessRecoveryError>
 where
     F: FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>,
+    P: ProgressReporter + ?Sized,
 {
     // Step 1: 納品レイアウト構築 + 3 ディレクトリ作成。
     let case_output = CaseOutput::new(case.case_id.clone(), drive_root.as_ref().to_path_buf());
@@ -77,7 +81,8 @@ where
     let engine = RecoveryEngine::with_config(config);
 
     // Step 3: 復旧実行。Chunk 23.7 で全件復旧 + ExclusionList で除外する設計に変更。
-    let report = engine.recover_files(volume, wishlist, exclusions)?;
+    // Chunk 24b: progress reporter で進捗報告（CLI なら ConsoleProgressReporter）。
+    let report = engine.recover_files(volume, wishlist, exclusions, progress)?;
 
     // Step 4: レポート 3 ファイル生成 (Chunk 24a で 5→3 に簡素化):
     //   - 納品 HDD: 復旧レポート.docx のみ

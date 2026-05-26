@@ -16,7 +16,7 @@
 //! ## 使い方
 //!
 //! ```no_run
-//! use dds_recovery::{RecoveryEngine, RecoveryOptions};
+//! use dds_recovery::{NoopProgressReporter, RecoveryEngine, RecoveryOptions};
 //! use dds_wish_match::{ExclusionList, Wishlist, Wish, WishItem, Priority};
 //! # use dds_fs_ntfs::NtfsVolume;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -31,8 +31,11 @@
 //! );
 //! let exclusions = ExclusionList::default_system_exclusions();
 //!
+//! // Chunk 24b: 並列化対応のため ProgressReporter が必須。CLI なら
+//! //   ConsoleProgressReporter、テストやバッチ処理なら NoopProgressReporter。
+//! let progress = NoopProgressReporter;
 //! let engine = RecoveryEngine::new("./recovered_files");
-//! let report = engine.recover_files(&mut volume, &wishlist, &exclusions)?;
+//! let report = engine.recover_files(&mut volume, &wishlist, &exclusions, &progress)?;
 //! println!("Recovered: {} (priority: {})",
 //!     report.recovered.len(), report.priority_count());
 //! # Ok(())
@@ -49,6 +52,7 @@
 pub mod engine;
 pub mod error;
 pub mod options;
+pub mod progress;
 pub mod report;
 pub mod sanitize;
 pub mod timestamps;
@@ -56,6 +60,7 @@ pub mod timestamps;
 pub use engine::{RecoveryConfig, RecoveryEngine};
 pub use error::RecoveryError;
 pub use options::{ConflictStrategy, RecoveryOptions};
+pub use progress::{ConsoleProgressReporter, NoopProgressReporter, ProgressReporter};
 pub use report::{FailedEntry, FormatStats, RecoveredEntry, RecoveryReport, SkippedEntry};
 pub use sanitize::{insert_deleted_marker, sanitize_filename};
 pub use timestamps::{apply_timestamps, NtfsTimestamps, TimestampError};
