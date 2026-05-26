@@ -222,9 +222,10 @@ fn product_demo_business_grade_reports() {
         "Customer DOCX must not leak CS internal note"
     );
 
-    // CS HTML に業務指標が出ていること
+    // CS HTML に業務指標が出ていること (Chunk 24a で「品質保証率」パーセンテージ表示は削除、
+    // 件数表示は維持)。
     let internal = std::fs::read_to_string(&paths.internal_html).unwrap();
-    assert!(internal.contains("品質保証率"));
+    assert!(internal.contains("品質判定内訳"));
     assert!(internal.contains("形式別ブレイクダウン") || internal.contains("ブレイクダウン"));
 
     // CSV ヘッダーが 15 列（Chunk 23.7 で is_priority 列追加）

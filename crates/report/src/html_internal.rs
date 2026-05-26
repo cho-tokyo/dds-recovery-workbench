@@ -105,22 +105,21 @@ pub fn render_internal_html(report: &RecoveryReport) -> Result<String, ReportErr
         skip = report.skipped.len(),
     ));
 
-    // 品質判定内訳
+    // 品質判定内訳 (Chunk 24a: パーセンテージ "品質保証率" 表示は削除、件数 + 比率は維持)。
+    // CS 業務管理用に Valid / Invalid / Uncertain の件数は社内 HTML に残す。
     html.push_str(&format!(
         "    <h2>品質判定内訳</h2>\n    <table>\n\
          <tr><th>判定</th><th>件数</th><th>比率</th></tr>\n\
          <tr><td>Valid (品質確認済み)</td><td>{v}</td><td>{vr:.1}%</td></tr>\n\
          <tr><td>Invalid (要確認)</td><td>{i}</td><td>{ir:.1}%</td></tr>\n\
          <tr><td>Uncertain (検証外)</td><td>{u}</td><td>{ur:.1}%</td></tr>\n\
-         </table>\n\
-         <p><strong>品質保証率: <span class=\"metric\">{qa:.1}%</span></strong> (復旧成功のうち Valid の比率)</p>\n",
+         </table>\n",
         v = valid,
         vr = ratio_safe(valid, recovered_n),
         i = invalid,
         ir = ratio_safe(invalid, recovered_n),
         u = uncertain,
         ur = ratio_safe(uncertain, recovered_n),
-        qa = report.quality_assurance_rate(),
     ));
 
     // === Chunk 23.8: Uncertain (検証外) の内訳 ===
@@ -165,11 +164,11 @@ pub fn render_internal_html(report: &RecoveryReport) -> Result<String, ReportErr
     // priority_count == 0 のとき（Wishlist が空 or マッチなし）は省略。
     let priority_count = report.priority_count();
     if priority_count > 0 {
+        // Chunk 24a: 「品質保証率」パーセンテージ行を削除、件数のみ表示。
         html.push_str(&format!(
             "  <h2>お客様優先データ (Wishlist マッチ)</h2>\n  <table>\n\
              <tr><th>該当ファイル数</th><td><span class=\"metric\">{pc}</span> 件</td></tr>\n\
              <tr><th>復旧データ量</th><td>{bytes}</td></tr>\n\
-             <tr><th>品質保証率</th><td><span class=\"metric\">{qa:.1}%</span></td></tr>\n\
              </table>\n  <table>\n\
              <tr><th>判定</th><th>件数</th></tr>\n\
              <tr><td>Valid (正常)</td><td>{v}</td></tr>\n\
@@ -178,7 +177,6 @@ pub fn render_internal_html(report: &RecoveryReport) -> Result<String, ReportErr
              </table>\n",
             pc = priority_count,
             bytes = escape_html(&format_bytes(report.priority_total_bytes())),
-            qa = report.priority_quality_assurance_rate(),
             v = report.priority_validated_count(),
             i = report.priority_invalid_count(),
             u = report.priority_uncertain_count(),
@@ -357,8 +355,9 @@ mod tests {
     }
 
     #[test]
-    fn internal_html_shows_quality_assurance_rate() {
-        // Valid 2 / 復旧 4 -> 50.0%
+    fn internal_html_omits_quality_assurance_rate_percentage() {
+        // Chunk 24a: 「品質保証率: N%」パーセンテージ表示は HTML から削除。
+        // 件数表示 (Valid / Invalid / Uncertain) は社内 CS 用に維持。
         let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
         let v_ng = ValidationResult::invalid("PNG", "png_v1", "x", "壊れ", "メモ");
         let entries = vec![
@@ -368,8 +367,14 @@ mod tests {
             entry("\\d.png", Some(v_ng)),
         ];
         let html = render_internal_html(&make_report(entries, 4)).unwrap();
-        assert!(html.contains("品質保証率"));
-        assert!(html.contains("50.0%"));
+        // 「品質保証率」というラベル + パーセンテージ表示はもう存在しない。
+        assert!(
+            !html.contains("品質保証率"),
+            "品質保証率パーセント表示は削除済み"
+        );
+        // 件数 (Valid 2, Invalid 2) は表示維持。
+        assert!(html.contains("Valid (品質確認済み)"));
+        assert!(html.contains("Invalid (要確認)"));
     }
 
     #[test]
@@ -420,8 +425,8 @@ mod tests {
             "暗号化済み",
             "CS メモ",
         );
-        let html = render_internal_html(&make_report(vec![entry("\\enc.docx", Some(v_unc))], 1))
-            .unwrap();
+        let html =
+            render_internal_html(&make_report(vec![entry("\\enc.docx", Some(v_unc))], 1)).unwrap();
         assert!(html.contains("Uncertain (検証外) の内訳"));
         assert!(html.contains("暗号化"));
         // 5 つのラベルすべてが表内に含まれる。

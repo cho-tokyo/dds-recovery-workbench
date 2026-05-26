@@ -297,6 +297,25 @@ impl RecoveryEngine {
         }
         fs::write(&final_path, &content)?;
 
+        // Chunk 24a: NTFS タイムスタンプ保持 (R-STUDIO 並みの業界標準)。
+        // 3 種すべて Some の場合のみ適用、いずれか None なら NTFS メタ欠損として skip。
+        // 失敗時は警告のみで復旧は成功扱い (タイムスタンプ ≠ 復旧成否)。
+        if let (Some(created), Some(modified), Some(accessed)) =
+            (ntfs_file.created, ntfs_file.modified, ntfs_file.accessed)
+        {
+            let ts = crate::timestamps::NtfsTimestamps {
+                created,
+                modified,
+                accessed,
+            };
+            if let Err(e) = crate::timestamps::apply_timestamps(&final_path, &ts) {
+                eprintln!(
+                    "[warn] タイムスタンプ書き込み失敗: {:?} ({})",
+                    final_path, e
+                );
+            }
+        }
+
         let sha256 = if self.options.compute_sha256 {
             Some(sha256_hex(&content))
         } else {

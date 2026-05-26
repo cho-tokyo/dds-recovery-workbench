@@ -30,13 +30,16 @@ type ClusterReader = Box<dyn FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>>
 /// open / read / boot sector parse / volume open のいずれかで失敗した場合は
 /// `anyhow::Error` でラップして返す。
 pub fn open_ntfs_volume(access_path: &str) -> Result<NtfsVolume<ClusterReader>> {
-    let mut file = OpenOptions::new().read(true).open(access_path).with_context(|| {
-        format!(
-            "ドライブを開けません: {}\n\
+    let mut file = OpenOptions::new()
+        .read(true)
+        .open(access_path)
+        .with_context(|| {
+            format!(
+                "ドライブを開けません: {}\n\
              管理者として実行する必要があるかもしれません。",
-            access_path
-        )
-    })?;
+                access_path
+            )
+        })?;
 
     // ブートセクタ (先頭 512B) を読み、クラスタサイズを確定する。
     let mut boot = vec![0u8; 512];
@@ -57,27 +60,29 @@ pub fn open_ntfs_volume(access_path: &str) -> Result<NtfsVolume<ClusterReader>> 
 /// バイトを `read_exact` で読み取る。
 fn make_cluster_reader(file: File, cluster_size: u64) -> ClusterReader {
     let file = Mutex::new(file);
-    Box::new(move |lcn: u64, count: u64| -> Result<Vec<u8>, std::io::Error> {
-        let mut f = file
-            .lock()
-            .map_err(|_| std::io::Error::other("File Mutex poisoned"))?;
-        let offset = lcn.checked_mul(cluster_size).ok_or_else(|| {
-            std::io::Error::other(format!(
-                "lcn overflow: lcn={} cluster_size={}",
-                lcn, cluster_size
-            ))
-        })?;
-        let length = count.checked_mul(cluster_size).ok_or_else(|| {
-            std::io::Error::other(format!(
-                "count overflow: count={} cluster_size={}",
-                count, cluster_size
-            ))
-        })?;
-        f.seek(SeekFrom::Start(offset))?;
-        let mut buf = vec![0u8; length as usize];
-        f.read_exact(&mut buf)?;
-        Ok(buf)
-    })
+    Box::new(
+        move |lcn: u64, count: u64| -> Result<Vec<u8>, std::io::Error> {
+            let mut f = file
+                .lock()
+                .map_err(|_| std::io::Error::other("File Mutex poisoned"))?;
+            let offset = lcn.checked_mul(cluster_size).ok_or_else(|| {
+                std::io::Error::other(format!(
+                    "lcn overflow: lcn={} cluster_size={}",
+                    lcn, cluster_size
+                ))
+            })?;
+            let length = count.checked_mul(cluster_size).ok_or_else(|| {
+                std::io::Error::other(format!(
+                    "count overflow: count={} cluster_size={}",
+                    count, cluster_size
+                ))
+            })?;
+            f.seek(SeekFrom::Start(offset))?;
+            let mut buf = vec![0u8; length as usize];
+            f.read_exact(&mut buf)?;
+            Ok(buf)
+        },
+    )
 }
 
 #[cfg(test)]

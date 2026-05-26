@@ -1,18 +1,21 @@
 //! # dds-report
 //!
-//! Chunk 20 / 20.5: DDS 復旧レポート生成（業務適用版）。
+//! Chunk 20 / 20.5 / Chunk 24a: DDS 復旧レポート生成（業務適用版）。
 //!
-//! [`dds_recovery::RecoveryReport`] から 4 種類のレポートを生成する:
+//! [`dds_recovery::RecoveryReport`] から 3 種類のレポートを生成する (Chunk 24a で 4→3 に簡素化):
 //!
 //! - **顧客向け .docx** ([`render_customer_docx`]): Word で開いて編集 → PDF 化して納品。
 //!   `user_message_ja` のみ使用、`internal_note_ja` は**絶対に含めない**。
-//! - **顧客向け要確認 .txt** ([`render_invalid_files_txt`]):
-//!   Invalid なファイルをフォルダ単位でグルーピング。
+//!   Chunk 24a で「品質保証率」「Valid/Invalid/Uncertain」「復旧実施日時」表示を削除。
 //! - **CS 向け HTML** ([`render_internal_html`]): 業務管理用。`internal_note_ja` +
 //!   SHA256 + 出力先パスを含む。「お客様に共有しないでください」警告付き。
-//! - **CSV** ([`render_csv`]): 外部システム連携用。14 列（matched_wishes 列追加）。
+//!   Chunk 24a で「品質保証率」パーセンテージ表示削除 (件数表示は維持)。
+//! - **CSV** ([`render_csv`]): 外部システム連携用。15 列。書き出し時に UTF-8 BOM 付加で
+//!   Excel 文字化け解消 ([`write_business_reports`] 経由)。
 //!
-//! [`write_all_reports`] で 4 形式を同時にディレクトリへ書き出せる。
+//! [`write_business_reports`] で 3 形式を同時に書き出す (Chunk 24a 主 API)。
+//! [`write_all_reports`] は Chunk 20.5 の旧 API として残置 (4 ファイル `report_customer.docx`
+//! 等の英名版、レガシテスト用)。
 //!
 //! ## 安全性設計
 //!

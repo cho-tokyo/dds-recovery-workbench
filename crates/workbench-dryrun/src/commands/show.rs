@@ -37,14 +37,8 @@ pub fn run() -> Result<()> {
         if let Some(fs) = &case.diagnostic_input.filesystem_type {
             println!("  FS:           {}", fs);
         }
-        println!(
-            "  全ファイル:   {} 件",
-            case.diagnostic_input.total_files
-        );
-        println!(
-            "  削除ファイル: {} 件",
-            case.diagnostic_input.deleted_files
-        );
+        println!("  全ファイル:   {} 件", case.diagnostic_input.total_files);
+        println!("  削除ファイル: {} 件", case.diagnostic_input.deleted_files);
         if let Some(findings) = &case.diagnostic_input.filesystem_findings {
             if findings.has_any_issue() {
                 println!("  破損検出:     あり");
@@ -55,10 +49,7 @@ pub fn run() -> Result<()> {
                     println!("    ・ MFT 破損 {} 件", findings.mft_corrupted_count);
                 }
                 if findings.invalid_runlist_count > 0 {
-                    println!(
-                        "    ・ 不正 run-list {} 件",
-                        findings.invalid_runlist_count
-                    );
+                    println!("    ・ 不正 run-list {} 件", findings.invalid_runlist_count);
                 }
             } else {
                 println!("  破損検出:     なし");

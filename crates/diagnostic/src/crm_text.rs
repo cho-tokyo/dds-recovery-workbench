@@ -151,7 +151,10 @@ pub fn render(report: &DiagnosticReport) -> String {
                 s,
                 "    高: ファイル内容が MFT 内に完結、または占有クラスタが上書きされていない"
             );
-            let _ = writeln!(s, "    中: 占有クラスタの一部が他のファイルで上書きされている");
+            let _ = writeln!(
+                s,
+                "    中: 占有クラスタの一部が他のファイルで上書きされている"
+            );
             let _ = writeln!(s, "    低: run-list 解析失敗、または全クラスタが上書き済み");
         }
         let _ = writeln!(s);
@@ -414,7 +417,11 @@ mod tests {
         };
         let r = report_with_recoverability(Some(est));
         let text = render(&r);
-        assert!(text.contains("復旧可能性 (推定):"), "missing header: {}", text);
+        assert!(
+            text.contains("復旧可能性 (推定):"),
+            "missing header: {}",
+            text
+        );
         assert!(text.contains("高 (確実復旧可能): 5 件"));
         assert!(text.contains("中 (部分復旧の可能性): 0 件"));
         assert!(text.contains("低 (メタデータのみ): 0 件"));

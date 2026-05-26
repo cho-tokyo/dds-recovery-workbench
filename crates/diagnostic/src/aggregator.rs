@@ -354,7 +354,7 @@ mod tests {
     fn occupancy_count_overlapping_partial() {
         let mut occ = ClusterOccupancyMap::new();
         occ.mark_range(105, 3); // [105, 108) を占有
-        // [100, 110) のうち占有されているのは 105, 106, 107 の 3 つ
+                                // [100, 110) のうち占有されているのは 105, 106, 107 の 3 つ
         assert_eq!(occ.count_overlapping(100, 10), 3);
         // 重なりなし
         assert_eq!(occ.count_overlapping(200, 10), 0);

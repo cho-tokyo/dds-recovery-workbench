@@ -52,7 +52,10 @@ pub fn run() -> Result<()> {
         loaded
     } else {
         println!();
-        println!("案件が見つかりません。新規作成して復旧を進めます: {}", case_id);
+        println!(
+            "案件が見つかりません。新規作成して復旧を進めます: {}",
+            case_id
+        );
         println!("  (復旧 PC では「いきなり復旧」が標準フローです)");
         storage
             .create_new(case_id.clone())
@@ -100,7 +103,10 @@ pub fn run() -> Result<()> {
     let dst_sel = prompt_number("納品先 HDD (G:\\ など) を選択", 1, drives.len())?;
     let delivery_drive = drives[dst_sel - 1].clone();
 
-    if source_drive.drive_letter.eq_ignore_ascii_case(&delivery_drive.drive_letter) {
+    if source_drive
+        .drive_letter
+        .eq_ignore_ascii_case(&delivery_drive.drive_letter)
+    {
         return Err(anyhow!(
             "ソースと納品先が同じドライブです。別のドライブを選択してください。"
         ));
@@ -183,6 +189,7 @@ pub fn run() -> Result<()> {
         &mut volume,
         &wishlist,
         &exclusions,
+        &storage,
     )
     .context("復旧の実行に失敗しました")?;
 
@@ -190,17 +197,13 @@ pub fn run() -> Result<()> {
     println!("[復旧完了 - {:.2} 秒]", elapsed.as_secs_f64());
     println!();
 
-    // Step 6: 結果表示。Chunk 23.7 で「全体 + 優先データ」二重表示。
+    // Step 6: 結果表示。Chunk 24a で「品質保証率」表示削除 (お客様向け簡素化方針)。
     println!("結果 (全体):");
     println!("  該当ファイル:   {} 件", result.report.total_matched);
     println!(
         "  復旧成功:       {} 件 ({:.1}%)",
         result.report.recovered.len(),
         result.report.recovery_success_rate()
-    );
-    println!(
-        "  品質保証率:     {:.1}%",
-        result.report.quality_assurance_rate()
     );
     println!(
         "  復旧データ量:   {}",
@@ -211,26 +214,27 @@ pub fn run() -> Result<()> {
         println!("結果 (お客様優先データ):");
         println!("  該当ファイル:   {} 件", result.report.priority_count());
         println!(
-            "  品質保証率:     {:.1}%",
-            result.report.priority_quality_assurance_rate()
-        );
-        println!(
             "  復旧データ量:   {}",
             format_bytes(result.report.priority_total_bytes())
         );
         println!();
     }
 
+    // Chunk 24a: 生成物を「納品 HDD」「社内保存」の 2 系統に分けて表示。
     println!("生成ファイル:");
-    println!("  {}", result.case_output.root().display());
+    println!("  納品 HDD ({}):", result.case_output.root().display());
     println!("    └─ 復旧データ/");
     println!("        ├─ 通常ファイル/");
     println!("        └─ 削除ファイル/");
     println!("    └─ レポート/");
-    println!("        ├─ 復旧レポート.docx");
-    println!("        ├─ 要確認ファイル一覧.txt");
-    println!("        ├─ 業務管理レポート.html");
-    println!("        └─ report.csv");
+    println!(
+        "        └─ 復旧レポート.docx ({})",
+        result.report_paths.customer_docx.display()
+    );
+    println!();
+    println!("  社内保存 ({}):", storage.base_dir().display());
+    println!("    └─ {}/業務管理レポート.html", case_id.as_str());
+    println!("    └─ {}/復旧詳細.csv (UTF-8 BOM 付き)", case_id.as_str());
     println!();
 
     // Step 7: case.json 永続化
@@ -279,8 +283,7 @@ fn prompt_interactive_wishlist() -> Result<Wishlist> {
         }
 
         let ext = prompt_string("  拡張子 (例: docx、ピリオドなし)")?;
-        let priority_input =
-            prompt_string("  優先度 (critical/high/normal/low、デフォルト high)")?;
+        let priority_input = prompt_string("  優先度 (critical/high/normal/low、デフォルト high)")?;
         let priority = parse_priority(&priority_input);
 
         wishlist = wishlist.add(

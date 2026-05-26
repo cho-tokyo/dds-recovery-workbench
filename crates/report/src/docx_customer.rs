@@ -1,253 +1,119 @@
-//! Chunk 20.5: 顧客向け .docx レポート生成。
+//! Chunk 20.5 / Chunk 24a: 顧客向け .docx レポート生成。
 //!
 //! Word で開いて編集 → PDF 化して納品するワークフローを前提とした業務適用版。
 //!
-//! **設計原則（最重要）**: `internal_note_ja` を**絶対に**含めない。
-//! 業務的にお客様に共有してはならない内部メモが漏れることを機械テスト
-//! （`zip::ZipArchive` で .docx を解凍して XML 文字列検索）で防ぐ。
+//! Chunk 24a の改訂で「業務的に誤解を生む表示」を全削除し、お客様向けに最小限の
+//! 情報のみを残す **簡素化レイアウト** に変更。
 //!
-//! 構造:
-//! - 会社名（右寄せ） + タイトル（中央寄せ） + 作成日
-//! - ご指定条件（`wish_labels`）
-//! - 復旧結果サマリ / 品質確認テーブル
-//! - 要確認ファイル概要（上位 5 グループ、件数 + 主な理由）
-//! - 復旧データ量（人間可読バイト）
-//! - フッター（会社名）
+//! ## レイアウト (Chunk 24a)
 //!
-//! 関連 FR: FR-REP-01 (顧客向け復旧レポート出力), FR-REP-04 (業務指標可視化)。
+//! ```text
+//! ┌──────────────────────────────────────┐
+//! │       データ復旧レポート              │
+//! │                                      │
+//! │ ■ 復旧結果                            │
+//! │   通常ファイル   : N 件                │
+//! │   削除ファイル   : N 件                │
+//! │   合計           : N 件、合計 NN GB    │
+//! │                                      │
+//! │ ■ ご指定優先データ (Wishlist 指定時のみ)│
+//! │   該当ファイル   : N 件                │
+//! │   ご指定条件     : 「写真」、「書類」   │
+//! │                                      │
+//! │ ■ お問い合わせ先                       │
+//! │   Digital Data Solution 株式会社       │
+//! └──────────────────────────────────────┘
+//! ```
+//!
+//! ## Chunk 24a で削除した表示 (お客様に誤解を生む)
+//!
+//! - 復旧実施日時 (日付の意味合いがお客様に伝わりにくい)
+//! - 品質保証率 / Valid / Invalid / Uncertain (内部品質判定)
+//! - 自動確認対象外の内訳 (CS 用情報)
+//! - 形式別ブレイクダウン
+//! - 業務メトリクスを誇張する表現
+//!
+//! ## 設計原則 (最重要、Chunk 20.5 から継続)
+//!
+//! `internal_note_ja` を**絶対に**含めない。業務的にお客様に共有してはならない内部メモが
+//! 漏れることを機械テスト (`zip::ZipArchive` で .docx を解凍して XML 文字列検索) で防ぐ。
+//!
+//! 関連 FR: FR-REP-01 (顧客向け復旧レポート出力), FR-OUT-05 (納品物簡素化, Chunk 24a).
 
-use chrono::Local;
-use docx_rs::{AlignmentType, Docx, Paragraph, Run, Table, TableCell, TableRow};
+use docx_rs::{Docx, Paragraph, Run, Table, TableCell, TableRow};
 
 use dds_recovery::RecoveryReport;
 
 use crate::error::ReportError;
 use crate::format::format_bytes;
 
-/// 顧客向けに表示する会社名（業務適用版で必須）。
-pub const COMPANY_NAME: &str = "デジタルデータソリューション株式会社";
+/// 顧客向けに表示する会社名 (お問い合わせ先案内に使用)。
+pub const COMPANY_NAME: &str = "Digital Data Solution 株式会社";
 
-/// 顧客向け .docx レポートをバイト列で生成する。
+/// 顧客向け .docx レポート（簡素化版、Chunk 24a）をバイト列で生成する。
 ///
 /// `Vec<u8>` には完全な OOXML ZIP アーカイブが含まれる。`std::fs::write` で
 /// `.docx` 拡張子のファイルとして保存すれば Word / LibreOffice で開ける。
 ///
-/// 含まれない情報（顧客への漏洩防止）:
-/// - `internal_note_ja` (CS 内部メモ)
-/// - 個別ファイル名（recovered_files.txt に分離）
-/// - SHA256 / 出力先パス
-/// - 技術的 diagnostics
+/// 含まれない情報（顧客への誤解防止 / 漏洩防止）:
+/// - `internal_note_ja` (CS 内部メモ、Chunk 20.5 から継続)
+/// - 個別ファイル名 / SHA256 / 出力先パス (Chunk 20.5 から継続)
+/// - 品質保証率 / Valid / Invalid / Uncertain (Chunk 24a で追加削除)
+/// - 復旧実施日時 (Chunk 24a で追加削除)
+/// - 自動確認対象外の内訳 (Chunk 24a で追加削除)
 pub fn render_customer_docx(report: &RecoveryReport) -> Result<Vec<u8>, ReportError> {
-    let date = Local::now().format("%Y年%m月%d日").to_string();
-
     let mut docx = Docx::new();
 
-    // === ヘッダー: 会社名（右寄せ、小さめ） + タイトル ===
+    // ===== タイトル =====
     docx = docx.add_paragraph(
-        Paragraph::new()
-            .align(AlignmentType::Right)
-            .add_run(Run::new().add_text(COMPANY_NAME).size(20)),
+        Paragraph::new().add_run(Run::new().add_text("データ復旧レポート").size(40).bold()),
     );
-    docx = docx.add_paragraph(
-        Paragraph::new()
-            .align(AlignmentType::Center)
-            .add_run(Run::new().add_text("データ復旧レポート").size(40).bold()),
-    );
+    docx = docx.add_paragraph(Paragraph::new());
+
+    // ===== 復旧結果 =====
     docx = docx
-        .add_paragraph(Paragraph::new().add_run(Run::new().add_text(format!("作成日: {}", date))));
+        .add_paragraph(Paragraph::new().add_run(Run::new().add_text("■ 復旧結果").size(28).bold()));
+
+    let live_count = report.recovered.iter().filter(|e| !e.is_deleted).count();
+    let deleted_count = report.recovered.iter().filter(|e| e.is_deleted).count();
+    let total_count = report.recovered.len();
+
+    docx = docx.add_table(Table::new(vec![
+        make_kv_row("通常ファイル", &format!("{} 件", live_count)),
+        make_kv_row("削除ファイル", &format!("{} 件", deleted_count)),
+        make_kv_row(
+            "合計",
+            &format!(
+                "{} 件、{}",
+                total_count,
+                format_bytes(report.total_bytes_written())
+            ),
+        ),
+    ]));
     docx = docx.add_paragraph(Paragraph::new());
 
-    // === ご指定条件（Wish::label のリスト） ===
-    docx = docx.add_paragraph(
-        Paragraph::new().add_run(Run::new().add_text("■ ご指定条件").size(28).bold()),
-    );
-    if report.wish_labels.is_empty() {
-        docx =
-            docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text("  (条件指定なし)")));
-    } else {
-        for label in &report.wish_labels {
-            docx = docx.add_paragraph(
-                Paragraph::new().add_run(Run::new().add_text(format!("  「{}」", label))),
-            );
-        }
-    }
-    docx = docx.add_paragraph(Paragraph::new());
-
-    // === Chunk 23.7: お客様優先データセクション ===
-    // 全件復旧 + Wishlist ラベリング設計（R-STUDIO 風）の下で、
-    // 「ご指定優先データ」の結果を「全体」とは別にお客様に伝える。
+    // ===== ご指定優先データ (Wishlist 指定時のみ) =====
     if report.priority_count() > 0 {
         docx = docx.add_paragraph(
-            Paragraph::new().add_run(
-                Run::new()
-                    .add_text("■ ご指定優先データの結果")
-                    .size(28)
-                    .bold(),
-            ),
+            Paragraph::new().add_run(Run::new().add_text("■ ご指定優先データ").size(28).bold()),
         );
-        let priority_rows = vec![
-            make_kv_row(
-                "該当ファイル数",
-                &format!("{} 件", report.priority_count()),
-            ),
-            make_kv_row(
-                "復旧データ量",
-                &crate::format::format_bytes(report.priority_total_bytes()),
-            ),
-            make_kv_row(
-                "正常確認済み",
-                &format!(
-                    "{} 件 ({:.1}%)",
-                    report.priority_validated_count(),
-                    report.priority_quality_assurance_rate()
-                ),
-            ),
-            make_kv_row(
-                "要ご確認",
-                &format!("{} 件", report.priority_invalid_count()),
-            ),
-            make_kv_row(
-                "自動確認対象外",
-                &format!("{} 件", report.priority_uncertain_count()),
-            ),
-        ];
-        docx = docx.add_table(Table::new(priority_rows));
+        docx = docx.add_table(Table::new(vec![
+            make_kv_row("該当ファイル", &format!("{} 件", report.priority_count())),
+            make_kv_row("ご指定条件", &report.wish_labels.join("、")),
+        ]));
         docx = docx.add_paragraph(Paragraph::new());
     }
 
-    // === 復旧結果サマリ (全体) ===
-    // Chunk 23.7 で「(全体)」ラベル明示。優先データセクションとの混同を防ぐ。
+    // ===== お問い合わせ先 =====
     docx = docx.add_paragraph(
-        Paragraph::new().add_run(
-            Run::new()
-                .add_text("■ 復旧結果サマリ (全体)")
-                .size(28)
-                .bold(),
-        ),
-    );
-    let summary_rows = vec![
-        make_kv_row("該当ファイル数", &format!("{} 件", report.total_matched)),
-        make_kv_row(
-            "復旧成功",
-            &format!(
-                "{} 件 ({:.1}%)",
-                report.recovered.len(),
-                report.recovery_success_rate()
-            ),
-        ),
-    ];
-    docx = docx.add_table(Table::new(summary_rows));
-    docx = docx.add_paragraph(Paragraph::new());
-
-    // === 品質確認 ===
-    docx = docx
-        .add_paragraph(Paragraph::new().add_run(Run::new().add_text("■ 品質確認").size(28).bold()));
-    let valid = report.validated_count();
-    let invalid = report.invalid_count();
-    let uncertain = report.uncertain_count();
-    let quality_rows = vec![
-        make_kv_row(
-            "正常確認済み",
-            &format!("{} 件 ({:.1}%)", valid, report.quality_assurance_rate()),
-        ),
-        make_kv_row("要ご確認", &format!("{} 件", invalid)),
-        make_kv_row("自動確認対象外", &format!("{} 件", uncertain)),
-    ];
-    docx = docx.add_table(Table::new(quality_rows));
-    docx = docx.add_paragraph(Paragraph::new());
-
-    // === Chunk 23.8: Uncertain (自動確認対象外) の内訳 ===
-    // 5 つの理由カテゴリで「なぜ確認できなかった」を明示する。
-    let breakdown = report.uncertain_breakdown();
-    if breakdown.total() > 0 {
-        docx = docx.add_paragraph(
-            Paragraph::new().add_run(
-                Run::new()
-                    .add_text("【自動確認対象外について】")
-                    .size(24)
-                    .bold(),
-            ),
-        );
-        let breakdown_text = format!(
-            "  対応 Validator なし: {} 件\n  暗号化ファイル: {} 件\n  サイズ超過: {} 件\n  Validator エラー: {} 件\n  拡張子不一致: {} 件",
-            breakdown.no_validator,
-            breakdown.encrypted,
-            breakdown.too_large,
-            breakdown.validator_error,
-            breakdown.extension_mismatch,
-        );
-        docx = docx.add_paragraph(
-            Paragraph::new().add_run(Run::new().add_text(breakdown_text)),
-        );
-        docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text(
-            "DDS Workbench の自動品質確認は JPEG / PNG / PDF / Office (Word, Excel, PowerPoint) など主要形式に対応しています。それ以外の形式、暗号化されたファイル、極端に大きいファイル等は自動確認の対象外となります。お手元でお開きになってご確認ください。",
-        )));
-        docx = docx.add_paragraph(Paragraph::new());
-    }
-
-    // === 要ご確認のファイル概要（Invalid グループのトップ 5）===
-    if invalid > 0 {
-        docx = docx.add_paragraph(
-            Paragraph::new().add_run(
-                Run::new()
-                    .add_text("■ 要ご確認のファイルについて")
-                    .size(28)
-                    .bold(),
-            ),
-        );
-        docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text(format!(
-            "合計 {} 件のファイルに品質上の懸念があります。",
-            invalid
-        ))));
-        docx = docx.add_paragraph(Paragraph::new());
-        docx =
-            docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text("主な内訳:").bold()));
-
-        let grouped = report.invalid_grouped_by_reason();
-        for (reason, entries) in grouped.iter().take(5) {
-            docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text(format!(
-                "  ・{}: {} 件",
-                reason,
-                entries.len()
-            ))));
-        }
-        docx = docx.add_paragraph(Paragraph::new());
-        docx = docx.add_paragraph(
-            Paragraph::new().add_run(
-                Run::new()
-                    .add_text("詳細なファイル一覧は、別添「recovered_files.txt」をご参照ください。")
-                    .italic(),
-            ),
-        );
-        docx = docx.add_paragraph(Paragraph::new());
-    }
-
-    // === 復旧データ量 ===
-    docx = docx.add_paragraph(
-        Paragraph::new().add_run(Run::new().add_text("■ 復旧データ量").size(28).bold()),
+        Paragraph::new().add_run(Run::new().add_text("■ お問い合わせ先").size(28).bold()),
     );
     docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text(format!(
-        "  合計: {}",
-        format_bytes(report.total_bytes_written())
+        "復旧データに関するお問い合わせは、{}までご連絡ください。",
+        COMPANY_NAME
     ))));
 
-    // === フッター ===
-    docx = docx.add_paragraph(Paragraph::new());
-    docx = docx.add_paragraph(Paragraph::new());
-    docx = docx.add_paragraph(
-        Paragraph::new().align(AlignmentType::Center).add_run(
-            Run::new()
-                .add_text("ご不明な点がございましたら、担当者までお問い合わせください。")
-                .size(18),
-        ),
-    );
-    docx = docx.add_paragraph(
-        Paragraph::new()
-            .align(AlignmentType::Center)
-            .add_run(Run::new().add_text(COMPANY_NAME).size(20).bold()),
-    );
-
-    // === パック ===
+    // ===== パック =====
     let mut buf = Vec::new();
     {
         let cursor = std::io::Cursor::new(&mut buf);
@@ -321,33 +187,88 @@ mod tests {
     }
 
     #[test]
-    fn customer_docx_contains_company_name() {
-        // 会社名「デジタルデータソリューション株式会社」が必ず含まれること。
+    fn customer_docx_contains_title() {
+        // タイトル「データ復旧レポート」と会社名 (お問い合わせ先) が含まれる。
         let bytes = render_customer_docx(&build_report(vec![], vec![])).unwrap();
-        // .docx は ZIP (OOXML)
         assert!(bytes.starts_with(b"PK\x03\x04"));
         let text = extract_docx_text(&bytes);
-        assert!(text.contains(COMPANY_NAME), "会社名が含まれること");
+        assert!(text.contains("データ復旧レポート"));
+        assert!(text.contains(COMPANY_NAME));
     }
 
     #[test]
-    fn customer_docx_contains_wish_labels() {
-        let report = build_report(vec!["お客様の写真".into(), "重要な書類".into()], vec![]);
+    fn customer_docx_shows_recovery_counts() {
+        // 通常 / 削除 / 合計の件数が表示される。
+        let mut live_entry = entry("\\dir\\a.png", None);
+        live_entry.is_deleted = false;
+        let mut del_entry = entry("\\dir\\b.png", None);
+        del_entry.is_deleted = true;
+        let report = build_report(vec![], vec![live_entry, del_entry]);
         let bytes = render_customer_docx(&report).unwrap();
         let text = extract_docx_text(&bytes);
-        assert!(text.contains("お客様の写真"));
-        assert!(text.contains("重要な書類"));
+        assert!(text.contains("通常ファイル"));
+        assert!(text.contains("削除ファイル"));
+        assert!(text.contains("合計"));
+    }
+
+    #[test]
+    fn customer_docx_omits_quality_metrics() {
+        // Chunk 24a: 品質保証率 / Valid / Invalid / Uncertain 表示なし (お客様向け簡素化)。
+        let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
+        let report = build_report(vec!["写真".into()], vec![entry("\\a.png", Some(v_ok))]);
+        let bytes = render_customer_docx(&report).unwrap();
+        let text = extract_docx_text(&bytes);
+        assert!(!text.contains("品質保証率"), "品質保証率は削除されている");
+        assert!(!text.contains("品質確認"));
+        assert!(!text.contains("正常確認済み"));
+        assert!(!text.contains("要ご確認"));
+        // 「自動確認対象外」キーワードも本文から消えていること。
+        assert!(!text.contains("自動確認対象外"));
+    }
+
+    #[test]
+    fn customer_docx_omits_recovery_datetime() {
+        // Chunk 24a: 復旧実施日時 (「作成日:」等) の表示なし。
+        let report = build_report(vec![], vec![]);
+        let bytes = render_customer_docx(&report).unwrap();
+        let text = extract_docx_text(&bytes);
+        assert!(!text.contains("作成日"), "作成日は削除されている");
+        assert!(!text.contains("復旧実施日時"));
+    }
+
+    #[test]
+    fn customer_docx_shows_priority_section_when_priority_present() {
+        // Wishlist マッチ (is_priority=true) があれば「ご指定優先データ」セクションを表示。
+        let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
+        let mut e = entry("\\photo.png", Some(v_ok));
+        e.is_priority = true;
+        let report = build_report(vec!["写真".into()], vec![e]);
+        let bytes = render_customer_docx(&report).unwrap();
+        let text = extract_docx_text(&bytes);
+        assert!(text.contains("ご指定優先データ"));
+        assert!(text.contains("写真"));
+    }
+
+    #[test]
+    fn customer_docx_hides_priority_section_when_no_priority() {
+        // priority_count == 0 のとき「ご指定優先データ」セクションは省略。
+        let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
+        let e = entry("\\photo.png", Some(v_ok));
+        let report = build_report(vec![], vec![e]);
+        let bytes = render_customer_docx(&report).unwrap();
+        let text = extract_docx_text(&bytes);
+        assert!(!text.contains("ご指定優先データ"));
     }
 
     #[test]
     fn customer_docx_excludes_internal_note() {
-        // 最重要: internal_note_ja の文言が顧客 .docx に含まれてはならない。
+        // 最重要 (Chunk 20.5 から継続): internal_note_ja が顧客 .docx に含まれてはならない。
         let validation = ValidationResult::invalid(
             "PNG",
             "png_v1",
             "magic mismatch",
             "PNG として開けない可能性があります",
-            "再復旧推奨 / CS 確認案件", // ← 内部メモ
+            "再復旧推奨 / CS 確認案件",
         );
         let report = build_report(
             vec!["写真".into()],
@@ -363,36 +284,8 @@ mod tests {
     }
 
     #[test]
-    fn customer_docx_shows_priority_section_when_priority_present() {
-        // Chunk 23.7: 優先データありの場合「ご指定優先データの結果」セクションが含まれる。
-        let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
-        let mut e = entry("\\photo.png", Some(v_ok));
-        e.is_priority = true;
-        let report = build_report(vec!["写真".into()], vec![e]);
-        let bytes = render_customer_docx(&report).unwrap();
-        let text = extract_docx_text(&bytes);
-        assert!(text.contains("ご指定優先データの結果"));
-        // 全体ラベルも併記。
-        assert!(text.contains("復旧結果サマリ (全体)"));
-    }
-
-    #[test]
-    fn customer_docx_hides_priority_section_when_no_priority() {
-        // Chunk 23.7: priority_count == 0 のとき「ご指定優先データの結果」は省略。
-        let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
-        let e = entry("\\photo.png", Some(v_ok));
-        // is_priority は false のまま。
-        let report = build_report(vec![], vec![e]);
-        let bytes = render_customer_docx(&report).unwrap();
-        let text = extract_docx_text(&bytes);
-        assert!(!text.contains("ご指定優先データの結果"));
-        // 「(全体)」ラベルは Wishlist 有無に関わらず常に表示。
-        assert!(text.contains("復旧結果サマリ (全体)"));
-    }
-
-    #[test]
-    fn customer_docx_includes_uncertain_breakdown_when_present() {
-        // Chunk 23.8: Uncertain 件数 > 0 のとき「自動確認対象外について」セクションが含まれる。
+    fn customer_docx_omits_uncertain_breakdown() {
+        // Chunk 24a: 「自動確認対象外について」の理由内訳セクションが完全削除されている。
         let v_unc = ValidationResult::uncertain(
             UncertainReason::NoValidatorAvailable,
             "diag",
@@ -402,33 +295,7 @@ mod tests {
         let report = build_report(vec![], vec![entry("\\x.xyz", Some(v_unc))]);
         let bytes = render_customer_docx(&report).unwrap();
         let text = extract_docx_text(&bytes);
-        assert!(text.contains("自動確認対象外について"));
-        assert!(text.contains("対応 Validator なし"));
-        // 業務説明文
-        assert!(text.contains("DDS Workbench の自動品質確認"));
-    }
-
-    #[test]
-    fn customer_docx_hides_uncertain_breakdown_when_zero() {
-        // Chunk 23.8: Uncertain 0 件のとき「自動確認対象外について」セクションは省略。
-        let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
-        let report = build_report(vec![], vec![entry("\\a.png", Some(v_ok))]);
-        let bytes = render_customer_docx(&report).unwrap();
-        let text = extract_docx_text(&bytes);
         assert!(!text.contains("自動確認対象外について"));
-    }
-
-    #[test]
-    fn customer_docx_contains_summary_metrics() {
-        // 業務指標（該当件数、復旧成功率、品質保証率の表現）が含まれること。
-        let v_ok = ValidationResult::valid("PNG", "png_v1", vec![], "OK", None);
-        let report = build_report(vec!["写真".into()], vec![entry("\\a.png", Some(v_ok))]);
-        let bytes = render_customer_docx(&report).unwrap();
-        let text = extract_docx_text(&bytes);
-        // 該当ファイル数 / 復旧成功 / 正常確認済み / 復旧データ量 のラベルが含まれる。
-        assert!(text.contains("該当ファイル数"));
-        assert!(text.contains("復旧成功"));
-        assert!(text.contains("正常確認済み"));
-        assert!(text.contains("復旧データ量"));
+        assert!(!text.contains("対応 Validator なし"));
     }
 }

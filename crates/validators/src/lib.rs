@@ -43,8 +43,8 @@
 #![warn(rust_2018_idioms)]
 
 pub mod error;
-pub mod formats;
 mod format_bytes_helper;
+pub mod formats;
 pub mod registry;
 pub mod result;
 pub mod uncertain;

@@ -190,10 +190,10 @@ mod tests {
     #[test]
     fn mixed_categories_counted_separately() {
         let files = vec![
-            make_metadata(true, true, vec![]),           // High (resident)
-            make_metadata(false, false, vec![]),         // Low (run-list 破損)
-            make_metadata(false, true, vec![(200, 5)]),  // High (未上書き)
-            make_metadata(false, true, vec![(300, 5)]),  // Medium (部分上書き)
+            make_metadata(true, true, vec![]),          // High (resident)
+            make_metadata(false, false, vec![]),        // Low (run-list 破損)
+            make_metadata(false, true, vec![(200, 5)]), // High (未上書き)
+            make_metadata(false, true, vec![(300, 5)]), // Medium (部分上書き)
         ];
         let mut occupancy = ClusterOccupancyMap::new();
         occupancy.mark_range(302, 2); // 4 番目のファイルの一部を占有

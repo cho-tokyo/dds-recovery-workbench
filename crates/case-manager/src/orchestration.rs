@@ -37,6 +37,7 @@ use dds_wish_match::{ExclusionList, Wishlist};
 
 use crate::case::{Case, RecoveryReportSummary};
 use crate::output::CaseOutput;
+use crate::storage::CaseStorage;
 
 /// 案件単位で業務復旧フローを一括実行する。
 ///
@@ -59,6 +60,7 @@ pub fn execute_business_recovery<F>(
     volume: &mut NtfsVolume<F>,
     wishlist: &Wishlist,
     exclusions: &ExclusionList,
+    storage: &CaseStorage,
 ) -> Result<BusinessRecoveryResult, BusinessRecoveryError>
 where
     F: FnMut(u64, u64) -> Result<Vec<u8>, std::io::Error>,
@@ -77,14 +79,14 @@ where
     // Step 3: 復旧実行。Chunk 23.7 で全件復旧 + ExclusionList で除外する設計に変更。
     let report = engine.recover_files(volume, wishlist, exclusions)?;
 
-    // Step 4: レポート 5 ファイル生成（日本語名、Chunk 23.8 で TXT 2 種類に分割）。
+    // Step 4: レポート 3 ファイル生成 (Chunk 24a で 5→3 に簡素化):
+    //   - 納品 HDD: 復旧レポート.docx のみ
+    //   - 社内保存: 業務管理レポート.html、復旧詳細.csv (BOM 付き)
     let report_paths = dds_report::write_business_reports(
         &report,
         &case_output.customer_docx_path(),
-        &case_output.customer_invalid_txt_path(),
-        &case_output.customer_uncertain_txt_path(),
-        &case_output.internal_html_path(),
-        &case_output.csv_path(),
+        &case_output.internal_html_path_in_storage(storage.base_dir()),
+        &case_output.csv_path_in_storage(storage.base_dir()),
     )?;
 
     // Step 5: Case を更新（永続化は呼び出し元）。
@@ -131,7 +133,7 @@ pub struct BusinessRecoveryResult {
     pub case_output: CaseOutput,
     /// 復旧の生レポート（per-file 詳細を含む）。
     pub report: RecoveryReport,
-    /// 生成されたレポート 4 ファイルのパス。
+    /// 生成されたレポート 3 ファイル (Chunk 24a で 5→3 に簡素化) のパス。
     pub report_paths: dds_report::BusinessReportPaths,
 }
 

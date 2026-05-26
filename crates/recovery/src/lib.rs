@@ -51,9 +51,11 @@ pub mod error;
 pub mod options;
 pub mod report;
 pub mod sanitize;
+pub mod timestamps;
 
 pub use engine::{RecoveryConfig, RecoveryEngine};
 pub use error::RecoveryError;
 pub use options::{ConflictStrategy, RecoveryOptions};
 pub use report::{FailedEntry, FormatStats, RecoveredEntry, RecoveryReport, SkippedEntry};
 pub use sanitize::{insert_deleted_marker, sanitize_filename};
+pub use timestamps::{apply_timestamps, NtfsTimestamps, TimestampError};

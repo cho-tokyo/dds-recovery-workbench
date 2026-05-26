@@ -111,9 +111,7 @@ pub fn render_uncertain_files_txt(report: &RecoveryReport) -> String {
     ));
 
     content.push_str("以下のファイルは復旧されていますが、自動品質確認の対象外でした。\n");
-    content.push_str(
-        "原因: 現在未対応もしくはファイル形式が特殊、ファイルサイズが大きすぎる\n",
-    );
+    content.push_str("原因: 現在未対応もしくはファイル形式が特殊、ファイルサイズが大きすぎる\n");
     content.push_str("      などで確認できませんでした\n\n");
     content.push_str("お手元でお開きになってご確認ください。\n\n");
 

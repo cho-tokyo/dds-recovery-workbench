@@ -98,8 +98,10 @@ impl DiagnosticEngine {
         let filesystem_findings = aggregate.anomalies.to_findings();
 
         // Chunk 22.5: 削除ファイル群の復旧可能性を推定し、DeletedFileStats に反映。
-        let recoverability =
-            recoverability::estimate(&aggregate.deleted_file_metadata, &aggregate.cluster_occupancy);
+        let recoverability = recoverability::estimate(
+            &aggregate.deleted_file_metadata,
+            &aggregate.cluster_occupancy,
+        );
         let mut deleted_file_stats = aggregate.deleted_file_stats;
         if let Some(stats) = &mut deleted_file_stats {
             stats.recoverability_estimate = Some(recoverability);

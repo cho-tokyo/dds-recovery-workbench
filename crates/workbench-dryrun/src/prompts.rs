@@ -52,7 +52,10 @@ pub fn prompt_case_id() -> Result<CaseId> {
 fn try_parse_number_in_range(input: &str, min: usize, max: usize) -> Result<usize, String> {
     match input.parse::<usize>() {
         Ok(n) if n >= min && n <= max => Ok(n),
-        Ok(_) => Err(format!("範囲外です。{}-{} の値を入力してください。", min, max)),
+        Ok(_) => Err(format!(
+            "範囲外です。{}-{} の値を入力してください。",
+            min, max
+        )),
         Err(_) => Err("数値として読み取れませんでした。".to_string()),
     }
 }

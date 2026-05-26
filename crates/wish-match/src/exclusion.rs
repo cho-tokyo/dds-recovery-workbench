@@ -138,8 +138,7 @@ mod tests {
     fn exclusion_path_prefix_case_insensitive() {
         // Windows ファイルシステムは大文字小文字非区別なので、
         // パターン側 / パス側どちらの casing でもマッチすること。
-        let ex =
-            ExclusionList::empty().add(ExclusionPattern::PathPrefix("\\Windows\\".into()));
+        let ex = ExclusionList::empty().add(ExclusionPattern::PathPrefix("\\Windows\\".into()));
         assert!(ex.matches("\\WINDOWS\\foo.txt"));
         assert!(ex.matches("\\windows\\foo.txt"));
         assert!(ex.matches("\\WiNdOwS\\foo.txt"));

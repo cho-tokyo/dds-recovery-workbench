@@ -312,7 +312,11 @@ fn product_demo_recovery_with_quality_breakdown() {
         15,
         "all 15 user files recovered (Chunk 23.7 全件復旧)"
     );
-    assert_eq!(report.priority_count(), 14, "14 wishlist matches (xyz 除外)");
+    assert_eq!(
+        report.priority_count(),
+        14,
+        "14 wishlist matches (xyz 除外)"
+    );
     assert_eq!(report.validated_count(), 10, "10 Valid expected");
     assert_eq!(report.invalid_count(), 4, "4 Invalid expected");
     assert_eq!(report.uncertain_count(), 1, "1 Uncertain (xyz)");

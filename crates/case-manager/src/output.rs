@@ -92,32 +92,33 @@ impl CaseOutput {
     }
 
     /// 顧客向け Word レポート (`{reports}/復旧レポート.docx`) のパス。
+    ///
+    /// Chunk 24a で「納品 HDD のレポートディレクトリにはこれだけを出力」する設計に変更。
+    /// 業務管理レポート HTML / CSV は社内保存先 (`CaseStorage::base_dir()`) へ移動した
+    /// ([`Self::internal_html_path_in_storage`] / [`Self::csv_path_in_storage`])。
     pub fn customer_docx_path(&self) -> PathBuf {
         self.reports_dir().join("復旧レポート.docx")
     }
 
-    /// 顧客向け破損疑いファイル一覧 (`{reports}/破損疑いファイル一覧.txt`) のパス（Chunk 23.8 で rename）。
+    /// 社内向け業務管理レポート (`{storage_base}/{案件番号}/業務管理レポート.html`) のパス (Chunk 24a)。
     ///
-    /// `Invalid` 判定されたファイルのみが含まれる業務 TXT。
-    pub fn customer_invalid_txt_path(&self) -> PathBuf {
-        self.reports_dir().join("破損疑いファイル一覧.txt")
+    /// 納品 HDD ではなく社内保存先 (CS 業務 PC の `C:\cases\` 等) に書き出される。
+    /// お客様に渡してはならない CS 用業務管理情報 (内部メモ・SHA256・出力先) を含むため
+    /// 物理的にお客様の HDD から分離する設計。
+    pub fn internal_html_path_in_storage(&self, storage_base: &Path) -> PathBuf {
+        storage_base
+            .join(self.case_id.as_str())
+            .join("業務管理レポート.html")
     }
 
-    /// 顧客向け自動確認対象外ファイル一覧 (`{reports}/自動確認対象外ファイル一覧.txt`) のパス（Chunk 23.8 新規）。
+    /// 外部システム連携用 CSV (`{storage_base}/{案件番号}/復旧詳細.csv`) のパス (Chunk 24a)。
     ///
-    /// `Uncertain(_)` 判定されたファイル（自動品質確認の対象外）のみが含まれる業務 TXT。
-    pub fn customer_uncertain_txt_path(&self) -> PathBuf {
-        self.reports_dir().join("自動確認対象外ファイル一覧.txt")
-    }
-
-    /// 社内向け業務管理レポート (`{reports}/業務管理レポート.html`) のパス。
-    pub fn internal_html_path(&self) -> PathBuf {
-        self.reports_dir().join("業務管理レポート.html")
-    }
-
-    /// 外部システム連携用 CSV (`{reports}/report.csv`) のパス。
-    pub fn csv_path(&self) -> PathBuf {
-        self.reports_dir().join("report.csv")
+    /// 納品 HDD ではなく社内保存先に書き出される業務管理 CSV (UTF-8 BOM 付加で Excel
+    /// 文字化け解消、実機ドライランフィードバック ④ 対応)。
+    pub fn csv_path_in_storage(&self, storage_base: &Path) -> PathBuf {
+        storage_base
+            .join(self.case_id.as_str())
+            .join("復旧詳細.csv")
     }
 
     /// 納品物の主要 3 ディレクトリ（通常 / 削除 / レポート）を一括で作成する。
@@ -175,35 +176,58 @@ mod tests {
 
     #[test]
     fn case_output_japanese_report_filenames() {
+        // Chunk 24a: 納品 HDD には customer_docx のみ。
         let out = CaseOutput::new(cid(), "G:\\");
         assert!(out
             .customer_docx_path()
             .to_string_lossy()
             .ends_with("復旧レポート.docx"));
-        // Chunk 23.8: customer_txt_path → customer_invalid_txt_path + customer_uncertain_txt_path
+        // 納品 HDD のレポートディレクトリ配下にあること。
         assert!(out
-            .customer_invalid_txt_path()
+            .customer_docx_path()
             .to_string_lossy()
-            .ends_with("破損疑いファイル一覧.txt"));
-        assert!(out
-            .customer_uncertain_txt_path()
-            .to_string_lossy()
-            .ends_with("自動確認対象外ファイル一覧.txt"));
-        assert!(out
-            .internal_html_path()
-            .to_string_lossy()
-            .ends_with("業務管理レポート.html"));
-        assert!(out.csv_path().to_string_lossy().ends_with("report.csv"));
-        // 全ファイルが「レポート」ディレクトリ配下にある。
-        for p in [
-            out.customer_docx_path(),
-            out.customer_invalid_txt_path(),
-            out.customer_uncertain_txt_path(),
-            out.internal_html_path(),
-            out.csv_path(),
-        ] {
-            assert!(p.to_string_lossy().contains("レポート"));
-        }
+            .contains("レポート"));
+    }
+
+    #[test]
+    fn case_output_internal_paths_go_to_storage_base() {
+        // Chunk 24a: 業務管理 HTML / CSV は社内保存先 (storage_base) へ。
+        let out = CaseOutput::new(cid(), "G:\\");
+        let storage_base = Path::new("C:\\cases");
+
+        let html = out.internal_html_path_in_storage(storage_base);
+        let csv = out.csv_path_in_storage(storage_base);
+
+        assert_eq!(
+            html,
+            Path::new("C:\\cases")
+                .join("260522-04")
+                .join("業務管理レポート.html")
+        );
+        assert_eq!(
+            csv,
+            Path::new("C:\\cases")
+                .join("260522-04")
+                .join("復旧詳細.csv")
+        );
+
+        // 納品 HDD のドライブルート (G:\) を含まないこと (社内保存に物理分離されている)。
+        let g_drive = Path::new("G:\\").to_string_lossy().to_string();
+        assert!(!html.to_string_lossy().contains(&g_drive));
+        assert!(!csv.to_string_lossy().contains(&g_drive));
+    }
+
+    #[test]
+    fn case_output_no_delivery_paths_for_txt_or_html_or_csv() {
+        // Chunk 24a: 納品 HDD のレポートディレクトリには .docx 以外を作らない。
+        // → CaseOutput には TXT / HTML / CSV のパスメソッドが存在しない (削除済み)。
+        // 本テストはコンパイル時保証 + reports_dir 直下の想定ファイルが 1 種類だけであることの担保。
+        let out = CaseOutput::new(cid(), "G:\\");
+        // 納品 HDD のレポートディレクトリは「{root}/レポート」のまま。
+        assert!(out.reports_dir().to_string_lossy().ends_with("レポート"));
+        // customer_docx_path() 以外に「レポート」配下を返す public method がないこと
+        // (将来追加されたら、ここで意図的な変更として確認する設計)。
+        assert!(out.customer_docx_path().starts_with(out.reports_dir()));
     }
 
     #[test]
