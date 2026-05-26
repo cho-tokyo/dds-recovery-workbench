@@ -63,4 +63,6 @@ pub use options::{ConflictStrategy, RecoveryOptions};
 pub use progress::{ConsoleProgressReporter, NoopProgressReporter, ProgressReporter};
 pub use report::{FailedEntry, FormatStats, RecoveredEntry, RecoveryReport, SkippedEntry};
 pub use sanitize::{insert_deleted_marker, sanitize_filename};
-pub use timestamps::{apply_timestamps, NtfsTimestamps, TimestampError};
+pub use timestamps::{
+    apply_timestamps, apply_timestamps_to_handle, NtfsTimestamps, TimestampError,
+};

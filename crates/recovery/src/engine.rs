@@ -608,8 +608,24 @@ fn process_recovery_task(
         }
     };
 
-    // Step 3: 1MB バッファでの書き込み。
-    let bytes_written = match write_with_large_buffer(&final_path, &task.content) {
+    // Step 3-4: Chunk 24c: 1MB バッファでの書き込み + NTFS タイムスタンプ保持を
+    //                       1 回の open で実施 (ファイル毎の open 回数を半減し速度改善)。
+    //                       タイムスタンプ失敗は復旧成否に影響させない (内部で warn のみ)。
+    let timestamps = if let (Some(created), Some(modified), Some(accessed)) = (
+        task.ntfs_file.created,
+        task.ntfs_file.modified,
+        task.ntfs_file.accessed,
+    ) {
+        Some(crate::timestamps::NtfsTimestamps {
+            created,
+            modified,
+            accessed,
+        })
+    } else {
+        None
+    };
+    let bytes_written = match write_with_timestamps(&final_path, &task.content, timestamps.as_ref())
+    {
         Ok(n) => n,
         Err(e) => {
             return ProcessedOutcome::Failed(FailedEntry {
@@ -619,25 +635,6 @@ fn process_recovery_task(
             });
         }
     };
-
-    // Step 4: Chunk 24a: NTFS タイムスタンプ保持。失敗しても復旧成否には影響させない。
-    if let (Some(created), Some(modified), Some(accessed)) = (
-        task.ntfs_file.created,
-        task.ntfs_file.modified,
-        task.ntfs_file.accessed,
-    ) {
-        let ts = crate::timestamps::NtfsTimestamps {
-            created,
-            modified,
-            accessed,
-        };
-        if let Err(e) = crate::timestamps::apply_timestamps(&final_path, &ts) {
-            eprintln!(
-                "[warn] タイムスタンプ書き込み失敗: {:?} ({})",
-                final_path, e
-            );
-        }
-    }
 
     // Step 5: SHA256 計算（CPU バウンド、並列の恩恵）。
     let sha256 = if options.compute_sha256 {
@@ -669,11 +666,21 @@ fn process_recovery_task(
 }
 
 /// Chunk 24b: I/O バッファ拡大版の書き込み。
+/// Chunk 24c: 同一ハンドルでのタイムスタンプ書き込みを統合 (再 open のオーバーヘッド除去)。
 ///
 /// デフォルト `std::fs::write` は内部的に小さいバッファで複数回 syscall を発行する。
 /// 1MB バッファに拡大することで、特に小ファイル多数のケースで syscall 回数が劇的に
 /// 減り、業務 PC で 10x 程度のスループット改善が期待できる。
-fn write_with_large_buffer(path: &Path, content: &[u8]) -> std::io::Result<u64> {
+///
+/// Chunk 24c: `timestamps: Some(...)` の場合、`BufWriter::into_inner()` で取り出した
+/// `File` ハンドルに対して [`crate::timestamps::apply_timestamps_to_handle`] を呼ぶ。
+/// これによりファイル毎の `open` 回数が 2 回 → 1 回に半減し、実機 1858 ファイルで
+/// 大幅な速度改善が期待できる。タイムスタンプ書き込み失敗は warn のみで復旧成功扱い。
+fn write_with_timestamps(
+    path: &Path,
+    content: &[u8],
+    timestamps: Option<&crate::timestamps::NtfsTimestamps>,
+) -> std::io::Result<u64> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -681,6 +688,19 @@ fn write_with_large_buffer(path: &Path, content: &[u8]) -> std::io::Result<u64> 
     let mut writer = BufWriter::with_capacity(WRITE_BUFFER_BYTES, file);
     writer.write_all(content)?;
     writer.flush()?;
+    // BufWriter から File を取り出す (flush 済みなので into_inner は通常失敗しない)。
+    let file = writer
+        .into_inner()
+        .map_err(|e| std::io::Error::other(format!("BufWriter into_inner failed: {}", e)))?;
+
+    // Chunk 24c: 同じハンドルで SetFileTime を実行 (再 open 回避)。
+    if let Some(ts) = timestamps {
+        if let Err(e) = crate::timestamps::apply_timestamps_to_handle(&file, ts) {
+            eprintln!("[warn] タイムスタンプ書き込み失敗: {:?} ({})", path, e);
+        }
+    }
+    // file の drop で OS ハンドルが close される (RAII)。
+
     Ok(content.len() as u64)
 }
 
@@ -949,7 +969,7 @@ mod tests {
 
     #[test]
     fn process_recovery_task_writes_file_with_buffered_io() {
-        // Chunk 24b: process_recovery_task が write_with_large_buffer 経由でファイルを書くこと。
+        // Chunk 24b: process_recovery_task が write_with_timestamps 経由でファイルを書くこと。
         let temp = tempfile::tempdir().unwrap();
         let cfg = RecoveryConfig::from_single_dir(temp.path());
         // 速度向上 + validator 依存回避のためテスト用に validate / sha256 を無効化。
@@ -1010,18 +1030,52 @@ mod tests {
     }
 
     #[test]
-    fn write_with_large_buffer_creates_parent_dirs() {
+    fn write_with_timestamps_creates_parent_dirs() {
         // Chunk 24b: BufWriter::with_capacity(1MB) でも親ディレクトリ未存在は自動作成。
+        // Chunk 24c: timestamps=None で呼んでも書き込みは成立すること。
         let temp = tempfile::tempdir().unwrap();
         let target = temp.path().join("nested").join("deep").join("file.bin");
         assert!(!target.parent().unwrap().exists());
 
         let bytes = vec![0xABu8; 4096];
-        let n = write_with_large_buffer(&target, &bytes).unwrap();
+        let n = write_with_timestamps(&target, &bytes, None).unwrap();
 
         assert_eq!(n, 4096);
         assert!(target.is_file());
         assert_eq!(std::fs::read(&target).unwrap(), bytes);
+    }
+
+    /// Chunk 24c: write_with_timestamps が timestamps=Some(...) で 1 回の open のまま
+    /// SetFileTime を実行し、ファイル内容 + タイムスタンプが両方反映されることの確認。
+    #[cfg(windows)]
+    #[test]
+    fn write_with_timestamps_applies_ts_in_single_open() {
+        use chrono::{DateTime, Utc};
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("ts.bin");
+
+        let dt = DateTime::parse_from_rfc3339("2024-03-15T10:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let ts = crate::timestamps::NtfsTimestamps {
+            created: dt,
+            modified: dt,
+            accessed: dt,
+        };
+
+        let bytes = b"chunk24c-payload".to_vec();
+        let n = write_with_timestamps(&target, &bytes, Some(&ts)).unwrap();
+
+        assert_eq!(n, bytes.len() as u64);
+        assert_eq!(std::fs::read(&target).unwrap(), bytes);
+
+        // タイムスタンプが反映されている (秒精度)。
+        let m: DateTime<Utc> = std::fs::metadata(&target)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .into();
+        assert_eq!(m.timestamp(), dt.timestamp());
     }
 
     #[test]

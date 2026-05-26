@@ -1,13 +1,24 @@
 //! Chunk 24a: NTFS タイムスタンプ保持 (Creation / Modified / Accessed)。
+//! Chunk 24c: 高速版 ([`apply_timestamps_to_handle`]) を追加。
 //!
 //! 業界標準 (R-STUDIO 等) と同等の挙動。復旧したファイルに元の NTFS の
 //! `$STANDARD_INFORMATION` 由来 3 タイムスタンプを書き戻す。
 //!
+//! ## API バリエーション
+//!
+//! - [`apply_timestamps_to_handle`] (Chunk 24c): 既に開いている `File` ハンドルに
+//!   `SetFileTime` を実行する高速版。書き込み直後の `close` 前に呼ぶことで
+//!   ファイル毎の open 回数を半減し、復旧速度を改善する (**推奨**)。
+//! - [`apply_timestamps`]: パスからファイルを再 open して設定する互換版。
+//!   エラーリカバリや外部呼び出し用。内部で `apply_timestamps_to_handle` を呼ぶ。
+//!
 //! ## 安全性
 //!
 //! このモジュールは Windows API `SetFileTime` を直接呼ぶため `unsafe` を含むが、
-//! 関数内に隔離 + RAII (`File` で OS ハンドルを所有) + 引数検証で安全性を確保している。
-//! 他のクレート / モジュールは全て safe のまま (workspace 全体での唯一の `unsafe`)。
+//! `unsafe` ブロックは [`apply_timestamps_to_handle`] 内 2 箇所に**集約**されている
+//! (Chunk 24c で `apply_timestamps` から移設済み、合計行数は変わらず)。
+//! 引数検証 + RAII (`File` で OS ハンドルを所有) + Windows 限定 (`#[cfg(windows)]`) で
+//! 安全性を確保。他のクレート / モジュールは全て safe のまま (workspace 全体での唯一の `unsafe`)。
 //!
 //! ## 失敗時の業務的扱い
 //!
@@ -15,8 +26,9 @@
 //! 呼び出し側 ([`crate::engine::RecoveryEngine`]) は警告ログのみ出力して
 //! 復旧フローを継続する設計。
 //!
-//! 関連 FR: FR-REC-07 (タイムスタンプ保持、業界標準準拠)。
+//! 関連 FR: FR-REC-07 (タイムスタンプ保持、業界標準準拠)、FR-REC-09 (ファイル open 最小化、Chunk 24c)。
 
+use std::fs::File;
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
@@ -105,18 +117,25 @@ fn datetime_to_filetime(dt: DateTime<Utc>) -> Result<FILETIME, TimestampError> {
     })
 }
 
-/// 指定パスのファイルに 3 種のタイムスタンプを書き込む (Windows 実装)。
+/// 既に開いている [`File`] ハンドルに 3 種のタイムスタンプを書き込む (Chunk 24c、推奨)。
 ///
-/// 内部で `OpenOptions::write(true).access_mode(FILE_WRITE_ATTRIBUTES)` で
-/// 属性書き込み権限のみハンドルを開き、`SetFileTime` を 1 度呼ぶ。`File` の
-/// drop で OS ハンドルが自動的に閉じられる (RAII)。
+/// ファイル書き込み直後 (`File::create` → `write_all` → これを呼ぶ → drop で close) という
+/// フローで使うことで、ファイル毎の open 回数を半減し、復旧速度を改善する。
+///
+/// ## 引数の条件
+///
+/// `file` は `GENERIC_WRITE` または `FILE_WRITE_ATTRIBUTES` アクセスで開かれている必要がある。
+/// `std::fs::File::create()` で開いた場合は条件を満たす (write アクセス)。
+///
+/// ## 失敗時の挙動
+///
+/// 失敗してもファイル内容自体には影響しない。呼び出し側は警告ログを出して復旧フローを
+/// 継続する設計 (タイムスタンプは「あれば良い」業界標準だが、欠落しても復旧失敗ではない)。
 #[cfg(windows)]
-pub fn apply_timestamps(path: &Path, timestamps: &NtfsTimestamps) -> Result<(), TimestampError> {
-    let file = OpenOptions::new()
-        .write(true)
-        .access_mode(FILE_WRITE_ATTRIBUTES)
-        .open(path)?;
-
+pub fn apply_timestamps_to_handle(
+    file: &File,
+    timestamps: &NtfsTimestamps,
+) -> Result<(), TimestampError> {
     let creation_ft = datetime_to_filetime(timestamps.created)?;
     let modified_ft = datetime_to_filetime(timestamps.modified)?;
     let accessed_ft = datetime_to_filetime(timestamps.accessed)?;
@@ -124,8 +143,9 @@ pub fn apply_timestamps(path: &Path, timestamps: &NtfsTimestamps) -> Result<(), 
     let handle = file.as_raw_handle();
 
     // SAFETY:
-    // - `handle` は直前の `OpenOptions::open` で得た有効な OS ハンドル。
-    // - `file` がスコープ内で生存しているため、handle は SetFileTime 実行中に閉じられない。
+    // - `handle` は引数 `file: &File` から取得した有効な OS ハンドル。
+    // - `file` の lifetime は本関数のスコープ内で生存しているため、handle は
+    //   `SetFileTime` 実行中に閉じられない (Rust の borrow checker が保証)。
     // - `FILETIME` は POD 値型で、`&ft as *const FILETIME` は本関数のスタック上の有効な値を指す。
     // - SetFileTime は Microsoft 提供 API で副作用は対象ファイルのメタデータのみ。
     // - 戻り値 0 のときのみ GetLastError を呼ぶ Microsoft の標準慣習に従う。
@@ -145,6 +165,40 @@ pub fn apply_timestamps(path: &Path, timestamps: &NtfsTimestamps) -> Result<(), 
     }
 
     Ok(())
+}
+
+/// 非 Windows プラットフォーム用 stub。常に `Unsupported` を返す。
+#[cfg(not(windows))]
+pub fn apply_timestamps_to_handle(
+    _file: &File,
+    _timestamps: &NtfsTimestamps,
+) -> Result<(), TimestampError> {
+    Err(TimestampError::Unsupported)
+}
+
+/// 指定パスのファイルに 3 種のタイムスタンプを書き込む (互換版)。
+///
+/// 内部で `OpenOptions::write(true).access_mode(FILE_WRITE_ATTRIBUTES)` で属性書き込み権限の
+/// ハンドルを開き、[`apply_timestamps_to_handle`] を呼ぶ。`File` の drop で OS ハンドルが
+/// 自動的に閉じられる (RAII)。
+///
+/// ## 性能
+///
+/// ファイルを再 open する分のオーバーヘッドがある。復旧パイプライン中で書き込み直後に
+/// 呼ぶ場合は [`apply_timestamps_to_handle`] を使うこと (Chunk 24c で導入)。
+///
+/// ## いつ使うか
+///
+/// - エラーリカバリ: 書き込み完了後に別途タイムスタンプだけ修正する
+/// - 外部からの呼び出し: ファイルハンドルを持たない呼び出し元
+/// - テストコード: 既存テストとの互換性
+#[cfg(windows)]
+pub fn apply_timestamps(path: &Path, timestamps: &NtfsTimestamps) -> Result<(), TimestampError> {
+    let file = OpenOptions::new()
+        .write(true)
+        .access_mode(FILE_WRITE_ATTRIBUTES)
+        .open(path)?;
+    apply_timestamps_to_handle(&file, timestamps)
 }
 
 /// 非 Windows プラットフォーム用 stub。常に `Unsupported` を返す。
@@ -233,5 +287,89 @@ mod tests {
         // non-Windows ターゲットでは stub が Unsupported を返す。
         let result = apply_timestamps(Path::new("/tmp/dummy"), &ts);
         assert!(matches!(result, Err(TimestampError::Unsupported)));
+    }
+
+    /// Chunk 24c: 高速版 (handle 版) が開いている File に対して動作することを確認。
+    /// 書き込み直後の close 前に呼ぶフロー (engine.rs::write_with_timestamps と同じパターン)。
+    #[cfg(windows)]
+    #[test]
+    fn apply_timestamps_to_open_handle_works() {
+        use std::io::Write;
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let path = temp.path().to_path_buf();
+        drop(temp); // NamedTempFile を一度 drop してパスのみ保持。
+
+        // engine の write_with_timestamps と同様、File::create で開いて write → SetFileTime → close。
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(b"test content").unwrap();
+        file.flush().unwrap();
+
+        let dt = DateTime::parse_from_rfc3339("2024-03-15T10:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let ts = NtfsTimestamps {
+            created: dt,
+            modified: dt,
+            accessed: dt,
+        };
+
+        // open している file に対して直接 SetFileTime。
+        apply_timestamps_to_handle(&file, &ts).expect("apply_timestamps_to_handle should succeed");
+        drop(file); // close。
+
+        let metadata = std::fs::metadata(&path).unwrap();
+        let modified_time = metadata.modified().unwrap();
+        let modified_dt: DateTime<Utc> = modified_time.into();
+        assert_eq!(modified_dt.timestamp(), dt.timestamp());
+
+        // クリーンアップ。
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Chunk 24c: path 版が handle 版と同じ結果を返すことの回帰確認。
+    /// 既存呼び出し元 (Chunk 24a の API ユーザ) への後方互換性保証。
+    #[cfg(windows)]
+    #[test]
+    fn apply_timestamps_via_path_calls_handle_version() {
+        use std::fs::write;
+        let temp1 = tempfile::NamedTempFile::new().unwrap();
+        let temp2 = tempfile::NamedTempFile::new().unwrap();
+        write(temp1.path(), b"a").unwrap();
+        write(temp2.path(), b"b").unwrap();
+
+        let dt = DateTime::parse_from_rfc3339("2024-03-15T10:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let ts = NtfsTimestamps {
+            created: dt,
+            modified: dt,
+            accessed: dt,
+        };
+
+        // path 版。
+        apply_timestamps(temp1.path(), &ts).unwrap();
+
+        // handle 版 (同一 ts で同じ結果になるはず)。
+        let file = OpenOptions::new()
+            .write(true)
+            .access_mode(FILE_WRITE_ATTRIBUTES)
+            .open(temp2.path())
+            .unwrap();
+        apply_timestamps_to_handle(&file, &ts).unwrap();
+        drop(file);
+
+        // 秒精度で両者一致。
+        let m1: DateTime<Utc> = std::fs::metadata(temp1.path())
+            .unwrap()
+            .modified()
+            .unwrap()
+            .into();
+        let m2: DateTime<Utc> = std::fs::metadata(temp2.path())
+            .unwrap()
+            .modified()
+            .unwrap()
+            .into();
+        assert_eq!(m1.timestamp(), m2.timestamp());
+        assert_eq!(m1.timestamp(), dt.timestamp());
     }
 }
