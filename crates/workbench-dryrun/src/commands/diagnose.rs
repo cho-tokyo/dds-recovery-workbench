@@ -286,6 +286,7 @@ fn run_physical(drive_num: u32, part_num: u32) -> Result<()> {
 /// 診断結果を表示し、CRM テキストを保存して `case.json` を更新する共通処理。
 ///
 /// 論理 / 物理どちらのモードからも呼ばれる (Chunk 24d-3)。
+/// Chunk 24d-4-1: 業務サマリ + 技術詳細 + 業務的評価セクションを追加。
 fn finalize_diagnose(
     storage: &CaseStorage,
     case: &mut Case,
@@ -307,6 +308,9 @@ fn finalize_diagnose(
         );
     }
     println!();
+
+    // Chunk 24d-4-1: 業務管理用の追加セクション表示
+    show_business_diagnostic_summary(&report);
 
     // CRM 貼り付けテキスト生成と保存
     let crm_text = report.to_crm_text();
@@ -336,6 +340,60 @@ fn finalize_diagnose(
     println!("診断完了。CRM 貼り付けテキストをコピーして CRM に貼り付けてください。");
 
     Ok(())
+}
+
+/// Chunk 24d-4-1: 業務管理用の診断サマリを CLI に表示する。
+///
+/// 業務情報がいずれか 1 つでも存在する場合のみ各セクションを出力する。
+/// 既存の論理ドライブ表示パスを破壊しないよう、`finalize_diagnose` から呼ばれる。
+fn show_business_diagnostic_summary(report: &DiagnosticReport) {
+    let has_mount_info = report.dirty_bit.is_some()
+        || report.log_file_status.is_some()
+        || report.bitlocker.is_some();
+    let has_business = report.file_estimation.is_some()
+        || report.recovery_difficulty.is_some()
+        || report.success_rate.is_some();
+    if !has_mount_info && !has_business {
+        return;
+    }
+
+    if has_mount_info {
+        println!("【Windows のマウント状態】");
+        if let Some(dirty) = &report.dirty_bit {
+            println!("  Dirty Bit:            {}", dirty.business_message());
+        }
+        if let Some(log) = &report.log_file_status {
+            println!("  $LogFile 整合性:     {}", log.business_message());
+        }
+        if let Some(bl) = &report.bitlocker {
+            println!("  BitLocker 暗号化:    {}", bl.business_message());
+        }
+        println!();
+    }
+
+    if has_business {
+        println!("【業務的な評価】");
+        if let Some(est) = &report.file_estimation {
+            println!("  {}", est.business_summary());
+        }
+        if let Some(diff) = &report.recovery_difficulty {
+            println!(
+                "  復旧難易度:           {} ({})",
+                diff.display_name(),
+                diff.business_explanation()
+            );
+        }
+        if let Some(rate) = &report.success_rate {
+            println!("  {}", rate.business_summary());
+            if !rate.reasoning.is_empty() {
+                println!("    計算根拠:");
+                for r in &rate.reasoning {
+                    println!("      - {}", r);
+                }
+            }
+        }
+        println!();
+    }
 }
 
 #[cfg(test)]

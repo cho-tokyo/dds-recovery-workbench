@@ -4,9 +4,259 @@
 
 ---
 
-## 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 Phase 1.5 拡張 第 3 段階完成 = 最重要マイルストーン到達 — Chunk 24d-3 で NtfsVolume と物理パーティションの統合完成 + diagnose/recover の --physical 対応完成 / 「壊れた FS の HDD から実際に復旧できる」状態に到達 / Phase 1.5 拡張の業務的価値が実現 / R-STUDIO の代替候補として真剣に評価可能な段階に到達 / 仕様書 Arc<Mutex<PhysicalDrive>> → Mutex 単独 + into_closure(self) 所有権 move 設計に改善（clippy::arc_with_non_send_sync 回避 + unsafe impl Send 不要、CRITICAL 観点で大きなプラス）/ 業務的エラーメッセージで壊れた NTFS を検出時に次の一手（別ツール候補、パーティション確認等）を業務メンバーに提示 / 既存論理モードは完全に非破壊（finalize_diagnose / print_recovery_result の共通化のみ、動作等価）/ unsafe 14 ブロック / 約 65 行（Chunk 24d-2 から完全変化なし、CRITICAL）/ 累積テスト 592 件 pass / 0 failed / 11 ignored（Chunk 24d-2 579 → +13 件で完全一致）🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯**
+## 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 Phase 1.5 拡張 第 4 段階 (前編) 完成 = 業務適用品質マイルストーン到達 — Chunk 24d-4-1 で業務的診断項目の拡充完成 / 診断結果が「営業の見積根拠」として使える業務適用品質に到達 / 「診断結果を見ただけで、営業が見積を作成し、お客様に説明できる」状態に到達 / Dirty Bit / $LogFile / BitLocker / ファイル数推定 / 4 段階難易度 / 復旧成功率予測 (計算根拠付き) の 6 業務指標完成 / 「受注不可」「対応困難」「復旧不可能」等の決めつけ表現を実出力 0 件で完全排除（業務 CRITICAL: Chouさんの設計原則「受注可否はツールが判断しない、人間が判断する」を厳格遵守、機械検証付き）/ 4 段階難易度 = 易/中/難/注意（「注意」は人間判断、「不可」表現は使わない）/ 成功率予測 = 全体% + 優先データ% + 計算根拠 Vec で営業の説明根拠提供 / unsafe 14 ブロック / 約 65 行（Chunk 24d-3 から完全変化なし、CRITICAL）/ 累積テスト 626 件 pass / 0 failed（Chunk 24d-3 592 → +34 件）/ 新規単体 28 件 (要件 18 件を 156% 達成) + 結合 3 件 (要件 2 件を 150% 達成) / DiagnosticInput 後方互換性維持 (新規 6 フィールド全て Option<T> + #[serde(default)]、旧 case.json も None で復元可能) 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯**
 
-### 🎯🎯🎯 Phase 1.5 拡張 第 3 段階完成 = 最重要マイルストーン到達（Chunk 24d-3 / 2026-06-04）
+### 🎯🎯🎯 Phase 1.5 拡張 第 4 段階 (前編) 完成 = 業務適用品質マイルストーン到達（Chunk 24d-4-1 / 2026-06-04）
+
+Phase 1.5 拡張（壊れた FS の HDD 対応）の Chunk 24d-4 の **前編完成 = 業務適用品質マイルストーン到達**。Chunk 24d-3 までで「壊れた HDD から実復旧可能」な状態に到達した上に、**業務的診断項目 6 種（Dirty Bit / $LogFile / BitLocker / ファイル数推定 / 4 段階難易度 / 復旧成功率予測）の拡充**を追加。これにより、**「診断結果を見ただけで、営業が見積を作成し、お客様に説明できる」業務適用品質**に到達。残り **Chunk 24d-4-2（営業向け診断書 DOCX）+ Chunk 24d-4-3（実機ドライランとフィードバック反映）** で Phase 1.5 拡張完全完成。
+
+**🎯 業務的価値（業務適用品質マイルストーン、営業 / CS 業務直接利益）**:
+- 診断結果が **「営業の見積根拠」として使える品質に到達**
+- 「診断結果を見ただけで、営業が見積を作成し、お客様に説明できる」状態を実現
+- **4 段階難易度 (易/中/難/注意)** + **復旧成功率予測 (全体% + 優先データ%)** + **計算根拠 Vec** で営業の説明根拠を定量提供
+- **業務的指標 6 種**: Dirty Bit (Windows マウント拒否原因の最多) / $LogFile 整合性 / BitLocker 暗号化検出 / 概算ファイル数 (1,500 / 2.5 万 等の業務サマリ) / 4 段階難易度 / 復旧成功率予測
+- ファイル数概算 (例: 「約 33 件 (生存 28 / 削除 5)」) で営業がお客様に即答可能
+- CRM 貼り付け用テキストに【診断結果 - 業務サマリ】+【診断結果 - 技術詳細】セクション追加、営業 / CS が CRM にそのまま貼り付け可能
+
+**🎯 業務 CRITICAL: 「受注不可」「対応困難」「復旧不可能」表現を実出力 0 件で完全排除（Chouさんの業務原則を厳格遵守）**:
+- ソース全体 grep で 3 禁止表現が **実出力 0 件**（テスト assert / コメントでの「使わない明示」のみ）
+- `RecoveryDifficulty::Caution::business_explanation()` に「人間が判断」を含む（テスト `business_explanation_includes_human_judgment` で機械強制）
+- 結合テスト `crm_text_includes_business_diagnostic_info` で 3 禁止表現を機械的に検知
+- **設計原則「受注可否はツールが判断しない、人間が判断する」を厳格遵守**
+- 4 段階難易度の「注意」= 物理障害の兆候 (受注可否は人間が慎重判断)、「難」= ファイル単位の復旧が必要 (決して「不可」ではない)
+
+**🎯 業務 CRITICAL: unsafe 14 行で Chunk 24d-3 から完全変化なし**:
+- 新規 6 ファイル (`dirty_bit.rs` / `log_file.rs` / `bitlocker.rs` / `file_estimation.rs` / `difficulty.rs` / `success_rate.rs`) + 修正 6 ファイルは **すべて unsafe 0 件**（safe Rust のみ）
+- `disk-io/src/physical.rs` 12 ブロック + `recovery/src/timestamps.rs` 2 ブロック = **14 ブロック維持**
+- ソースディスクへの書き込み **0 件継続**
+
+**🎯 設計判断（builder + tester 共に妥当判定）**:
+- **方針 B**: aggregator は不変、`DiagnosticEngine::diagnose` 内で aggregator 走査完了後に追加 3 raw read ($Volume / $LogFile MFT) + 業務指標計算。**aggregator 既存テスト群を破壊せず 1-pass 性質を維持**
+- **業務指標型を dds-case-manager に配置**: 既存 `dds-diagnostic → dds-case-manager` 単方向依存と整合、循環なし
+- **BitLocker 簡易判定**: `NtfsVolume::open` 成功 = NTFS OEM ID 確認済み = BitLocker To Go 不可能 で `NotEncrypted` 返却 (Phase 1.5 スコープ通り、Phase 2 で精密化)
+- **DiagnosticReport / DiagnosticInput 両方に業務指標フィールド追加**: Report=in-memory フル / Input=case.json 永続化 slim、既存パターン踏襲
+- **NtfsVolume::read_record(index) 既存 API 流用**: 新規低レベル API 追加ゼロ、既存パターン (read_record + find_attribute) 踏襲
+
+**🎯 関連 PRD / 内部 FR 要件達成**:
+- **FR-DIAG-04 (Dirty Bit / $LogFile 検出、本ドキュメント独自分類、PRD 旧定義とは別の業務指標)** → ✅ 🎯 新規達成
+- **FR-DIAG-05 (BitLocker 検出、本ドキュメント独自分類)** → ✅ 🎯 新規達成（簡易判定、Phase 2 で精密化）
+- **FR-DIAG-06 (ファイル数推定、4 段階難易度評価、本ドキュメント独自分類)** → ✅ 🎯 新規達成
+- **FR-DIAG-07 (復旧成功率予測、本ドキュメント独自分類)** → ✅ 🎯 新規達成
+- NFR-REL-01（ソースデバイス書込禁止）→ ✅ 維持
+- 注: PRD.md の FR-DIAG-04〜07 は別定義（FS 識別 / 損傷分類 / 戦略提案 / 診断レポート生成、Phase 2 物理診断スコープ）。本チャンクの FR-DIAG-04〜07 は Phase 1.5 業務適用品質の業務指標群を指し、本 progress.md 内運用
+
+---
+
+## 🎯 Chunk 24d-4-1: 業務的診断項目の拡充 — 完成 🎯（Chunk 24d-4-1 / 2026-06-04）
+
+### 🎯 Chunk 24d-4-1 ハイライト（Phase 1.5 拡張 第 4 段階 (前編) 完成 = 業務適用品質マイルストーン到達）
+
+**🎯 業務的背景**:
+- Chunk 24d-3 までで「壊れた HDD から実復旧可能」な技術基盤に到達
+- しかし診断結果は技術指標中心（MFT 統計、削除エントリ数等）で、営業がそのまま見積根拠に使うには情報不足
+- 業務フローの実態: 営業がお客様にお見積もりを提示する際、診断結果を見て即座に「復旧難易度」「成功率」「概算ファイル数」を回答する必要がある
+- Phase 1.5 拡張の業務的価値「診断結果を見ただけで、営業が見積を作成し、お客様に説明できる」状態を実現する核心チャンク
+
+**🎯 設計判断（builder + tester 共に妥当判定）**:
+- **方針 B**: aggregator は不変、`DiagnosticEngine::diagnose` 内で aggregator 走査完了後に追加 3 raw read ($Volume / $LogFile MFT) + 業務指標計算。aggregator 既存テスト群を破壊せず 1-pass 性質を維持
+- **業務指標型を dds-case-manager に配置**: 既存 `dds-diagnostic → dds-case-manager` 単方向依存と整合、循環なし
+- **BitLocker 簡易判定**: `NtfsVolume::open` 成功 = NTFS OEM ID 確認済み = BitLocker To Go 不可能 で NotEncrypted 返却 (Phase 1.5 スコープ通り、Phase 2 で精密化)
+- **DiagnosticReport / DiagnosticInput 両方に業務指標フィールド追加**: Report=in-memory フル / Input=case.json 永続化 slim、既存パターン踏襲
+- **NtfsVolume::read_record(index) 既存 API 流用**: 新規低レベル API 追加ゼロ、既存パターン (read_record + find_attribute) 踏襲
+
+**🎯 新規ファイル（6、`crates/diagnostic/src/`）**:
+
+1. **`dirty_bit.rs`** (117 行): NTFS $Volume MFT エントリの Dirty Bit 検出 (Windows マウント拒否原因の最多)
+2. **`log_file.rs`** (119 行): $LogFile 整合性チェック (RSTR/RCRD マジック判定)
+3. **`bitlocker.rs`** (92 行): BitLocker 暗号化検出 (`-FVE-FS-` シグネチャ判定 + 簡易ロジック)
+4. **`file_estimation.rs`** (75 行): $MFT ベース概算ファイル数 + 業務サマリフォーマット (1,500 / 2.5万 等)
+5. **`difficulty.rs`** (162 行): 復旧難易度評価 4 段階 (Easy/Medium/Hard/Caution)
+6. **`success_rate.rs`** (185 行): 復旧成功率予測 (全体% + 優先データ% + 計算根拠 Vec)
+
+**🎯 修正ファイル（7）**:
+
+7. **`crates/case-manager/src/diagnostic.rs`** (+263 行): 業務指標型 5 種定義 (DirtyBitStatus / LogFileStatus / BitLockerStatus / FileEstimation / RecoveryDifficulty / SuccessRatePrediction) + 単体 3 件 + Option<T> 永続化
+8. **`crates/case-manager/src/lib.rs`** (+3 行): re-export
+9. **`crates/diagnostic/src/lib.rs`** (+47 行): モジュール宣言 + `DiagnosticEngine::diagnose` 拡張 (aggregator 走査後に 3 追加 raw read)
+10. **`crates/diagnostic/src/report.rs`** (+30 行): `DiagnosticReport` に 6 業務指標フィールド + `to_diagnostic_input` 詰め替え
+11. **`crates/diagnostic/src/crm_text.rs`** (+62 行): 【診断結果 - 業務サマリ】+【診断結果 - 技術詳細】セクション追加
+12. **`crates/workbench-dryrun/src/commands/diagnose.rs`** (+57 行): `show_business_diagnostic_summary` 新規 (Windows のマウント状態 + 業務的な評価)
+13. **`crates/diagnostic/tests/diagnostic_integration.rs`** (+97 行): 結合 3 件
+
+**🎯 新規 API（業務メンバー / 後続チャンク向け）**:
+
+**dds-case-manager 側（型定義）**:
+- `DirtyBitStatus` (Clean/Dirty/Unknown) + `business_message()`
+- `LogFileStatus` (Consistent/Inconsistent/Unknown) + `business_message()`
+- `BitLockerStatus` (NotEncrypted/Encrypted/Unknown) + `business_message()`
+- `FileEstimation` (struct) + `business_summary()`
+- `RecoveryDifficulty` (Easy/Medium/Hard/Caution) + `display_name()` / `business_explanation()`
+- `SuccessRatePrediction` (struct) + `business_summary()`
+- `format_estimation_number` ヘルパ
+
+**dds-diagnostic 側（ロジック）**:
+- `check_dirty_bit` / `is_dirty_from_flags`
+- `check_log_file`
+- `check_bitlocker` / `bytes_contain_bitlocker_signature`
+- `estimate_from_file_stats`
+- `evaluate_difficulty`
+- `predict_success_rate`
+
+**🎯 unsafe 統計（業務 CRITICAL、Chunk 24d-3 から完全変化なし）**:
+
+| 場所 | unsafe ブロック数 | 用途 |
+|---|---|---|
+| `disk-io/src/physical.rs` | 12 ブロック維持 | Chunk 24d-1 から不変 |
+| `recovery/src/timestamps.rs` | 2 ブロック維持 | Chunk 24a/24c から不変 |
+| 新規 6 ファイル（dirty_bit/log_file/bitlocker/file_estimation/difficulty/success_rate） | **0 件** 🎯 | safe Rust のみ |
+| 修正 6 ファイル（case-manager/diagnostic 配下） | **0 件** 🎯 | safe Rust のみ |
+| 他全クレート（13 個） | **0 件維持** | Chunk 24d-3 と同じ |
+| **合計** | **14 ブロック / 約 65 行**（Chunk 24d-3 から完全変化なし） | CRITICAL |
+
+**🎯 業務 CRITICAL: 受注判断の決めつけ表現排除（業務原則、Chouさんの設計原則を厳格遵守）**:
+- ソース全体 grep で **「受注不可」「対応困難」「復旧不可能」が実出力 0 件**（テスト assert / コメントでの「使わない明示」のみ）
+- `RecoveryDifficulty::Caution::business_explanation()` に「人間が判断」を含む（テスト `business_explanation_includes_human_judgment` で機械強制）
+- 結合テスト `crm_text_includes_business_diagnostic_info` で 3 禁止表現を機械的に検知
+- **設計原則「受注可否はツールが判断しない、人間が判断する」を厳格遵守**
+
+**🎯 4 段階難易度ロジック**:
+- **易** (Easy): 構造完全正常 + Dirty Bit なし + 削除少数 → 標準的な業務ケース、復旧成功の見込み高い
+- **中** (Medium): Dirty Bit / $LogFile 不整合 / 削除多数 / 小規模 MFT 破損 → 業務的に対応可能
+- **難** (Hard): BitLocker / 大規模 MFT 破損 / 完全 FS 構造破壊 → ファイル単位の復旧が必要 (決して「不可」ではない)
+- **注意** (Caution): 物理障害の兆候 → 受注可否は人間が慎重判断 (「人間が判断」を機械強制テスト付き)
+
+**🎯 成功率予測ロジック**:
+- 全体成功率 = 100 - 各リスク要因の減点（BitLocker -90 / MFT 破損 -最大 50 / Dirty Bit -2 / $LogFile -5）、下限 0%
+- 優先データ成功率: Wishlist 指定時のみ Some、診断時は通常 None (recover 時に指定)
+- **計算根拠 Vec を保持** (営業の説明用、根拠を提示可能)
+
+**🎯 業務的サンプル出力（CRM 貼り付け用テキスト、実機検証、ntfs_with_5_deletions_small）**:
+
+```
+【診断結果 - 業務サマリ】
+  推定ファイル数: 約 33 件 (生存 28 / 削除 5)
+  復旧難易度: 易 (標準的な業務ケース、復旧成功の見込み高い)
+  推定復旧成功率: 100% (全体)
+
+【診断結果 - 技術詳細】
+  Dirty Bit:           正常
+  $LogFile 整合性:     正常
+  BitLocker 暗号化:    なし
+```
+
+仕様セクション L 期待出力と完全一致、営業 / CS が CRM にそのまま貼り付け可能。
+
+**🎯 テスト統計**:
+
+- 新規単体テスト: **28 件**（要件 18 件を **156% 達成**）
+  - `dirty_bit.rs::tests` 3 件
+  - `log_file.rs::tests` 5 件
+  - `bitlocker.rs::tests` 4 件
+  - `file_estimation.rs::tests` 4 件
+  - `difficulty.rs::tests` 6 件 (含む `business_explanation_includes_human_judgment` 機械強制)
+  - `success_rate.rs::tests` 6 件
+  - case-manager 単体 3 件追加
+- 新規結合テスト: **3 件**（要件 2 件を **150% 達成**）
+  - `diagnose_healthy_ntfs_returns_easy_difficulty`
+  - `crm_text_includes_business_diagnostic_info` (3 禁止表現の機械検知含む)
+  - `diagnose_persists_business_indicators_to_case_json` (JSON ラウンドトリップ)
+- workspace 全体: **626 件 pass / 0 failed**（Chunk 24d-3 592 → **+34 件で完全一致**）
+- `cargo check --workspace` エラー **0**
+- `cargo clippy --workspace --all-targets -- -D warnings` warning **0**
+- `cargo doc --workspace --no-deps` warning **0**
+- `cargo fmt --all -- --check` clean
+
+**🎯 安全性（CRITICAL、業務要求）**:
+- 非破壊原則継続: ソース HDD への書き込み一切なし（read-only 限定継続）
+- 新規 6 ファイル + 修正 6 ファイル すべて safe Rust（unsafe 0 件）
+- clippy / doc warning **0 件**
+- cargo fmt clean
+- 全公開 type / method / field に日本語 rustdoc
+
+**🎯 DiagnosticInput 後方互換性 (CRITICAL)**:
+- 新規 6 フィールド全て `Option<T>` + `#[serde(default)]`
+- 旧 case.json (新フィールド無し) も `None` で復元可能（テスト `diagnostic_input_legacy_json_without_business_fields_deserializes`）
+- 既存テスト `diagnostic_input_default_has_empty_stats` 等 pass 継続
+
+**🎯 含まないもの（次の Chunk 24d-4-2 / 24d-4-3 で実施）**:
+- ❌ 営業向け診断書 DOCX（お客様用セクション）→ **Chunk 24d-4-2**
+- ❌ 実機ドライランとフィードバック反映 → **Chunk 24d-4-3**
+- ❌ BitLocker 暗号化パーティションへの本格対応（精密判定）→ 将来（Phase 2 以降）
+- ❌ 物理障害の SMART ベース判定 → 将来（Phase 2 以降）
+
+**🎯 関連 PRD / 内部 FR 要件達成**:
+- **FR-DIAG-04**（Dirty Bit / $LogFile 検出、本ドキュメント独自分類、業務適用品質の業務指標群）→ ✅ 🎯 新規達成
+- **FR-DIAG-05**（BitLocker 検出、本ドキュメント独自分類）→ ✅ 🎯 新規達成（簡易判定、Phase 2 で精密化）
+- **FR-DIAG-06**（ファイル数推定、4 段階難易度評価、本ドキュメント独自分類）→ ✅ 🎯 新規達成
+- **FR-DIAG-07**（復旧成功率予測、本ドキュメント独自分類）→ ✅ 🎯 新規達成
+- NFR-REL-01（ソースデバイス書込禁止）→ ✅ 維持
+- 注: PRD.md の FR-DIAG-04〜07（FS 識別 / 損傷分類 / 戦略提案 / 診断レポート生成、Phase 2 物理診断スコープ）とは別系統。本 progress.md 内運用継続
+
+**🎯 業務インパクト（業務適用品質マイルストーン到達）**:
+- **診断結果が「営業の見積根拠」として使える品質に到達**
+- 「診断結果を見ただけで、営業が見積を作成し、お客様に説明できる」状態を実現
+- 4 段階難易度 + 成功率予測 + 計算根拠で見積根拠を定量提供
+- お客様への提示時に「約 33 件のファイル / 復旧難易度: 易 / 成功率: 100%」のような具体的数字を即座に回答可能
+- 続く Chunk 24d-4-2（営業向け診断書 DOCX）+ Chunk 24d-4-3（実機ドライランとフィードバック反映）で Phase 1.5 拡張完全完成
+
+### 🎯🎯🎯 Phase 1.5 拡張 第 4 段階 (前編) 完成 = 業務適用品質マイルストーン到達（Chunk 24d-4-1 完了時）
+
+```
+🎯🎯🎯 DDS Recovery Workbench - Phase 1.5 拡張 第 4 段階 (前編) 完成 (Chunk 24d-4-1) 🎯🎯🎯
+                = 業務適用品質マイルストーン到達 =
+  M0 設計確定         100% ✅
+  M1 基盤構築          30% （Phase 1 では基盤として十分機能、Phase 2 で残実装）
+  M2 NTFS リーダα     100% ✅
+  M3 希望突合エンジン  100% ✅
+  M4 復旧 + 品質判定  100% ✅
+  M5 NTFS-α リリース  100% ✅ 業務適用版到達
+  ─────────────────────────────────────────
+  Phase 1.5 (業務統合層) — 🎊 完全完成 🎊
+  Phase 1.5 業務適用品質完成 — 🎯 業界標準品質達成 🎯
+  Chunk 24a         お客様向けレポート簡素化+タイムスタンプ保持 ✅ 完成
+  Chunk 24b         並列化によるパフォーマンス改善 + 進捗表示 ✅ 完成
+  Chunk 24c         タイムスタンプ書き込みの高速化         ✅ 完成
+  ─────────────────────────────────────────
+  Phase 1.5 拡張 (壊れた FS の HDD 対応) — 🎯 第 4 段階 (前編) 完成 = 業務適用品質マイルストーン到達 🎯
+  Chunk 24d-1       物理ディスクアクセス層                 ✅ 完成 🎯 R-STUDIO 並み認識能力の基盤
+  Chunk 24d-2       パーティションテーブル解析 (MBR/GPT)   ✅ 完成 🎯 パーティション粒度判断可能に
+  Chunk 24d-3       NtfsVolume 統合 + --physical 対応     ✅ 完成 🎯 壊れた HDD から実復旧可能に
+  Chunk 24d-4-1     業務的診断項目の拡充                   ✅ 完成 🎯 営業の見積根拠として使える業務適用品質
+  Chunk 24d-4-2     営業向け診断書 DOCX                    ⏳ 次推奨
+  Chunk 24d-4-3     実機ドライランとフィードバック反映     ⏳
+  ─────────────────────────────────────────
+  Chunks 1-24d-4-1 完了（サブチャンク含む 35 ドキュメント）
+  workspace total: 626 件 pass / 0 failed（Chunk 24d-3 592 → +34 件）
+  unsafe: 14 ブロック / 約 65 行（Chunk 24d-3 から完全変化なし、CRITICAL）
+         disk-io/physical.rs 12 + recovery/timestamps.rs 2
+         新規 6 ファイル (dirty_bit/log_file/bitlocker/file_estimation/difficulty/success_rate)
+         + 修正 6 ファイル すべて safe Rust（unsafe 0 件）
+         他全クレート unsafe 0 件維持
+  非破壊原則: ソースディスクへの書き込み 0 件継続
+  業務 CRITICAL: 「受注不可」「対応困難」「復旧不可能」表現 実出力 0 件（機械検証付き）
+                 「受注可否はツールが判断しない、人間が判断する」原則を厳格遵守
+  4 段階難易度: 易/中/難/注意（「注意」は人間判断、「不可」表現は使わない）
+  成功率予測: 全体% + 優先データ% + 計算根拠 Vec で営業の説明根拠提供
+  DiagnosticInput 後方互換: 新規 6 フィールド全て Option<T> + #[serde(default)]
+                            旧 case.json も None で復元可能
+  clippy 0 件 / doc 0 件 / fmt --check exit 0
+```
+
+### 🎯 Chunk 24d-4-1 次のステップ
+
+1. **Chunk 24d-4-2 着手 (次推奨)**: 営業向け診断書 DOCX、お客様用セクション
+   - 業務指標 6 種を営業向け診断書 DOCX に整形（お客様向けセクション + 社内 CS 向けセクション）
+   - Chunk 20.5 で実装した `render_customer_docx` パターンを参照、診断書版を追加
+2. **Chunk 24d-4-3**: 実機ドライランとフィードバック反映（壊れた FS / マウント不能 HDD の実機検証）
+3. **並行検討可**: Phase 2.1 着手準備（Tauri UI 開発、約 2 ヶ月想定）
+
+---
+
+## 🎯 Chunk 24d-3 旧トップヘッダアーカイブ（Chunk 24d-4-1 で更新済）
+
+**注**: 以下は Chunk 24d-3 完了時点のトップヘッダ記述。Chunk 24d-4-1 完了により上書きされた。詳細な Chunk 24d-3 完了記録は本セクション直下の「Chunk 24d-3: NtfsVolume との統合 + diagnose/recover --physical 対応 — 完成」を参照。
+
+### 🎯🎯🎯 Phase 1.5 拡張 第 3 段階完成 = 最重要マイルストーン到達（Chunk 24d-3 / 2026-06-04、アーカイブ）
 
 Phase 1.5 拡張（壊れた FS の HDD 対応）の 4 サブチャンク（24d-1 〜 24d-4）の **3 番目（最重要）の節目達成**。Chunk 24d-1 の物理ディスクアクセス層 + Chunk 24d-2 のパーティションテーブル解析の基盤の上に、**NtfsVolume と物理パーティションの統合 + diagnose/recover の --physical 対応**を追加。これにより、Workbench は「壊れた FS の HDD から実際に復旧できる」状態に到達し、**Phase 1.5 拡張の業務的価値が実現**。残り **Chunk 24d-4（実機ドライランとフィードバック反映）** で完全完成。
 
@@ -5053,7 +5303,39 @@ Deleted recovered:  5 files
 - [x] **FR-DIAG-07: 削除ファイル復旧可能性推定（新規）** ✅ **📈 新規達成**（Chunk 22.5 / 2026-05-25 / dds-diagnostic + dds-fs-ntfs）— Chunk 21 で placeholder（`RecoverabilityEstimate { high_confidence: 0, medium_confidence: 0, low_confidence: 0 }`）として定義していた構造体を、Chunk 22.5 で **NTFS 技術的事実に基づく 3 値判定の本実装**に到達。**判定基準**（ヒューリスティック禁止、NTFS 技術的事実のみ）: ①**High**（確実復旧可能）= resident attribute OR (run-list 完全 + 全クラスタ未上書き) OR 0 バイトファイル / ②**Medium**（部分復旧の可能性）= non-resident + run-list 完全 + 部分上書き / ③**Low**（メタデータのみ）= run-list 破損 OR 全クラスタ上書き済み。実装: `crates/diagnostic/src/recoverability.rs` 216 行（`estimate(&[DeletedFileMetadata], &ClusterOccupancyMap) -> RecoverabilityEstimate` + `categorize()` + 8 単体）+ `ClusterRange { start_lcn, length }` struct + `NtfsFile::occupied_cluster_ranges()` + `ClusterOccupancyMap` + `DeletedFileMetadata { record_index, is_resident, run_list_valid, cluster_ranges }` + `aggregate_all` 拡張（**単一パス維持**: `iter_files()` ループ 1 回のまま、削除メタデータ収集 + 占有マップ登録を追加）。業務観測（ntfs_with_5_deletions_small）: 削除 5 件中 5 件すべて High（理由: 全 ~50 バイト TXT の `$DATA` resident、`categorize` 1 段目で確定）
 - [x] **FR-DIAG-08: 業務見積もりへの活用（新規）** ✅ **📈 新規達成**（Chunk 22.5 / 2026-05-25 / dds-diagnostic）— CRM 貼り付けテキストに「復旧可能性 (推定)」セクション追加（`crates/diagnostic/src/crm_text.rs` +52 行 + 2 単体）: `高 (確実復旧可能): N 件 / 中 (部分復旧の可能性): N 件 / 低 (メタデータのみ): N 件` + 判定基準注記（高: ファイル内容が MFT 内に完結、または占有クラスタが上書きされていない / 中: 占有クラスタの一部が他のファイルで上書きされている / 低: run-list 解析失敗、または全クラスタが上書き済み）。業務員 / 顧客への定量的説明: 月 700-800 件案件のうち約 30%（240 件）の削除案件で見積もり精度向上、お客様への提示時に「削除 234 件中、High 198 / Medium 30 / Low 6」のような具体的な数字を NTFS 技術的事実のみに基づいて伝達可能
 
-**※注**: 旧 FR-DIAG-01〜07（デバイス検出 / 情報取得 / PT 解析 / FS 識別 / 損傷分類 / 戦略提案 / 診断レポート生成）は Phase 1.5 で論理診断（NTFS の MFT 解析ベース）へ再定義された。物理診断（デバイス検出 / SMART 等）は Phase 2 で対応予定。
+#### 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 業務適用品質の業務指標群（Chunk 24d-4-1 / 2026-06-04 / dds-diagnostic + dds-case-manager、本ドキュメント独自分類）
+
+**Phase 1.5 拡張 第 4 段階 (前編) 完成 = 業務適用品質マイルストーン到達**。診断結果が「営業の見積根拠」として使える品質に到達、「診断結果を見ただけで、営業が見積を作成し、お客様に説明できる」状態を実現。チャンク内では FR-DIAG-04〜07 と呼称（PRD.md の同番号とは別系統、本 progress.md 内では下記 FR-DIAG-09〜12 として識別）。
+
+- [x] **FR-DIAG-09: Dirty Bit / $LogFile 整合性検出（業務指標、新規）** ✅ **🎯 新規達成**（Chunk 24d-4-1 / 2026-06-04 / dds-diagnostic + dds-case-manager、業務原案 FR-DIAG-04）
+  - **`crates/diagnostic/src/dirty_bit.rs` 117 行新規**: NTFS $Volume MFT エントリ（record index 3）の Dirty Bit 検出（Windows マウント拒否原因の最多）、`check_dirty_bit` / `is_dirty_from_flags`、`NtfsVolume::read_record(index)` 既存 API 流用
+  - **`crates/diagnostic/src/log_file.rs` 119 行新規**: $LogFile 整合性チェック（RSTR/RCRD マジック判定）、`check_log_file` 関数
+  - **dds-case-manager**: `DirtyBitStatus`（Clean/Dirty/Unknown）+ `LogFileStatus`（Consistent/Inconsistent/Unknown）+ `business_message()` メソッド
+  - **業務的意義**: Windows がマウントを拒否する最大原因が Dirty Bit、$LogFile が壊れている場合は ChkDsk 経由で修復試行が必要、業務 CS が一目で原因判断可能
+- [x] **FR-DIAG-10: BitLocker 暗号化検出（業務指標、新規）** ✅ **🎯 新規達成（簡易判定）**（Chunk 24d-4-1 / 2026-06-04 / dds-diagnostic + dds-case-manager、業務原案 FR-DIAG-05）
+  - **`crates/diagnostic/src/bitlocker.rs` 92 行新規**: BitLocker 暗号化検出（`-FVE-FS-` シグネチャ判定 + 簡易ロジック）、`check_bitlocker` / `bytes_contain_bitlocker_signature`
+  - **簡易判定方針**: `NtfsVolume::open` 成功 = NTFS OEM ID 確認済み = BitLocker To Go 不可能 で `NotEncrypted` 返却（Phase 1.5 スコープ通り、Phase 2 で精密化）
+  - **dds-case-manager**: `BitLockerStatus`（NotEncrypted/Encrypted/Unknown）+ `business_message()`
+  - **業務的意義**: BitLocker 暗号化 HDD は復旧パスワード取得が前提、復旧難易度に直結（成功率予測 -90 点）
+- [x] **FR-DIAG-11: ファイル数推定 + 4 段階難易度評価（業務指標、新規）** ✅ **🎯 新規達成**（Chunk 24d-4-1 / 2026-06-04 / dds-diagnostic + dds-case-manager、業務原案 FR-DIAG-06）
+  - **`crates/diagnostic/src/file_estimation.rs` 75 行新規**: $MFT ベース概算ファイル数 + 業務サマリフォーマット（1,500 / 2.5 万 等）、`estimate_from_file_stats` 関数 + `format_estimation_number` ヘルパ
+  - **`crates/diagnostic/src/difficulty.rs` 162 行新規**: 復旧難易度評価 4 段階（Easy/Medium/Hard/Caution）、`evaluate_difficulty` 関数
+  - **dds-case-manager**: `FileEstimation` struct + `business_summary()` / `RecoveryDifficulty`（Easy/Medium/Hard/Caution）+ `display_name()` / `business_explanation()`
+  - **業務 CRITICAL**: 4 段階難易度ロジック = 易（構造完全正常）/ 中（Dirty Bit / $LogFile 不整合 / 削除多数 / 小規模 MFT 破損）/ 難（BitLocker / 大規模 MFT 破損 / 完全 FS 構造破壊 - ファイル単位の復旧が必要、決して「不可」ではない）/ 注意（物理障害の兆候 - 受注可否は人間が慎重判断）
+  - **業務原則遵守**: 「受注不可」「対応困難」「復旧不可能」表現を実出力 0 件、`Caution::business_explanation()` に「人間が判断」を含む（テスト `business_explanation_includes_human_judgment` で機械強制）
+- [x] **FR-DIAG-12: 復旧成功率予測（業務指標、新規）** ✅ **🎯 新規達成**（Chunk 24d-4-1 / 2026-06-04 / dds-diagnostic + dds-case-manager、業務原案 FR-DIAG-07）
+  - **`crates/diagnostic/src/success_rate.rs` 185 行新規**: 復旧成功率予測（全体% + 優先データ% + 計算根拠 Vec）、`predict_success_rate` 関数
+  - **dds-case-manager**: `SuccessRatePrediction` struct + `business_summary()`
+  - **計算ロジック**: 全体成功率 = 100 - 各リスク要因の減点（BitLocker -90 / MFT 破損 -最大 50 / Dirty Bit -2 / $LogFile -5）、下限 0%、優先データ成功率 = Wishlist 指定時のみ Some（診断時は通常 None、recover 時に指定）
+  - **計算根拠 Vec を保持**: 営業の説明用、根拠を提示可能（「BitLocker 暗号化により -90 点」「Dirty Bit により -2 点」等）
+  - **業務的意義**: 営業がお客様に「成功率 75%」と回答する際の根拠提示、ヒアリング段階での見積精度向上
+- [x] **業務 CRITICAL: CRM 貼り付けテキストへの業務サマリ統合**（Chunk 24d-4-1 / 2026-06-04 / dds-diagnostic）
+  - **`crates/diagnostic/src/crm_text.rs` +62 行**: 【診断結果 - 業務サマリ】+【診断結果 - 技術詳細】セクション追加
+  - **実機検証サンプル**（`ntfs_with_5_deletions_small`）: 「推定ファイル数: 約 33 件 (生存 28 / 削除 5) / 復旧難易度: 易 (標準的な業務ケース、復旧成功の見込み高い) / 推定復旧成功率: 100% (全体)」+ 「Dirty Bit: 正常 / $LogFile 整合性: 正常 / BitLocker 暗号化: なし」
+  - **`crates/workbench-dryrun/src/commands/diagnose.rs` +57 行**: `show_business_diagnostic_summary` 新規（Windows のマウント状態 + 業務的な評価）
+  - **DiagnosticInput 後方互換性**: 新規 6 フィールド全て `Option<T>` + `#[serde(default)]`、旧 case.json も `None` で復元可能（テスト `diagnostic_input_legacy_json_without_business_fields_deserializes`）
+
+**※注**: 旧 FR-DIAG-01〜07（デバイス検出 / 情報取得 / PT 解析 / FS 識別 / 損傷分類 / 戦略提案 / 診断レポート生成）は Phase 1.5 で論理診断（NTFS の MFT 解析ベース）へ再定義された。物理診断（デバイス検出 / SMART 等）は Phase 2 で対応予定。Chunk 24d-4-1 の業務指標群はチャンク内では FR-DIAG-04〜07 と呼称されたが、本 progress.md 内では既存 FR-DIAG-04〜08 との衝突回避のため FR-DIAG-09〜12 として識別する（実装内容・業務的価値・チャンク完了判定は同一）。
 
 ### ライブモード (FR-LIVE)
 - [x] **FR-LIVE-01: NTFS読み取り** ✅ **API 完成形 ✓ 完全達成 🎉🎉🎉**（Chunk 4-14 / dds-fs-ntfs、書籍突合済み 📕、Chunk 11 で API レベル実用形完成、Chunk 14 で業務統合層 API 完成形到達）

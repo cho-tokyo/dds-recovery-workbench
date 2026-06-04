@@ -199,9 +199,64 @@ pub fn render(report: &DiagnosticReport) -> String {
     let _ = writeln!(s, "未実施 (Phase 2 で対応予定)");
     let _ = writeln!(s);
 
+    // 11. Chunk 24d-4-1: 業務サマリ + 技術詳細
+    render_business_diagnostic_sections(&mut s, report);
+
     let _ = writeln!(s, "=== 診断完了 ===");
 
     s
+}
+
+/// Chunk 24d-4-1: 業務サマリ + 技術詳細セクションを描画する。
+///
+/// 業務情報が 1 つでも存在する場合のみセクションを出力 (旧 CRM テキストとの後方互換)。
+/// 営業がそのまま見積根拠として CRM に貼り付けられる業務日本語。
+fn render_business_diagnostic_sections(s: &mut String, report: &DiagnosticReport) {
+    let has_business = report.file_estimation.is_some()
+        || report.recovery_difficulty.is_some()
+        || report.success_rate.is_some();
+    let has_tech = report.dirty_bit.is_some()
+        || report.log_file_status.is_some()
+        || report.bitlocker.is_some();
+
+    if has_business {
+        let _ = writeln!(s, "【診断結果 - 業務サマリ】");
+        if let Some(est) = &report.file_estimation {
+            let _ = writeln!(s, "  {}", est.business_summary());
+        }
+        if let Some(diff) = &report.recovery_difficulty {
+            let _ = writeln!(
+                s,
+                "  復旧難易度: {} ({})",
+                diff.display_name(),
+                diff.business_explanation()
+            );
+        }
+        if let Some(rate) = &report.success_rate {
+            let _ = writeln!(s, "  {}", rate.business_summary());
+            if !rate.reasoning.is_empty() {
+                let _ = writeln!(s, "  計算根拠:");
+                for r in &rate.reasoning {
+                    let _ = writeln!(s, "    - {}", r);
+                }
+            }
+        }
+        let _ = writeln!(s);
+    }
+
+    if has_tech {
+        let _ = writeln!(s, "【診断結果 - 技術詳細】");
+        if let Some(dirty) = &report.dirty_bit {
+            let _ = writeln!(s, "  Dirty Bit:           {}", dirty.business_message());
+        }
+        if let Some(log) = &report.log_file_status {
+            let _ = writeln!(s, "  $LogFile 整合性:     {}", log.business_message());
+        }
+        if let Some(bl) = &report.bitlocker {
+            let _ = writeln!(s, "  BitLocker 暗号化:    {}", bl.business_message());
+        }
+        let _ = writeln!(s);
+    }
 }
 
 /// 【ファイルシステムの破損】セクションを描画する。
@@ -295,6 +350,12 @@ mod tests {
             }],
             deleted_file_stats,
             anomalies: FsAnomalyReport::default(),
+            dirty_bit: None,
+            log_file_status: None,
+            bitlocker: None,
+            file_estimation: None,
+            recovery_difficulty: None,
+            success_rate: None,
         }
     }
 

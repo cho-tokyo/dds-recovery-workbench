@@ -47,17 +47,29 @@
 #![warn(rust_2018_idioms)]
 
 pub mod aggregator;
+pub mod bitlocker;
 pub mod crm_text;
+pub mod difficulty;
+pub mod dirty_bit;
 pub mod error;
+pub mod file_estimation;
+pub mod log_file;
 pub mod recoverability;
 pub mod report;
+pub mod success_rate;
 
 pub use aggregator::{ClusterOccupancyMap, DeletedFileMetadata};
+pub use bitlocker::{bytes_contain_bitlocker_signature, check_bitlocker};
+pub use difficulty::evaluate_difficulty;
+pub use dirty_bit::{check_dirty_bit, is_dirty_from_flags};
 pub use error::DiagnosticError;
+pub use file_estimation::estimate_from_file_stats;
+pub use log_file::check_log_file;
 pub use report::{
     DiagnosticReport, FileStatistics, FilesystemInfo, FolderCount, FormatCount, FsAnomalyReport,
     HardwareInfo,
 };
+pub use success_rate::predict_success_rate;
 
 use chrono::Utc;
 
@@ -115,6 +127,35 @@ impl DiagnosticEngine {
             .total_clusters
             .saturating_mul(u64::from(filesystem.cluster_size_bytes));
 
+        // Chunk 24d-4-1: 業務的診断指標の計算 -----------------------------
+        // FS 全体走査が終わった「後」に追加で raw 読みを行う。aggregator 経路の
+        // 既存テストへ影響しないよう順序を後ろにしている (1-pass 維持)。
+        let dirty_bit_status = dirty_bit::check_dirty_bit(volume);
+        let log_file_status = log_file::check_log_file(volume);
+        let bitlocker_status = bitlocker::check_bitlocker(volume);
+        let file_estimation = file_estimation::estimate_from_file_stats(&aggregate.file_stats);
+
+        let recovery_difficulty = difficulty::evaluate_difficulty(
+            filesystem_findings.signature_valid && filesystem_findings.boot_sector_ok,
+            filesystem_findings.mft_corrupted_count as u64,
+            dirty_bit_status,
+            log_file_status,
+            bitlocker_status,
+            &file_estimation,
+        );
+
+        let total_mft_entries = volume.total_records();
+        // 診断時点では Wishlist 未確定。recover フェーズで再計算する想定。
+        let has_wishlist = false;
+        let success_rate = success_rate::predict_success_rate(
+            filesystem_findings.mft_corrupted_count as u64,
+            total_mft_entries,
+            dirty_bit_status,
+            log_file_status,
+            bitlocker_status,
+            has_wishlist,
+        );
+
         Ok(DiagnosticReport {
             case_id,
             diagnosed_at: started_at,
@@ -127,6 +168,12 @@ impl DiagnosticEngine {
             folder_breakdown: aggregate.folder_breakdown,
             deleted_file_stats,
             anomalies: aggregate.anomalies,
+            dirty_bit: Some(dirty_bit_status),
+            log_file_status: Some(log_file_status),
+            bitlocker: Some(bitlocker_status),
+            file_estimation: Some(file_estimation),
+            recovery_difficulty: Some(recovery_difficulty),
+            success_rate: Some(success_rate),
         })
     }
 }
@@ -199,6 +246,12 @@ mod tests {
             folder_breakdown: vec![],
             deleted_file_stats: None,
             anomalies: FsAnomalyReport::default(),
+            dirty_bit: None,
+            log_file_status: None,
+            bitlocker: None,
+            file_estimation: None,
+            recovery_difficulty: None,
+            success_rate: None,
         }
     }
 

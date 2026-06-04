@@ -19,7 +19,10 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use dds_case_manager::{CaseId, DeletedFileStats, DiagnosticInput, FilesystemFindings};
+use dds_case_manager::{
+    BitLockerStatus, CaseId, DeletedFileStats, DiagnosticInput, DirtyBitStatus, FileEstimation,
+    FilesystemFindings, LogFileStatus, RecoveryDifficulty, SuccessRatePrediction,
+};
 
 /// 診断結果のフル構造体。in-memory で全情報を保持。
 ///
@@ -55,6 +58,26 @@ pub struct DiagnosticReport {
     pub deleted_file_stats: Option<DeletedFileStats>,
     /// 検出された FS 異常レポート（in-memory 用の詳細情報）。
     pub anomalies: FsAnomalyReport,
+
+    // --- Chunk 24d-4-1: 業務的診断指標 ---
+    /// NTFS Dirty Bit 状態 (Windows がマウント拒否する主因)。
+    #[serde(default)]
+    pub dirty_bit: Option<DirtyBitStatus>,
+    /// $LogFile 整合性状態。
+    #[serde(default)]
+    pub log_file_status: Option<LogFileStatus>,
+    /// BitLocker 暗号化の状態。
+    #[serde(default)]
+    pub bitlocker: Option<BitLockerStatus>,
+    /// ファイル数の推定 (MFT ベース概算)。
+    #[serde(default)]
+    pub file_estimation: Option<FileEstimation>,
+    /// 復旧難易度 (易/中/難/注意)。
+    #[serde(default)]
+    pub recovery_difficulty: Option<RecoveryDifficulty>,
+    /// 復旧成功率予測 (全体 + 優先データ + 計算根拠)。
+    #[serde(default)]
+    pub success_rate: Option<SuccessRatePrediction>,
 }
 
 /// ハードウェア（HDD/SSD）情報。
@@ -171,7 +194,9 @@ impl DiagnosticReport {
     /// case.json 永続化用の slim 版 [`DiagnosticInput`] に変換する。
     ///
     /// 業務的に必要なフィールドのみ抽出（メモリ常駐の format_breakdown 等は除外）。
-    /// Chunk 22.6 で `symptom` フィールドが `filesystem_findings` に置換された。
+    /// Chunk 22.6 で `symptom` フィールドが `filesystem_findings` に置換され、
+    /// Chunk 24d-4-1 で業務的診断指標 (Dirty Bit / $LogFile / BitLocker /
+    /// ファイル数推定 / 難易度 / 成功率) が追加された。
     pub fn to_diagnostic_input(&self) -> DiagnosticInput {
         DiagnosticInput {
             diagnosed_at: Some(self.diagnosed_at),
@@ -183,6 +208,12 @@ impl DiagnosticReport {
             total_size_bytes: self.file_stats.total_size_bytes,
             deleted_file_stats: self.deleted_file_stats.clone(),
             notes: String::new(),
+            dirty_bit: self.dirty_bit,
+            log_file_status: self.log_file_status,
+            bitlocker: self.bitlocker,
+            file_estimation: self.file_estimation.clone(),
+            recovery_difficulty: self.recovery_difficulty,
+            success_rate: self.success_rate.clone(),
         }
     }
 
@@ -262,6 +293,12 @@ mod tests {
             folder_breakdown: vec![],
             deleted_file_stats: None,
             anomalies: FsAnomalyReport::default(),
+            dirty_bit: None,
+            log_file_status: None,
+            bitlocker: None,
+            file_estimation: None,
+            recovery_difficulty: None,
+            success_rate: None,
         };
         let input = report.to_diagnostic_input();
         assert_eq!(input.filesystem_type, Some("NTFS".into()));

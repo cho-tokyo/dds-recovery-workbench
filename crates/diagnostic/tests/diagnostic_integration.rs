@@ -157,3 +157,100 @@ fn diagnose_result_can_be_saved_to_case() {
     assert!(findings.boot_sector_ok);
     assert_eq!(reloaded.diagnostic_input.deleted_files, 5);
 }
+
+// ---- Chunk 24d-4-1: 業務的診断指標の結合テスト ----
+
+#[test]
+fn diagnose_healthy_ntfs_returns_easy_difficulty() {
+    // 業務シナリオ: 健康な NTFS ボリュームでは復旧難易度 = 易、成功率 >= 90%。
+    let mut volume = open_volume("ntfs_healthy_small");
+    let case_id = CaseId::parse("260522-01").unwrap();
+    let report = DiagnosticEngine::diagnose(&mut volume, case_id).expect("diagnose");
+
+    let difficulty = report.recovery_difficulty.expect("difficulty present");
+    assert_eq!(
+        difficulty,
+        dds_case_manager::RecoveryDifficulty::Easy,
+        "healthy fixture should be Easy, got {:?}",
+        difficulty
+    );
+
+    let rate = report.success_rate.as_ref().expect("rate present");
+    assert!(
+        rate.overall_rate >= 90,
+        "healthy fixture should have >= 90% success rate, got {}%",
+        rate.overall_rate
+    );
+
+    // 業務指標がすべて埋まっていることを確認
+    assert!(report.dirty_bit.is_some());
+    assert!(report.log_file_status.is_some());
+    assert!(report.bitlocker.is_some());
+    assert!(report.file_estimation.is_some());
+}
+
+#[test]
+fn crm_text_includes_business_diagnostic_info() {
+    // 業務シナリオ: 営業が CRM に貼り付けるテキストに業務サマリと技術詳細が含まれる。
+    let mut volume = open_volume("ntfs_with_5_deletions_small");
+    let case_id = CaseId::parse("260522-04").unwrap();
+    let report = DiagnosticEngine::diagnose(&mut volume, case_id).expect("diagnose");
+
+    let crm_text = report.to_crm_text();
+
+    // 業務サマリセクション
+    assert!(
+        crm_text.contains("【診断結果 - 業務サマリ】"),
+        "業務サマリ section missing: {}",
+        crm_text
+    );
+    assert!(crm_text.contains("復旧難易度"), "difficulty missing");
+    assert!(crm_text.contains("成功率"), "success rate missing");
+
+    // 技術詳細セクション
+    assert!(
+        crm_text.contains("【診断結果 - 技術詳細】"),
+        "技術詳細 section missing"
+    );
+    assert!(crm_text.contains("Dirty Bit"), "Dirty Bit row missing");
+    assert!(crm_text.contains("$LogFile"), "$LogFile row missing");
+    assert!(crm_text.contains("BitLocker"), "BitLocker row missing");
+
+    // 業務原則: 「受注不可」のような決めつけ表現は含まれないこと
+    assert!(
+        !crm_text.contains("受注不可"),
+        "業務原則違反: 「受注不可」表現が含まれる"
+    );
+    assert!(
+        !crm_text.contains("対応困難"),
+        "業務原則違反: 「対応困難」表現が含まれる"
+    );
+    assert!(
+        !crm_text.contains("復旧不可能"),
+        "業務原則違反: 「復旧不可能」表現が含まれる"
+    );
+}
+
+#[test]
+fn diagnose_persists_business_indicators_to_case_json() {
+    // 業務シナリオ: 業務指標が case.json (DiagnosticInput) に保存され、再 load で復元される。
+    let temp = TempDir::new().unwrap();
+    let storage = CaseStorage::with_base_dir(temp.path());
+
+    let case_id = CaseId::parse("260522-01").unwrap();
+    let mut case = storage.create_new(case_id.clone()).expect("create_new");
+
+    let mut volume = open_volume("ntfs_healthy_small");
+    let report = DiagnosticEngine::diagnose(&mut volume, case_id.clone()).expect("diagnose");
+    case.diagnostic_input = report.to_diagnostic_input();
+    storage.save(&case).expect("save");
+
+    let reloaded = storage.load(&case_id).expect("load");
+    let di = &reloaded.diagnostic_input;
+    assert!(di.dirty_bit.is_some());
+    assert!(di.log_file_status.is_some());
+    assert!(di.bitlocker.is_some());
+    assert!(di.file_estimation.is_some());
+    assert!(di.recovery_difficulty.is_some());
+    assert!(di.success_rate.is_some());
+}

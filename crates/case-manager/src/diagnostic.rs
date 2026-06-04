@@ -1,17 +1,25 @@
-//! Chunk 21 / 22.6: 診断入力 `DiagnosticInput` と
-//! ファイルシステム破損事実 `FilesystemFindings`。
+//! Chunk 21 / 22.6 / 24d-4-1: 診断入力 `DiagnosticInput` と
+//! ファイルシステム破損事実 `FilesystemFindings`、および業務的診断指標。
 //!
 //! Chunk 22.6 で症状判定型を完全排除した。Workbench は「事実報告者」
 //! であり「判定者」ではないため、複合判定等の業務的に意味の薄い
 //! 情報は出力しない。代わりに `FilesystemFindings` で「件数」「フラグ」のみ
 //! 記録する。
 //!
+//! Chunk 24d-4-1 で「業務的診断指標」型 ([`DirtyBitStatus`] / [`LogFileStatus`] /
+//! [`BitLockerStatus`] / [`FileEstimation`] / [`RecoveryDifficulty`] /
+//! [`SuccessRatePrediction`]) を追加。これらは `dds-diagnostic` 側で
+//! 計算され、`DiagnosticInput` 経由で case.json に永続化される。
+//! 型をここ (case-manager) に置く理由は `DiagnosticInput` が保有するフィールド
+//! 型は case-manager の責務であり、`dds-diagnostic → dds-case-manager`
+//! の既存依存方向と整合するため。
+//!
 //! 業務的には CRM 貼り付け用テキスト生成や、お客様への進捗説明資料の元データになる。
 //!
 //! 全フィールドは `Option` または `Default` 可能で、空状態 (`DiagnosticInput::default()`)
 //! が「未診断」を表現する。
 //!
-//! 関連 FR: FR-CASE-01 (案件単位管理), FR-DIAG-06 (事実ベースの報告)。
+//! 関連 FR: FR-CASE-01 (案件単位管理), FR-DIAG-04 ~ FR-DIAG-07 (業務的診断指標)。
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -48,6 +56,209 @@ pub struct DiagnosticInput {
 
     /// 診断担当者によるフリーテキスト備考（CRM 貼り付け用）。
     pub notes: String,
+
+    // --- Chunk 24d-4-1: 業務的診断指標 ---
+    // すべて `Option<T>` で `#[serde(default)]` 相当 (Default::default で None)。
+    // 旧 case.json 互換性のため、未指定なら None に復元される。
+    /// NTFS の Dirty Bit 状態 (Windows がマウント拒否する主因)。
+    #[serde(default)]
+    pub dirty_bit: Option<DirtyBitStatus>,
+    /// $LogFile の整合性状態 (未完了トランザクションの有無)。
+    #[serde(default)]
+    pub log_file_status: Option<LogFileStatus>,
+    /// BitLocker 暗号化の状態。
+    #[serde(default)]
+    pub bitlocker: Option<BitLockerStatus>,
+    /// ファイル数の推定 (MFT ベース概算)。
+    #[serde(default)]
+    pub file_estimation: Option<FileEstimation>,
+    /// 復旧難易度の評価 (易/中/難/注意)。
+    #[serde(default)]
+    pub recovery_difficulty: Option<RecoveryDifficulty>,
+    /// 復旧成功率の予測 (全体 + 優先データ)。
+    #[serde(default)]
+    pub success_rate: Option<SuccessRatePrediction>,
+}
+
+/// Chunk 24d-4-1: NTFS の Dirty Bit 状態。
+///
+/// `$Volume` MFT エントリ (インデックス 3) の `$VOLUME_INFORMATION` 属性 (タイプ 0x70) に
+/// フラグが立っていると Windows はマウントを拒否し chkdsk を要求する。業務的に
+/// Windows がマウントを拒否する原因の最多であり、本指標が「Dirty」だと
+/// 営業はお客様に「Windows でアクセスできない原因が判明しました」と説明できる。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DirtyBitStatus {
+    /// 正常 (Dirty Bit なし)。
+    Clean,
+    /// Dirty Bit が立っている (Windows が chkdsk を要求)。
+    Dirty,
+    /// 判定不能 ($Volume が読めない、属性が見つからない等)。
+    Unknown,
+}
+
+impl DirtyBitStatus {
+    /// 業務的な日本語メッセージ。
+    pub fn business_message(&self) -> &'static str {
+        match self {
+            Self::Clean => "正常",
+            Self::Dirty => "立っている (Windows がマウント拒否する原因)",
+            Self::Unknown => "判定不能",
+        }
+    }
+}
+
+/// Chunk 24d-4-1: NTFS `$LogFile` の整合性状態 (簡易判定)。
+///
+/// `$LogFile` は NTFS のトランザクションログ。未完了トランザクションが残ると
+/// Windows がマウント前に再生を試みる。Phase 1.5 では先頭マジック値のみ判定。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LogFileStatus {
+    /// 正常 (整合性 OK)。
+    Consistent,
+    /// 未完了トランザクションあり。
+    Inconsistent,
+    /// 判定不能。
+    Unknown,
+}
+
+impl LogFileStatus {
+    /// 業務的な日本語メッセージ。
+    pub fn business_message(&self) -> &'static str {
+        match self {
+            Self::Consistent => "正常",
+            Self::Inconsistent => "不整合あり (未完了トランザクション)",
+            Self::Unknown => "判定不能",
+        }
+    }
+}
+
+/// Chunk 24d-4-1: BitLocker 暗号化の状態。
+///
+/// 業務的に BitLocker 暗号化の検出は復旧難易度に大きな影響を与える。
+/// 「受注不可」と決めつけず「回復キーが必要」という事実を伝え、判断は人間に委ねる。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BitLockerStatus {
+    /// 暗号化なし (通常)。
+    NotEncrypted,
+    /// BitLocker で暗号化されている。
+    Encrypted,
+    /// 判定不能。
+    Unknown,
+}
+
+impl BitLockerStatus {
+    /// 業務的な日本語メッセージ。
+    pub fn business_message(&self) -> &'static str {
+        match self {
+            Self::NotEncrypted => "なし",
+            Self::Encrypted => "BitLocker 暗号化を検出 (回復キーが必要)",
+            Self::Unknown => "判定不能",
+        }
+    }
+}
+
+/// Chunk 24d-4-1: MFT 走査ベースのファイル数推定。
+///
+/// `dds-diagnostic` の aggregator が既に持つ `FileStatistics` から派生して
+/// 生成される。CRM テキスト / 営業見積で使う「概算ファイル数」の根拠。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileEstimation {
+    /// 推定総ファイル数 (システムメタファイル除く)。
+    pub estimated_total_files: u64,
+    /// 推定削除ファイル数。
+    pub estimated_deleted_files: u64,
+    /// 推定生存ファイル数。
+    pub estimated_live_files: u64,
+}
+
+impl FileEstimation {
+    /// 営業向けの業務的サマリ文字列。
+    pub fn business_summary(&self) -> String {
+        format!(
+            "推定ファイル数: 約 {} 件 (生存 {} / 削除 {})",
+            format_estimation_number(self.estimated_total_files),
+            format_estimation_number(self.estimated_live_files),
+            format_estimation_number(self.estimated_deleted_files),
+        )
+    }
+}
+
+/// 数値を業務向け短縮表記にする (1,500 / 2.5万 等)。
+///
+/// 公開しているのは CLI 表示など他レイヤから同一書式で再利用するため。
+pub fn format_estimation_number(n: u64) -> String {
+    if n >= 10_000 {
+        format!("{:.1}万", n as f64 / 10_000.0)
+    } else if n >= 1_000 {
+        format!("{},{:03}", n / 1000, n % 1000)
+    } else {
+        n.to_string()
+    }
+}
+
+/// Chunk 24d-4-1: 復旧難易度 (4 段階)。
+///
+/// 業務原則:
+/// - 「受注不可」「対応困難」のような決めつけ表現は使わない
+/// - 「注意」は物理障害の兆候を示し、受注可否は人間が判断する
+/// - 完全な FS 構造破壊もファイル単位の復旧で可能なため「難」扱い (決して「不可」ではない)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RecoveryDifficulty {
+    /// 易: 標準的な業務ケース、復旧成功の見込み高い。
+    Easy,
+    /// 中: 部分的な障害あり、業務的に標準範囲。
+    Medium,
+    /// 難: 大規模な障害、ファイル単位の復旧が必要、業務的に難度高。
+    Hard,
+    /// 注意: 物理障害の兆候あり、業務的に慎重判断が必要 (受注可否は人間が判断)。
+    Caution,
+}
+
+impl RecoveryDifficulty {
+    /// 業務的な短縮表示名 (CLI / CRM)。
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Easy => "易",
+            Self::Medium => "中",
+            Self::Hard => "難",
+            Self::Caution => "注意",
+        }
+    }
+
+    /// 業務的な日本語の説明。`Caution` には必ず「人間が判断」を含める (テスト要件)。
+    pub fn business_explanation(&self) -> &'static str {
+        match self {
+            Self::Easy => "標準的な業務ケース、復旧成功の見込み高い",
+            Self::Medium => "部分的な障害あり、業務的に標準範囲",
+            Self::Hard => "大規模な障害、ファイル単位の復旧が必要、業務的に難度高",
+            Self::Caution => "物理障害の兆候あり、業務的に慎重判断が必要 (受注可否は人間が判断)",
+        }
+    }
+}
+
+/// Chunk 24d-4-1: 復旧成功率の予測。
+///
+/// 全体成功率 + (Wishlist 指定時の) 優先データ成功率 + 計算根拠リスト。
+/// 営業がお客様に「なぜこの数字なのか」を説明できるよう `reasoning` を提供する。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SuccessRatePrediction {
+    /// 全体的な復旧成功率 (0-100)。
+    pub overall_rate: u8,
+    /// 優先データの復旧成功率 (Wishlist 指定時のみ、0-100)。
+    pub priority_rate: Option<u8>,
+    /// 計算根拠 (営業の説明用、減点要因の日本語リスト)。
+    pub reasoning: Vec<String>,
+}
+
+impl SuccessRatePrediction {
+    /// 営業向けの業務的サマリ文字列。
+    pub fn business_summary(&self) -> String {
+        let mut s = format!("推定復旧成功率: {}% (全体)", self.overall_rate);
+        if let Some(priority) = self.priority_rate {
+            s.push_str(&format!("、{}% (優先データ)", priority));
+        }
+        s
+    }
 }
 
 /// ファイルシステムの破損状態 (事実のみ、判定なし)。
@@ -174,6 +385,47 @@ mod tests {
             ..Default::default()
         };
         assert!(h.has_any_issue());
+    }
+
+    // --- Chunk 24d-4-1: 業務的診断指標型のテスト ---
+
+    #[test]
+    fn business_diagnostic_types_default_to_none_in_diagnostic_input() {
+        let d = DiagnosticInput::default();
+        assert!(d.dirty_bit.is_none());
+        assert!(d.log_file_status.is_none());
+        assert!(d.bitlocker.is_none());
+        assert!(d.file_estimation.is_none());
+        assert!(d.recovery_difficulty.is_none());
+        assert!(d.success_rate.is_none());
+    }
+
+    #[test]
+    fn diagnostic_input_legacy_json_without_business_fields_deserializes() {
+        // 旧 case.json (24d-3 以前) は新規フィールドを持たないが、
+        // #[serde(default)] により None で復元できることを業務的に保証する。
+        let legacy_json = r#"{
+            "diagnosed_at": null,
+            "duration_secs": null,
+            "filesystem_type": "NTFS",
+            "filesystem_findings": null,
+            "total_files": 10,
+            "deleted_files": 2,
+            "total_size_bytes": 1024,
+            "deleted_file_stats": null,
+            "notes": ""
+        }"#;
+        let d: DiagnosticInput = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(d.total_files, 10);
+        assert!(d.dirty_bit.is_none());
+        assert!(d.recovery_difficulty.is_none());
+    }
+
+    #[test]
+    fn format_estimation_number_short_thousand_and_man() {
+        assert_eq!(format_estimation_number(500), "500");
+        assert_eq!(format_estimation_number(1500), "1,500");
+        assert_eq!(format_estimation_number(25_000), "2.5万");
     }
 
     #[test]

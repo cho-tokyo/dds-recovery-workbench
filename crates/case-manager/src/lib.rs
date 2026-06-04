@@ -45,7 +45,9 @@ pub mod storage;
 pub use case::{Case, RecoveryReportSummary};
 pub use case_id::CaseId;
 pub use diagnostic::{
-    DeletedFileStats, DiagnosticInput, FilesystemFindings, RecoverabilityEstimate,
+    format_estimation_number, BitLockerStatus, DeletedFileStats, DiagnosticInput, DirtyBitStatus,
+    FileEstimation, FilesystemFindings, LogFileStatus, RecoverabilityEstimate, RecoveryDifficulty,
+    SuccessRatePrediction,
 };
 pub use error::CaseError;
 pub use orchestration::{execute_business_recovery, BusinessRecoveryError, BusinessRecoveryResult};
