@@ -11,6 +11,12 @@
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
 
+pub mod physical;
+
+pub use physical::{
+    enumerate_physical_drives, BusType, PhysicalDrive, PhysicalDriveError, PhysicalDriveInfo,
+};
+
 use dds_core::{CoreError, CoreResult};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};

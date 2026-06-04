@@ -4,7 +4,207 @@
 
 ---
 
-## 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 実機ボトルネック解消 — Chunk 24c でファイル毎の open 回数を 2 → 1 に半減、タイムスタンプ書き込みを同一ハンドル内で完結 / 2 回目実機ドライラン (2026-05-26) で観測した 1.9 MB/s ボトルネックの根本原因（apply_timestamps の再 open オーバーヘッド）を解消 / 期待値 30-50 MB/s（Chouさんの 3 回目実機ドライランで実測予定）/ unsafe 行数は不変（2 ブロック、所在のみ apply_timestamps_to_handle 内に移設）/ 累積テスト 556 件 pass 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯**
+## 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 Phase 1.5 拡張 第 1 段階完成 — Chunk 24d-1 で物理ディスクアクセス層完成 / Windows 物理ドライブを raw レベルで認識可能に / 壊れた FS の HDD は Windows がドライブレターを割り当てるが NTFS マウント不可 → workbench-dryrun の現状「NTFS ドライブが見つかりません」で詰む課題を解消 / R-STUDIO 並み認識能力の基盤完成（パーティション/FS タイプ判定は Chunk 24d-2 で追加予定）/ 非破壊原則の機械検証完了（CreateFileW は GENERIC_READ のみ、read-only IOCTL のみ、WriteFile / GENERIC_WRITE はコード本文 0 件） / unsafe 14 ブロック / 約 65 行（disk-io/physical.rs に 12 + recovery/timestamps.rs に 2、他全クレートで 0 維持） / 累積テスト 566 件 pass 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯**
+
+### 🎯🎯🎯 Phase 1.5 拡張 第 1 段階完成マイルストーン（Chunk 24d-1 / 2026-06-04）
+
+Phase 1.5 拡張（壊れた FS の HDD 対応）の 4 サブチャンク（24d-1 〜 24d-4）の最初の節目達成。Windows 物理ドライブを `\\.\PhysicalDriveN` 経由で raw レベルで認識できるようになり、続く **Chunk 24d-2（パーティションテーブル解析）**、**Chunk 24d-3（NtfsVolume 統合 + diagnose/recover の --physical 対応）** の基盤完成。
+
+**🎯 業務的背景（実機ドライランで判明）**:
+- 壊れた FS の HDD は Windows がドライブレターを割り当てるが NTFS マウント不可
+- workbench-dryrun の現状「NTFS ドライブが見つかりません」で詰む
+- 業界標準（R-STUDIO 等）は物理ドライブから raw アクセス → Workbench も同方式を実装する必要
+
+**🎯 業務 CRITICAL: 非破壊原則の機械検証完了**:
+- `CreateFileW` 呼出箇所の dwDesiredAccess: **`GENERIC_READ` のみ**（`GENERIC_WRITE` 完全不在、機械検証済）
+- `DeviceIoControl` 使用 IOCTL: **`IOCTL_DISK_GET_LENGTH_INFO` / `IOCTL_STORAGE_QUERY_PROPERTY` の 2 つの read-only のみ**
+- `WriteFile` workspace grep: コード本文 **0 件**（コメント内禁止宣言のみ）
+- `GENERIC_WRITE` workspace grep: コード本文 **0 件**（コメント/rustdoc の禁止宣言のみ）
+
+**🎯 実機動作確認（業務メンバー提示用）**:
+
+logical モード（既定、後方互換）:
+```
+DDS Recovery Workbench (Phase 1.5)
+接続中の論理ドライブ:
+  [1] C: Windows  [システム]  NTFS
+       容量: 475.67 GB / 空き 313.64 GB / NTFS
+       アクセス: \\.\C:
+壊れた FS の HDD は `list-drives --physical` で物理ドライブ側を確認してください。
+```
+
+physical モード（新規、管理者権限あり）:
+```
+DDS Recovery Workbench (Phase 1.5)
+物理ドライブ:
+---------------------------------------------
+検出された物理ドライブ: 1 個
+
+[0] \\.\PhysicalDrive0
+    サイズ:    476.94 GB
+    Product:   WDC PC SN530 SDBPNPZ-512G-1006
+    Serial:    E823_8FA6_BF53_0001_001B_448B_4550_26BD.
+    Bus Type:  NVMe
+
+---------------------------------------------
+注: パーティション情報は Chunk 24d-2 で追加予定です。
+    現状は物理ドライブの一覧のみ表示しています。
+```
+
+**累積指標（業務メンバー提示用）**:
+- 完了チャンク数: **Chunks 1-24d-1 完了**（主チャンク + サブ計 32 ドキュメント）
+- workspace total tests: **566 passed / 0 failed / 7 ignored**（Chunk 24c 556 → +10 件）
+- `unsafe` blocks（workspace 内）: **14 ブロック / 約 65 行**（`disk-io/src/physical.rs` に 12 ブロック新規追加 + `recovery/src/timestamps.rs` に 2 ブロック維持）、他全クレート（core / fs-common / fs-ntfs / fs-exfat / fs-fat32 / case-manager / diagnostic / report / wish-match / validators / workbench-dryrun / quality / db）unsafe **0 件維持**
+- 全 unsafe ブロックに `// SAFETY:` コメント完備（ハンドル有効性 / read-only IOCTL であること / lifetime 保証 等）
+- `unsafe fn` / `unsafe impl` / `unsafe trait` / `unsafe extern`: **0 件**
+- clippy warnings (`-D warnings`): **0 件**
+- rustdoc warnings: **0 件**
+- `cargo fmt --all -- --check`: **exit 0**（Chunk 24a 以降維持）
+
+---
+
+## 🎯 Chunk 24d-1: 物理ディスクアクセス層 — 完成 🎯（Chunk 24d-1 / 2026-06-04）
+
+### 🎯 Chunk 24d-1 ハイライト（Phase 1.5 拡張 第 1 段階完成 / 壊れた FS の HDD 対応の基盤）
+
+**🎯 業務的背景**:
+- 実機ドライランで判明: 壊れた FS の HDD は Windows がドライブレターを割り当てるが NTFS マウント不可
+- 現状の workbench-dryrun は論理ドライブのみ列挙 → 「NTFS ドライブが見つかりません」で詰む
+- 業界標準（R-STUDIO 等）は物理ドライブから raw アクセス → Workbench も同方式を実装
+
+**🎯 設計判断**:
+- 仕様書の `SetFilePointer` (u32 戻り、2TiB 制約) → **`SetFilePointerEx`** (BOOL 戻り、i64 距離、2TiB+ 対応) に変更
+- 業務的にも大容量 HDD で正しく動作（昨今 4TB / 8TB が標準のため必須）
+- `enumerate_physical_drives()` は 0〜31 の `\\.\PhysicalDriveN` を試行（システムにある分だけ Vec 返却）
+- RAII: `PhysicalDrive` の `Drop` で `CloseHandle` を自動呼出（ハンドルリーク防止）
+- 非 Windows ターゲットは ZST stub（コンパイル可能、`Unsupported` 返却）
+
+**🎯 新規ファイル（1）**:
+
+1. **`crates/disk-io/src/physical.rs`** (716 行、実装 612 + テスト 104):
+   - `PhysicalDriveError` enum (7 variants): `OpenFailed` / `NotFound` / `AccessDenied` / `ReadFailed` / `QueryInfoFailed` / `InvalidArgs` / `#[cfg(not(windows))]` `Unsupported`
+   - `PhysicalDriveInfo` struct (`path` / `drive_number` / `total_bytes` / `vendor_id` / `product_id` / `serial_number` / `bus_type`)
+   - `BusType` enum (18 variants) + `is_removable()` + `display_name()`
+   - `PhysicalDrive` struct (`#[cfg(windows)]`) + `open()` / `info()` / `read_at()` + `impl Drop`（RAII で `CloseHandle` 自動）
+   - 非 Windows stub（ZST、`Unsupported` 返却）
+   - `enumerate_physical_drives() -> Vec<PhysicalDriveInfo>`
+   - 8 単体テスト + 1 統合テスト（`#[ignore]` ローカル検証用 `integration_open_and_read_physical_drive_0`）
+
+**🎯 修正ファイル（4）**:
+
+2. **`crates/disk-io/src/lib.rs`** (+6 行): `pub mod physical` + re-export
+3. **`crates/disk-io/Cargo.toml`** (+4 行): `[target.'cfg(windows)'.dependencies] windows-sys.workspace = true`
+4. **`crates/workbench-dryrun/src/commands/list_drives.rs`** (49 → 152 行): `ListDrivesArgs { physical: bool }` + `run(&args)` シグネチャ変更 + `run_logical` / `run_physical` 分岐 + 3 単体テスト
+5. **`crates/workbench-dryrun/src/main.rs`** (+12 行): `ListDrives(ListDrivesArgs)` enum 変更 + dispatch 更新 + 既存テスト改修 + 新規 1 件
+
+**🎯 unsafe 統計（業務 CRITICAL、機械検証済）**:
+
+| 場所 | unsafe ブロック数 | 用途 |
+|---|---|---|
+| `disk-io/src/physical.rs` | **12 ブロック新規** | `CreateFileW` / `SetFilePointerEx` / `ReadFile` / `CloseHandle` / `DeviceIoControl` ×2 / `GetLastError` ×4 / `mem::zeroed` / `STORAGE_DEVICE_DESCRIPTOR` キャスト |
+| `recovery/src/timestamps.rs` | 2 ブロック維持 | Chunk 24a/24c から不変 |
+| 他全クレート（13 個） | **0 件維持** | core / fs-common / fs-ntfs / fs-exfat / fs-fat32 / case-manager / diagnostic / report / wish-match / validators / workbench-dryrun / quality / db |
+| **合計** | **14 ブロック / 約 65 行** | 仕様目安 35-40 行より多いのは SAFETY コメント + rustfmt 整形により各 API 呼出が複数行化したため |
+
+- 全 unsafe ブロックに `// SAFETY:` コメント完備
+- ハンドル有効性 / read-only IOCTL であること / lifetime 保証 等を明示
+
+**🎯 非破壊原則の機械検証結果（業務 CRITICAL）**:
+- `CreateFileW` 呼出箇所の dwDesiredAccess: **`GENERIC_READ` のみ**（`GENERIC_WRITE` 完全不在）
+- `DeviceIoControl` 使用 IOCTL: **`IOCTL_DISK_GET_LENGTH_INFO` / `IOCTL_STORAGE_QUERY_PROPERTY` の 2 つの read-only のみ**
+- `WriteFile` workspace grep: コード本文 **0 件**（コメント内禁止宣言のみ）
+- `GENERIC_WRITE` workspace grep: コード本文 **0 件**（コメント/rustdoc の禁止宣言のみ）
+
+**🎯 テスト統計**:
+- 新規単体: **12 件**（physical 8 + list_drives 3 + main 1）
+- 新規統合: **1 件**（`#[ignore]` `integration_open_and_read_physical_drive_0`）
+- 修正既存: 1 件（`cli_parses_list_drives_command` シグネチャ対応）
+- workspace 全体: **566 件 pass / 0 failed / 7 ignored**（Chunk 24c 556 → +10 件）
+
+**🎯 安全性（CRITICAL、業務要求）**:
+- 非破壊原則継続: ソース HDD への書き込み一切なし（read-only 限定、機械検証済）
+- ハンドルリーク防止: `open` 内の途中失敗時にも `close_handle_silent(handle)` で確実にクローズ
+- Drop での `is_null()` 二重チェックで堅牢
+- clippy / doc warning **0 件**
+- cargo fmt clean
+- 全公開 type / method / field に日本語 rustdoc
+
+**🎯 スコープ境界（Chunk 24d-2 への申し送り）**:
+- パーティション情報がまだ表示されていない（意図的、Chunk 24d-2 で追加予定）
+- CLI 出力末尾に「Chunk 24d-2 で追加予定」明示
+- 業務メンバーへの期待値設定として適切
+
+**🎯 含まないもの（次以降のチャンクで実装）**:
+- ❌ パーティションテーブル解析 → **Chunk 24d-2**
+- ❌ FS タイプ判定 → Chunk 24d-2
+- ❌ NtfsVolume との統合 → Chunk 24d-3
+- ❌ diagnose / recover の --physical 対応 → Chunk 24d-3
+
+**🎯 関連 PRD 要件達成**:
+- **FR-PHY-01**（物理ドライブ列挙、新規）→ ✅ 🎯 新規達成
+- **FR-PHY-02**（物理ドライブ raw 読み取り、新規）→ ✅ 🎯 新規達成
+- **FR-PHY-03**（ソース HDD への書き込み禁止）→ ✅ 厳守継続（機械検証済）
+- **NFR-REL-01**（ソースデバイス書込禁止）→ ✅ 維持（機械検証済）
+
+**🎯 業務インパクト**:
+- 壊れた FS の HDD でも物理ドライブとして見える（R-STUDIO 並み認識能力の基盤）
+- 続く Chunk 24d-2（パーティション解析）+ Chunk 24d-3（NtfsVolume 統合）の基盤完成
+- 「NTFS ドライブが見つかりません」で詰む現状を Chunk 24d-3 完了時点で解消
+
+### 🎯🎯🎯 Phase 1.5 拡張 第 1 段階完成マイルストーン（Chunk 24d-1 完了時）
+
+```
+🎯🎯🎯 DDS Recovery Workbench - Phase 1.5 拡張 第 1 段階完成 (Chunk 24d-1) 🎯🎯🎯
+  M0 設計確定         100% ✅
+  M1 基盤構築          30% （Phase 1 では基盤として十分機能、Phase 2 で残実装）
+  M2 NTFS リーダα     100% ✅
+  M3 希望突合エンジン  100% ✅
+  M4 復旧 + 品質判定  100% ✅
+  M5 NTFS-α リリース  100% ✅ 業務適用版到達
+  ─────────────────────────────────────────
+  Phase 1.5 (業務統合層) — 🎊 完全完成 🎊
+  Phase 1.5 業務適用品質完成 — 🎯 業界標準品質達成 🎯
+  Chunk 24a         お客様向けレポート簡素化+タイムスタンプ保持 ✅ 完成
+  Chunk 24b         並列化によるパフォーマンス改善 + 進捗表示 ✅ 完成
+  Chunk 24c         タイムスタンプ書き込みの高速化         ✅ 完成
+  ─────────────────────────────────────────
+  Phase 1.5 拡張 (壊れた FS の HDD 対応) — 🎯 第 1 段階完成 🎯
+  Chunk 24d-1       物理ディスクアクセス層                 ✅ 完成 🎯 R-STUDIO 並み認識能力の基盤
+  Chunk 24d-2       パーティションテーブル解析 (MBR/GPT)   ⏳ 次推奨
+  Chunk 24d-3       NtfsVolume 統合 + --physical 対応     ⏳ 後続
+  Chunk 24d-4       実機テストとフィードバック反映         ⏳ 後続
+  ─────────────────────────────────────────
+  Chunks 1-24d-1 完了（サブチャンク含む 32 ドキュメント）
+  workspace total: 566 件 pass / 0 failed / 7 ignored
+  unsafe: 14 ブロック / 約 65 行（disk-io/physical.rs 12 + recovery/timestamps.rs 2）
+         他全クレート（core/fs-common/fs-ntfs/fs-exfat/fs-fat32/
+         case-manager/diagnostic/report/wish-match/validators/
+         workbench-dryrun/quality/db）unsafe 0 件維持
+  非破壊原則機械検証: CreateFileW GENERIC_READ のみ / read-only IOCTL のみ /
+                    WriteFile 0 件 / GENERIC_WRITE 0 件
+  clippy 0 件 / doc 0 件 / fmt --check exit 0
+```
+
+### 🎯 Chunk 24d-1 次のステップ
+
+1. **Chunk 24d-2 着手**: パーティションテーブル解析（MBR / GPT パーサー、FS タイプ判定）
+   - `\\.\PhysicalDriveN` の LBA 0 から MBR シグネチャ確認
+   - GPT 検出 + パーティションエントリ解析
+   - 各パーティションの FS タイプ判定（NTFS / exFAT / FAT32）
+2. **Chunk 24d-3**: NtfsVolume 統合 + diagnose/recover の --physical 対応
+   - 物理ドライブのパーティションから NtfsVolume を直接構築
+   - `diagnose --physical 0 --partition 1` / `recover --physical 0 --partition 1` の CLI 拡張
+3. **Chunk 24d-4**: 実機テストとフィードバック反映
+   - 壊れた FS の実機 HDD で動作検証
+   - 業務メンバーフィードバックを反映
+
+---
+
+## 🎯 Chunk 24c: タイムスタンプ書き込みの高速化（ファイル毎 open 回数を半減）— 完成 🎯（Chunk 24c / 2026-05-26）
+
+### 🎯 Chunk 24c 旧マイルストーン記述（Chunk 24d-1 で更新済）
+
+**注**: 以下は Chunk 24c 完了時点のマイルストーン記述。Chunk 24d-1 完了により上書きされた。
 
 ### 🎯🎯🎯 実機ボトルネック解消マイルストーン（Chunk 24c / 2026-05-26）
 

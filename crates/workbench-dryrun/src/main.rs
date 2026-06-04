@@ -45,8 +45,8 @@ struct Cli {
 /// 提供サブコマンド。
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// 接続中の論理ドライブを一覧表示する。
-    ListDrives,
+    /// 接続中のドライブを一覧表示する (既定: 論理 / `--physical` で物理)。
+    ListDrives(commands::list_drives::ListDrivesArgs),
 
     /// 案件を作成/更新し、対象 HDD を診断する。
     Diagnose,
@@ -67,7 +67,7 @@ fn main() -> Result<()> {
     println!();
 
     match cli.command {
-        Commands::ListDrives => commands::list_drives::run(),
+        Commands::ListDrives(args) => commands::list_drives::run(&args),
         Commands::Diagnose => commands::diagnose::run(),
         Commands::Recover => commands::recover::run(),
         Commands::Show => commands::show::run(),
@@ -82,7 +82,19 @@ mod tests {
     #[test]
     fn cli_parses_list_drives_command() {
         let cli = Cli::try_parse_from(["workbench-dryrun", "list-drives"]).unwrap();
-        assert!(matches!(cli.command, Commands::ListDrives));
+        match cli.command {
+            Commands::ListDrives(args) => assert!(!args.physical),
+            other => panic!("unexpected command: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn cli_parses_list_drives_physical_flag() {
+        let cli = Cli::try_parse_from(["workbench-dryrun", "list-drives", "--physical"]).unwrap();
+        match cli.command {
+            Commands::ListDrives(args) => assert!(args.physical),
+            other => panic!("unexpected command: {:?}", other),
+        }
     }
 
     #[test]
