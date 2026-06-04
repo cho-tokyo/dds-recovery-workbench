@@ -23,6 +23,7 @@
 
 use std::fmt::Write;
 
+use dds_case_manager::{boot_sector_explanation, mft_corruption_explanation, CUSTOMER_DISCLAIMER};
 use dds_core::format::format_bytes;
 
 use crate::report::{DiagnosticReport, FormatCount};
@@ -202,9 +203,77 @@ pub fn render(report: &DiagnosticReport) -> String {
     // 11. Chunk 24d-4-1: 業務サマリ + 技術詳細
     render_business_diagnostic_sections(&mut s, report);
 
+    // 12. Chunk 24d-4-1.5: お客様への説明 (参考) - 異常時のみ
+    render_customer_explanations(&mut s, report);
+
     let _ = writeln!(s, "=== 診断完了 ===");
 
     s
+}
+
+/// Chunk 24d-4-1.5: 【お客様への説明 (参考)】セクションを描画する。
+///
+/// 各診断項目で異常時のみ `customer_explanation` を出力し、末尾に免責注釈を 1 回付与する。
+/// 全て正常 (`has_explanation = false`) ならセクション自体を出力しない (旧 CRM テキストとの後方互換)。
+fn render_customer_explanations(s: &mut String, report: &DiagnosticReport) {
+    let dirty_exp = report.dirty_bit.and_then(|st| st.explanation());
+    let log_exp = report.log_file_status.and_then(|st| st.explanation());
+    let bl_exp = report.bitlocker.and_then(|st| st.explanation());
+    let mft_exp = mft_corruption_explanation(report.filesystem_findings.mft_corrupted_count as u32);
+    let bs_exp = boot_sector_explanation(!report.filesystem_findings.boot_sector_ok);
+    // RecoveryDifficulty は 4 段階すべてに説明文を持つが、業務的に
+    // 「健全 (Easy)」時に CRM に表示すると過剰説明になるため、Easy はスキップする。
+    let diff_exp = report.recovery_difficulty.and_then(|d| match d {
+        dds_case_manager::RecoveryDifficulty::Easy => None,
+        other => other.explanation(),
+    });
+
+    let has_any = dirty_exp.is_some()
+        || log_exp.is_some()
+        || bl_exp.is_some()
+        || mft_exp.is_some()
+        || bs_exp.is_some()
+        || diff_exp.is_some();
+    if !has_any {
+        return;
+    }
+
+    let _ = writeln!(s, "【お客様への説明 (参考)】");
+    let _ = writeln!(s);
+
+    if let Some(exp) = dirty_exp {
+        let _ = writeln!(s, "■ HDD の状態 (Dirty Bit):");
+        let _ = writeln!(s, "{}", exp.customer_explanation);
+        let _ = writeln!(s);
+    }
+    if let Some(exp) = log_exp {
+        let _ = writeln!(s, "■ HDD の状態 ($LogFile):");
+        let _ = writeln!(s, "{}", exp.customer_explanation);
+        let _ = writeln!(s);
+    }
+    if let Some(exp) = bl_exp {
+        let _ = writeln!(s, "■ HDD の状態 (BitLocker):");
+        let _ = writeln!(s, "{}", exp.customer_explanation);
+        let _ = writeln!(s);
+    }
+    if let Some(exp) = mft_exp {
+        let _ = writeln!(s, "■ HDD の状態 (ファイル管理情報):");
+        let _ = writeln!(s, "{}", exp.customer_explanation);
+        let _ = writeln!(s);
+    }
+    if let Some(exp) = bs_exp {
+        let _ = writeln!(s, "■ HDD の状態 (起動情報):");
+        let _ = writeln!(s, "{}", exp.customer_explanation);
+        let _ = writeln!(s);
+    }
+    if let Some(exp) = diff_exp {
+        let _ = writeln!(s, "■ 復旧難易度について:");
+        let _ = writeln!(s, "{}", exp.customer_explanation);
+        let _ = writeln!(s);
+    }
+
+    let _ = writeln!(s, "{}", CUSTOMER_DISCLAIMER);
+    let _ = writeln!(s);
 }
 
 /// Chunk 24d-4-1: 業務サマリ + 技術詳細セクションを描画する。

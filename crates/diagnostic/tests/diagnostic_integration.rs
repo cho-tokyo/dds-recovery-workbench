@@ -13,9 +13,17 @@ mod common;
 
 use common::{decompress_fixture, make_image_reader};
 
-use dds_case_manager::{CaseId, CaseStorage};
-use dds_diagnostic::DiagnosticEngine;
+use chrono::Utc;
+use dds_case_manager::{
+    BitLockerStatus, CaseId, CaseStorage, DirtyBitStatus, FileEstimation, FilesystemFindings,
+    LogFileStatus, RecoveryDifficulty, SuccessRatePrediction,
+};
+use dds_diagnostic::{
+    DiagnosticEngine, DiagnosticReport, FileStatistics, FilesystemInfo, FsAnomalyReport,
+    HardwareInfo,
+};
 use dds_fs_ntfs::{parse_boot_sector, NtfsVolume};
+use std::collections::BTreeMap;
 use tempfile::TempDir;
 
 fn open_volume(
@@ -253,4 +261,91 @@ fn diagnose_persists_business_indicators_to_case_json() {
     assert!(di.file_estimation.is_some());
     assert!(di.recovery_difficulty.is_some());
     assert!(di.success_rate.is_some());
+}
+
+// ---- Chunk 24d-4-1.5: 業務的説明文の結合テスト ----
+
+/// 業務 CRITICAL: 異常状態の `DiagnosticReport` に対して CRM テキストが
+/// 【お客様への説明 (参考)】セクションを含むこと。
+fn make_report_with_anomalies() -> DiagnosticReport {
+    DiagnosticReport {
+        case_id: CaseId::parse("260603-01").unwrap(),
+        diagnosed_at: Utc::now(),
+        duration_secs: 5,
+        hardware: HardwareInfo::default(),
+        filesystem: FilesystemInfo {
+            fs_type: "NTFS".into(),
+            volume_serial: Some("DEADBEEF".into()),
+            cluster_size_bytes: 4096,
+            total_clusters: 1000,
+            used_clusters: 0,
+        },
+        filesystem_findings: FilesystemFindings {
+            signature_valid: true,
+            mft_corrupted_count: 3,
+            invalid_runlist_count: 0,
+            boot_sector_ok: true,
+            other_issues: vec![],
+        },
+        file_stats: FileStatistics {
+            total_files: 100,
+            live_files: 80,
+            deleted_files: 20,
+            directories: 5,
+            total_size_bytes: 10_000,
+        },
+        format_breakdown: BTreeMap::new(),
+        folder_breakdown: vec![],
+        deleted_file_stats: None,
+        anomalies: FsAnomalyReport::default(),
+        dirty_bit: Some(DirtyBitStatus::Dirty),
+        log_file_status: Some(LogFileStatus::Inconsistent),
+        bitlocker: Some(BitLockerStatus::NotEncrypted),
+        file_estimation: Some(FileEstimation {
+            estimated_total_files: 100,
+            estimated_live_files: 80,
+            estimated_deleted_files: 20,
+        }),
+        recovery_difficulty: Some(RecoveryDifficulty::Medium),
+        success_rate: Some(SuccessRatePrediction {
+            overall_rate: 85,
+            priority_rate: None,
+            reasoning: vec![],
+        }),
+    }
+}
+
+#[test]
+fn crm_text_includes_customer_explanations_when_anomalies() {
+    let report = make_report_with_anomalies();
+    let text = report.to_crm_text();
+    assert!(
+        text.contains("【お客様への説明 (参考)】"),
+        "customer explanation section missing: {}",
+        text
+    );
+    assert!(text.contains("Dirty Bit"), "Dirty Bit subsection missing");
+    assert!(
+        text.contains("参考情報"),
+        "disclaimer 'reference info' missing"
+    );
+    assert!(
+        text.contains("法的責任"),
+        "disclaimer 'legal responsibility' missing"
+    );
+}
+
+#[test]
+fn crm_text_omits_explanations_when_healthy() {
+    // 健全な NTFS ボリュームでは 【お客様への説明 (参考)】 セクション自体が出ない。
+    let mut volume = open_volume("ntfs_healthy_small");
+    let case_id = CaseId::parse("260522-01").unwrap();
+    let report = DiagnosticEngine::diagnose(&mut volume, case_id).expect("diagnose");
+    let text = report.to_crm_text();
+
+    assert!(
+        !text.contains("【お客様への説明 (参考)】"),
+        "healthy case should omit explanation section: {}",
+        text
+    );
 }

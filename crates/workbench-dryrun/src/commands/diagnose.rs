@@ -7,7 +7,9 @@
 use anyhow::{anyhow, Context, Result};
 use clap::Args;
 
-use dds_case_manager::{Case, CaseId, CaseStorage};
+use dds_case_manager::{
+    boot_sector_explanation, mft_corruption_explanation, Case, CaseId, CaseStorage,
+};
 use dds_core::format::format_bytes;
 use dds_diagnostic::{DiagnosticEngine, DiagnosticReport};
 use dds_disk_io::{enumerate_physical_drives, FsType, PhysicalDrive, PhysicalPartitionReader};
@@ -29,6 +31,10 @@ pub struct DiagnoseArgs {
     /// パーティション番号 (1 ベース、`--physical` と共に指定)
     #[arg(long)]
     pub partition: Option<u32>,
+
+    /// 業務的説明文 (お客様への説明テンプレート含む) を表示する (Chunk 24d-4-1.5)。
+    #[arg(long, short = 'v')]
+    pub verbose: bool,
 }
 
 /// `diagnose` サブコマンドのエントリーポイント。
@@ -41,19 +47,19 @@ pub fn run(args: &DiagnoseArgs) -> Result<()> {
     println!();
 
     match (args.physical, args.partition) {
-        (Some(drive_num), Some(part_num)) => run_physical(drive_num, part_num),
+        (Some(drive_num), Some(part_num)) => run_physical(drive_num, part_num, args.verbose),
         (Some(_), None) => Err(anyhow!(
             "--physical を指定する場合は --partition も必要です"
         )),
         (None, Some(_)) => Err(anyhow!(
             "--partition を指定する場合は --physical も必要です"
         )),
-        (None, None) => run_logical(),
+        (None, None) => run_logical(args.verbose),
     }
 }
 
 /// 論理ドライブモード (既存の挙動を完全に維持)。
-fn run_logical() -> Result<()> {
+fn run_logical(verbose: bool) -> Result<()> {
     // Step 1: 案件番号入力
     let case_id = prompt_case_id()?;
     println!();
@@ -128,7 +134,7 @@ fn run_logical() -> Result<()> {
     println!("[診断完了 - {:.2} 秒]", elapsed.as_secs_f64());
     println!();
 
-    finalize_diagnose(&storage, &mut case, &case_id, report)
+    finalize_diagnose(&storage, &mut case, &case_id, report, verbose)
 }
 
 /// 物理ドライブモード (Chunk 24d-3 新規)。
@@ -136,7 +142,7 @@ fn run_logical() -> Result<()> {
 /// `\\.\PhysicalDriveN` を open → パーティション一覧 → 指定パーティション選択 →
 /// 生バイトリーダ経由で `NtfsVolume::open` → 診断という流れ。マウント不能 / 壊れた
 /// FS の HDD でもパーティションが見えていれば診断可能。
-fn run_physical(drive_num: u32, part_num: u32) -> Result<()> {
+fn run_physical(drive_num: u32, part_num: u32, verbose: bool) -> Result<()> {
     println!("物理ドライブモード:");
     println!("  物理ドライブ: \\\\.\\PhysicalDrive{}", drive_num);
     println!("  パーティション: {}", part_num);
@@ -280,18 +286,20 @@ fn run_physical(drive_num: u32, part_num: u32) -> Result<()> {
     println!("[診断完了 - {:.2} 秒]", elapsed.as_secs_f64());
     println!();
 
-    finalize_diagnose(&storage, &mut case, &case_id, report)
+    finalize_diagnose(&storage, &mut case, &case_id, report, verbose)
 }
 
 /// 診断結果を表示し、CRM テキストを保存して `case.json` を更新する共通処理。
 ///
 /// 論理 / 物理どちらのモードからも呼ばれる (Chunk 24d-3)。
 /// Chunk 24d-4-1: 業務サマリ + 技術詳細 + 業務的評価セクションを追加。
+/// Chunk 24d-4-1.5: `verbose` 時に業務的説明文 (5 セクション) も追加表示。
 fn finalize_diagnose(
     storage: &CaseStorage,
     case: &mut Case,
     case_id: &CaseId,
     report: DiagnosticReport,
+    verbose: bool,
 ) -> Result<()> {
     // 結果サマリ表示
     println!("結果サマリ:");
@@ -311,6 +319,16 @@ fn finalize_diagnose(
 
     // Chunk 24d-4-1: 業務管理用の追加セクション表示
     show_business_diagnostic_summary(&report);
+
+    // Chunk 24d-4-1.5: --verbose で業務的説明文 (5 セクション) を追加表示。
+    // 通常モードはヒントのみ表示し、画面を業務的に簡潔に保つ。
+    if verbose {
+        show_business_explanation(&report);
+    } else {
+        println!("業務的な詳細説明 (お客様への説明テンプレート含む) を表示するには:");
+        println!("   workbench-dryrun diagnose [既存のオプション] --verbose");
+        println!();
+    }
 
     // CRM 貼り付けテキスト生成と保存
     let crm_text = report.to_crm_text();
@@ -396,6 +414,73 @@ fn show_business_diagnostic_summary(report: &DiagnosticReport) {
     }
 }
 
+/// Chunk 24d-4-1.5: 業務的説明文を CLI に表示する (`--verbose` 時のみ)。
+///
+/// 各診断項目で `explanation()` を取得し、5 セクション + 免責注釈で出力。
+/// 異常がない項目は出力しない (画面を業務的に簡潔に保つ)。
+fn show_business_explanation(report: &DiagnosticReport) {
+    let dirty_exp = report.dirty_bit.and_then(|s| s.explanation());
+    let log_exp = report.log_file_status.and_then(|s| s.explanation());
+    let bl_exp = report.bitlocker.and_then(|s| s.explanation());
+    let mft_exp = mft_corruption_explanation(report.filesystem_findings.mft_corrupted_count as u32);
+    let bs_exp = boot_sector_explanation(!report.filesystem_findings.boot_sector_ok);
+    // RecoveryDifficulty::Easy は健全状態を意味するため、業務的に過剰説明を避けて
+    // CLI verbose 表示でも出さない (CRM テキスト側と同じ判断)。
+    let diff_exp = report.recovery_difficulty.and_then(|d| match d {
+        dds_case_manager::RecoveryDifficulty::Easy => None,
+        other => other.explanation(),
+    });
+
+    let any = dirty_exp.is_some()
+        || log_exp.is_some()
+        || bl_exp.is_some()
+        || mft_exp.is_some()
+        || bs_exp.is_some()
+        || diff_exp.is_some();
+    if !any {
+        return;
+    }
+
+    println!("===========================================");
+    println!("  業務説明 (営業の業務的判断のための参考情報)");
+    println!("===========================================");
+    println!();
+
+    if let Some(exp) = dirty_exp {
+        println!("[Dirty Bit について]");
+        print!("{}", exp.format_for_cli("  "));
+        println!();
+    }
+    if let Some(exp) = log_exp {
+        println!("[$LogFile 整合性について]");
+        print!("{}", exp.format_for_cli("  "));
+        println!();
+    }
+    if let Some(exp) = bl_exp {
+        println!("[BitLocker 暗号化について]");
+        print!("{}", exp.format_for_cli("  "));
+        println!();
+    }
+    if let Some(exp) = mft_exp {
+        println!("[ファイル管理情報の破損について]");
+        print!("{}", exp.format_for_cli("  "));
+        println!();
+    }
+    if let Some(exp) = bs_exp {
+        println!("[Boot sector について]");
+        print!("{}", exp.format_for_cli("  "));
+        println!();
+    }
+    if let Some(exp) = diff_exp {
+        println!("[復旧難易度について]");
+        print!("{}", exp.format_for_cli("  "));
+        println!();
+    }
+
+    println!("===========================================");
+    println!();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,6 +490,7 @@ mod tests {
         let args = DiagnoseArgs {
             physical: Some(1),
             partition: None,
+            verbose: false,
         };
         let err = run(&args).expect_err("--physical のみはエラーになるべき");
         let msg = format!("{:#}", err);
@@ -416,10 +502,18 @@ mod tests {
         let args = DiagnoseArgs {
             physical: None,
             partition: Some(1),
+            verbose: false,
         };
         let err = run(&args).expect_err("--partition のみはエラーになるべき");
         let msg = format!("{:#}", err);
         assert!(msg.contains("--physical"), "msg={}", msg);
+    }
+
+    #[test]
+    fn diagnose_args_verbose_default_is_false() {
+        // Chunk 24d-4-1.5: --verbose 未指定時は false (通常モード)。
+        let args = DiagnoseArgs::default();
+        assert!(!args.verbose);
     }
 
     #[test]

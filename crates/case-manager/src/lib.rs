@@ -38,6 +38,7 @@ pub mod case;
 pub mod case_id;
 pub mod diagnostic;
 pub mod error;
+pub mod explanation;
 pub mod orchestration;
 pub mod output;
 pub mod storage;
@@ -50,6 +51,12 @@ pub use diagnostic::{
     SuccessRatePrediction,
 };
 pub use error::CaseError;
+pub use explanation::{
+    boot_sector_explanation, mft_corruption_explanation, BusinessExplanation, BITLOCKER_ENCRYPTED,
+    BOOT_SECTOR_DAMAGED, CUSTOMER_DISCLAIMER, DIFFICULTY_CAUTION, DIFFICULTY_EASY, DIFFICULTY_HARD,
+    DIFFICULTY_MEDIUM, DIRTY_BIT_SET, LOGFILE_INCONSISTENT, MFT_CORRUPTION_LIGHT,
+    MFT_CORRUPTION_MODERATE, MFT_CORRUPTION_SEVERE,
+};
 pub use orchestration::{execute_business_recovery, BusinessRecoveryError, BusinessRecoveryResult};
 pub use output::CaseOutput;
 pub use storage::CaseStorage;

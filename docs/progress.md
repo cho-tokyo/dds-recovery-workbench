@@ -4,9 +4,55 @@
 
 ---
 
-## 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 Phase 1.5 拡張 第 4 段階 (前編) 完成 = 業務適用品質マイルストーン到達 — Chunk 24d-4-1 で業務的診断項目の拡充完成 / 診断結果が「営業の見積根拠」として使える業務適用品質に到達 / 「診断結果を見ただけで、営業が見積を作成し、お客様に説明できる」状態に到達 / Dirty Bit / $LogFile / BitLocker / ファイル数推定 / 4 段階難易度 / 復旧成功率予測 (計算根拠付き) の 6 業務指標完成 / 「受注不可」「対応困難」「復旧不可能」等の決めつけ表現を実出力 0 件で完全排除（業務 CRITICAL: Chouさんの設計原則「受注可否はツールが判断しない、人間が判断する」を厳格遵守、機械検証付き）/ 4 段階難易度 = 易/中/難/注意（「注意」は人間判断、「不可」表現は使わない）/ 成功率予測 = 全体% + 優先データ% + 計算根拠 Vec で営業の説明根拠提供 / unsafe 14 ブロック / 約 65 行（Chunk 24d-3 から完全変化なし、CRITICAL）/ 累積テスト 626 件 pass / 0 failed（Chunk 24d-3 592 → +34 件）/ 新規単体 28 件 (要件 18 件を 156% 達成) + 結合 3 件 (要件 2 件を 150% 達成) / DiagnosticInput 後方互換性維持 (新規 6 フィールド全て Option<T> + #[serde(default)]、旧 case.json も None で復元可能) 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯**
+## 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 Phase 1.5 拡張 第 4 段階 (中間) 完成 = 業務適用品質マイルストーン到達 — Chunk 24d-4-1.5 で業務的説明文の追加完成 / 「営業が診断結果を見れば、お客様にそのまま説明できる」状態に到達 / Chouさんの観察「Dirty Bit は何なのか、なぜ立っているか、お客様に説明したい」を実現 / `BusinessExplanation` 構造体 (5 セクション: summary / what_happened / causes / windows_behavior / business_meaning / customer_explanation) + 11 種の static 業務的説明文定数 + `CUSTOMER_DISCLAIMER` 定数完成 / `--verbose` (`-v`) CLI 引数で業務的説明文の選択表示 / CRM 貼り付けテキストに【お客様への説明 (参考)】セクション (異常時のみ) / 「受注不可」「対応困難」「復旧不可能」決めつけ表現を実出力 0 件継続 (機械検証) / お客様向け説明文に MFT / $Volume / VOLUME_INFORMATION 等の技術用語 0 件 (機械検証) / Caution は「業務担当者」「慎重」両方含有で人間判断強調 / builder 文言微調整 (「保証」→「お約束」, 「困難」→「難度が高い」) 妥当判定 / unsafe 14 ブロック / 約 65 行（Chunk 24d-4-1 から完全変化なし、CRITICAL）/ 累積テスト 644 件 pass / 0 failed（Chunk 24d-4-1 626 → +18 件）/ 新規単体 16 件 (要件 12 件を 133% 達成) + 結合 2 件 (要件 100% 達成) / 業務的説明文は `crates/case-manager/src/explanation.rs` 1 ファイル集約で再ビルドのみで業務的調整完結 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯**
 
-### 🎯🎯🎯 Phase 1.5 拡張 第 4 段階 (前編) 完成 = 業務適用品質マイルストーン到達（Chunk 24d-4-1 / 2026-06-04）
+### 🎯🎯🎯 Phase 1.5 拡張 第 4 段階 (中間) 完成 = 業務適用品質マイルストーン到達（Chunk 24d-4-1.5 / 2026-06-04）
+
+Phase 1.5 拡張（壊れた FS の HDD 対応）の Chunk 24d-4 の **中間完成 = 業務適用品質マイルストーン到達**。Chunk 24d-4-1 で「営業の見積根拠として使える業務適用品質」に到達した上に、**業務的説明文（5 セクション × 11 種 + お客様向け説明テンプレート + 免責注釈）の追加**を実現。これにより、**「営業が診断結果を見れば、お客様にそのまま説明できる」業務適用品質**に到達。Chouさんの観察「Dirty Bit は何なのか、なぜ立っているか、お客様に説明したい」に直接応答。残り **Chunk 24d-4-2（営業向け診断書 DOCX）+ Chunk 24d-4-3（実機ドライランとフィードバック反映）** で Phase 1.5 拡張完全完成。
+
+**🎯 業務的価値（業務適用品質マイルストーン、営業 / CS 業務直接利益）**:
+- **「営業が診断結果を見れば、お客様にそのまま説明できる」状態に到達**
+- Chouさんの観察「Dirty Bit は何なのか、なぜ立っているか」に直接応答
+- 5 セクション業務的説明文 = summary / what_happened / causes / windows_behavior / business_meaning / customer_explanation
+- 11 種の static `BusinessExplanation` 定数 = DIRTY_BIT_SET / LOGFILE_INCONSISTENT / BITLOCKER_ENCRYPTED / MFT_CORRUPTION_LIGHT/MODERATE/SEVERE / BOOT_SECTOR_DAMAGED / DIFFICULTY_EASY/MEDIUM/HARD/CAUTION
+- CRM 貼り付けテキストに【お客様への説明 (参考)】セクション (異常時のみ)、各診断項目で異常時のみ `customer_explanation` を表示
+- CLI `--verbose` (-v) 引数で業務的説明文の選択表示（通常モードはヒント表示、`-v` で展開）
+- お客様向け説明文に技術用語 0 件で、CRM コピペで営業がお客様に即提示可能
+
+**🎯 業務 CRITICAL: 業務原則継続維持（Chouさんの設計原則を厳格遵守）**:
+- ソース全体 grep で **「受注不可」「対応困難」「復旧不可能」が実出力 0 件継続**（テスト assert / コメントのメタ参照のみ）
+- お客様向け説明文に **MFT / $Volume / VOLUME_INFORMATION 等の技術用語 0 件**（grep 確認 + 単体テスト `customer_explanation_avoids_technical_jargon` で機械強制）
+- `DIFFICULTY_CAUTION.business_meaning` に **「業務担当者」「慎重」両方含有**（単体テスト `difficulty_caution_emphasizes_human_judgment` で機械強制）
+- 「ファイル管理情報」「起動情報」「BitLocker」「48 桁の回復キー」等の業務用語/固有名詞のみ使用
+- **設計原則「受注可否はツールが判断しない、人間が判断する」を厳格遵守**
+
+**🎯 builder 文言微調整（business 原則） — 妥当判定**:
+- 「保証できません」→「お約束はできません」（法的・契約的ニュアンス回避）
+- 「困難」→「難度が高い」（近接する禁止語「対応困難」を避け、事実報告ニュアンスへ）
+- どちらも業務的に妥当、tester 独立検証で承認
+
+**🎯 業務 CRITICAL: unsafe 14 行で Chunk 24d-4-1 から完全変化なし**:
+- 新規 1 ファイル（`explanation.rs` 495 行）+ 修正 4 ファイルは **すべて unsafe 0 件**（safe Rust のみ）
+- `disk-io/src/physical.rs` 12 ブロック + `recovery/src/timestamps.rs` 2 ブロック = **14 ブロック維持**
+- ソースディスクへの書き込み **0 件継続**
+
+**🎯 設計判断（builder + tester 共に妥当判定）**:
+- **選択肢 C 採用**: `BusinessExplanation` 構造体・11 種定数・各 `impl explanation()` を全て **`dds-case-manager` 側**に配置
+  - 孤児ルール (orphan rule) 違反回避（業務型は case-manager 側にあるため）
+  - Chunk 24d-4-1 の業務指標型配置と整合
+  - `dds-diagnostic → dds-case-manager` 単方向依存維持（循環依存ゼロ、`cargo tree` で実測確認）
+- **`RecoveryDifficulty::explanation()` 全 4 段階 Some**: 型レベルは Some を返し、CRM / CLI 表示側で `Easy → None` フィルタを局所化（業務的に過剰説明を回避）
+- **`BusinessExplanation` は Serialize のみ派生**: `&'static str` フィールドのため Deserialize 不可、static 定数の Serialize は問題なし
+- **業務的更新容易性**: 全 11 種の説明文は `crates/case-manager/src/explanation.rs` の 1 ファイルに集約、文字列リテラルのみ変更で対応可能、再ビルドのみで業務的調整完結
+
+**🎯 関連 PRD / 内部 FR 要件達成**:
+- **FR-DIAG-08 (業務的説明文の提供、本ドキュメント独自分類)** → ✅ 🎯 新規達成
+- **FR-DIAG-09 (お客様への説明テンプレート、本ドキュメント独自分類)** → ✅ 🎯 新規達成
+- **FR-DIAG-10 (免責注釈、本ドキュメント独自分類)** → ✅ 🎯 新規達成
+- NFR-REL-01（ソースデバイス書込禁止）→ ✅ 維持
+- 注: PRD.md の FR-DIAG-04〜10 とは別系統（Phase 2 物理診断スコープ）。本チャンクの業務指標群は本 progress.md 内運用継続
+
+### 🎯🎯🎯 Phase 1.5 拡張 第 4 段階 (前編) 完成 = 業務適用品質マイルストーン到達（Chunk 24d-4-1 / 2026-06-04、Chunk 24d-4-1.5 で更新済）
 
 Phase 1.5 拡張（壊れた FS の HDD 対応）の Chunk 24d-4 の **前編完成 = 業務適用品質マイルストーン到達**。Chunk 24d-3 までで「壊れた HDD から実復旧可能」な状態に到達した上に、**業務的診断項目 6 種（Dirty Bit / $LogFile / BitLocker / ファイル数推定 / 4 段階難易度 / 復旧成功率予測）の拡充**を追加。これにより、**「診断結果を見ただけで、営業が見積を作成し、お客様に説明できる」業務適用品質**に到達。残り **Chunk 24d-4-2（営業向け診断書 DOCX）+ Chunk 24d-4-3（実機ドライランとフィードバック反映）** で Phase 1.5 拡張完全完成。
 
@@ -44,6 +90,236 @@ Phase 1.5 拡張（壊れた FS の HDD 対応）の Chunk 24d-4 の **前編完
 - **FR-DIAG-07 (復旧成功率予測、本ドキュメント独自分類)** → ✅ 🎯 新規達成
 - NFR-REL-01（ソースデバイス書込禁止）→ ✅ 維持
 - 注: PRD.md の FR-DIAG-04〜07 は別定義（FS 識別 / 損傷分類 / 戦略提案 / 診断レポート生成、Phase 2 物理診断スコープ）。本チャンクの FR-DIAG-04〜07 は Phase 1.5 業務適用品質の業務指標群を指し、本 progress.md 内運用
+
+---
+
+## 🎯 Chunk 24d-4-1.5: 業務的説明文の追加 — 完成 🎯（Chunk 24d-4-1.5 / 2026-06-04）
+
+### 🎯 Chunk 24d-4-1.5 ハイライト（Phase 1.5 拡張 第 4 段階 (中間) 完成 = 業務適用品質マイルストーン到達）
+
+**🎯 業務的背景**:
+- Chunk 24d-4-1 で「営業の見積根拠として使える業務適用品質」に到達
+- しかし業務指標 6 種（Dirty Bit / $LogFile / BitLocker / ファイル数推定 / 4 段階難易度 / 復旧成功率予測）は機械的判定結果のみで、お客様への説明文がない
+- Chouさんの観察「Dirty Bit は何なのか、なぜ立っているか、お客様に説明したい」が業務フローの実態
+- 営業がお客様に説明する際の参考情報 (CRM コピペで即活用可能) を提供する核心チャンク
+- Phase 1.5 拡張の業務的価値「営業が診断結果を見れば、お客様にそのまま説明できる」状態を実現する追加チャンク (Chunk 24d-4-1 と 24d-4-2 の中間)
+
+**🎯 設計判断（builder + tester 共に妥当判定）**:
+- **選択肢 C 採用**: `BusinessExplanation` 構造体・11 種定数・各 `impl explanation()` を全て **`dds-case-manager` 側**に配置
+  - 孤児ルール (orphan rule) 違反回避（業務型は case-manager 側にあるため）
+  - Chunk 24d-4-1 の業務指標型配置と整合
+  - `dds-diagnostic → dds-case-manager` 単方向依存維持（循環依存ゼロ、`cargo tree` で実測確認）
+- **`RecoveryDifficulty::explanation()` 全 4 段階 Some**: 型レベルは Some を返し、CRM / CLI 表示側で `Easy → None` フィルタを局所化（業務的に過剰説明を回避）
+- **`BusinessExplanation` は Serialize のみ派生**: `&'static str` フィールドのため Deserialize 不可、static 定数の Serialize は問題なし
+- **仕様書文言の業務原則微調整**: 「保証できません」→「お約束はできません」（法的・契約的ニュアンス回避）/ 「困難」→「難度が高い」（近接する禁止語「対応困難」を避け、事実報告ニュアンスへ）
+
+**🎯 新規ファイル（1、495 行 = 実装 340 + テスト 155）**:
+
+1. **`crates/case-manager/src/explanation.rs`** (495 行)
+   - `BusinessExplanation` 構造体 (5 セクション: summary / what_happened / causes / windows_behavior / business_meaning / customer_explanation)
+   - `CUSTOMER_DISCLAIMER` 定数 (参考情報 / 個別案件 / 法的責任)
+   - 11 種の static 定数: DIRTY_BIT_SET / LOGFILE_INCONSISTENT / BITLOCKER_ENCRYPTED / MFT_CORRUPTION_LIGHT/MODERATE/SEVERE / BOOT_SECTOR_DAMAGED / DIFFICULTY_EASY/MEDIUM/HARD/CAUTION
+   - `format_for_cli(indent)` / `format_for_crm()` メソッド
+   - 各業務指標 enum の `impl explanation() -> Option<&'static BusinessExplanation>`
+   - フリー関数: `mft_corruption_explanation(u32)` / `boot_sector_explanation(bool)`
+
+**🎯 修正ファイル（4）**:
+
+2. **`crates/case-manager/src/lib.rs`** (+10 行): `pub mod explanation` + re-export
+3. **`crates/diagnostic/src/crm_text.rs`** (+68 行): `render_customer_explanations` 関数追加、【お客様への説明 (参考)】セクション（異常時のみ出力、健全時は非出力で後方互換）
+4. **`crates/workbench-dryrun/src/commands/diagnose.rs`** (+93 行): `--verbose` (`-v`) 引数 + `show_business_explanation` 関数 + 単体テスト 1 件（論理 / 物理モード両方で動作）
+5. **`crates/diagnostic/tests/diagnostic_integration.rs`** (+95 行): `make_report_with_anomalies` ヘルパ + 結合テスト 2 件
+
+**🎯 新規 API（dds-case-manager 経由で workspace 全体に公開）**:
+
+- `BusinessExplanation` 構造体（5 セクション）
+- `CUSTOMER_DISCLAIMER` 定数
+- 11 種の static `BusinessExplanation` 定数
+- `DirtyBitStatus::explanation()` / `LogFileStatus::explanation()` / `BitLockerStatus::explanation()` / `RecoveryDifficulty::explanation()`
+- `mft_corruption_explanation(u32) -> Option<&'static BusinessExplanation>`
+- `boot_sector_explanation(bool) -> Option<&'static BusinessExplanation>`
+- `BusinessExplanation::format_for_cli(indent)` / `format_for_crm()`
+
+**🎯 unsafe 統計（業務 CRITICAL、Chunk 24d-4-1 から完全変化なし）**:
+
+| 場所 | unsafe ブロック数 | 用途 |
+|---|---|---|
+| `disk-io/src/physical.rs` | 12 ブロック維持 | Chunk 24d-1 から不変 |
+| `recovery/src/timestamps.rs` | 2 ブロック維持 | Chunk 24a/24c から不変 |
+| 新規 1 ファイル（explanation.rs） | **0 件** 🎯 | safe Rust のみ |
+| 修正 4 ファイル | **0 件** 🎯 | safe Rust のみ |
+| 他全クレート | **0 件維持** | Chunk 24d-4-1 と同じ |
+| **合計** | **14 ブロック / 約 65 行**（Chunk 24d-4-1 から完全変化なし） | CRITICAL |
+
+**🎯 業務 CRITICAL: 受注判断の決めつけ表現排除（業務原則継続、Chouさんの設計原則を厳格遵守）**:
+- ソース全体 grep で **「受注不可」「対応困難」「復旧不可能」が実出力 0 件継続**（テスト assert / コメントのメタ参照のみ）
+- `DIFFICULTY_CAUTION.business_meaning` に **「業務担当者」「慎重」両方含有**（単体テスト `difficulty_caution_emphasizes_human_judgment` で機械強制）
+- **設計原則「受注可否はツールが判断しない、人間が判断する」を厳格遵守**
+
+**🎯 業務 CRITICAL: お客様向け説明文の技術用語排除**:
+- 全 11 種の `customer_explanation` で **MFT / $Volume / VOLUME_INFORMATION 0 件**（grep 確認）
+- 単体テスト `customer_explanation_avoids_technical_jargon` で機械強制
+- 「ファイル管理情報」「起動情報」「BitLocker」「48 桁の回復キー」等の業務用語/固有名詞のみ使用
+
+**🎯 Chouさんの観察への業務的対応 (Dirty Bit, DIRTY_BIT_SET)**:
+- 「Dirty Bit は何なのか、なぜ立っているか」に直接応答
+- **summary**: 「Windows がマウント拒否する原因」と原因連鎖を明示
+- **causes**: 4 原因「電源断 / 不正な取り外し / システムクラッシュ / アプリ強制終了」を網羅
+- **customer_explanation**: 「データ自体は失われていない可能性が高い」と非決めつけ表現
+
+**🎯 CLI `--verbose` (-v) 動作**:
+- `diagnose --help` で `-v, --verbose 業務的説明文 (お客様への説明テンプレート含む) を表示する (Chunk 24d-4-1.5)。` 表示
+- 通常モード: Chunk 24d-4-1 の出力 + 「💡 業務的な詳細説明を表示するには」ヒント
+- `--verbose` モード: 業務説明セクション展開（5 セクション × 異常項目 + 免責注釈）
+- 論理 / 物理モード両方で動作
+
+**🎯 CRM 貼り付けテキストの新機能**:
+- 異常時に【お客様への説明 (参考)】セクション出力
+- 各診断項目で異常時のみ `customer_explanation` を表示
+  - HDD の状態 (Dirty Bit) / ($LogFile) / (BitLocker) / (ファイル管理情報) / (起動情報)
+  - 復旧難易度について (Easy 除外、業務的過剰説明回避)
+- セクション末尾に `CUSTOMER_DISCLAIMER` 1 回
+- 健全時はセクション**非出力**（後方互換）
+
+**🎯 業務的サンプル出力（CRM 貼り付け用テキスト、異常時、`make_report_with_anomalies` 経由）**:
+
+```
+【お客様への説明 (参考)】
+
+■ HDD の状態 (Dirty Bit):
+お客様の HDD は、書き込み中に何らかの理由 (電源断、不正な取り外し等) で処理が中断された状態です。
+Windows はそのままでは安全に開けないと判断していますが、データ自体は失われていない可能性が高く、
+当社の専門ツールで復旧可能です。
+
+■ HDD の状態 ($LogFile):
+お客様の HDD には、書き込み処理の途中で中断された記録が残っています。...
+
+■ HDD の状態 (ファイル管理情報):
+お客様の HDD のファイル管理情報の一部 (少数のファイル分) が破損しています。...
+
+■ 復旧難易度について:
+お客様の HDD には部分的な障害がありますが、データ復旧は十分可能です。...
+
+※ この説明文は参考情報として提供しています。
+※ 個別案件の状況により異なる場合があります。
+※ 法的責任を負うものではありません。
+```
+
+**🎯 テスト統計（tester 独立検証で全項目合格）**:
+
+- 新規単体テスト: **16 件**（要件 12 件を **133% 達成**）
+  - `explanation.rs::tests` 15 件:
+    - `business_explanation_has_all_fields`
+    - `dirty_bit_explanation_mentions_business_meaning`
+    - `customer_explanation_avoids_technical_jargon` (機械強制)
+    - `format_for_cli_includes_disclaimer`
+    - `format_for_crm_includes_customer_explanation_and_disclaimer`
+    - `difficulty_caution_emphasizes_human_judgment` (機械強制)
+    - `bitlocker_explanation_mentions_recovery_key`
+    - `disclaimer_format`
+    - `dirty_bit_clean_returns_no_explanation`
+    - `dirty_bit_set_returns_some_explanation`
+    - `log_file_inconsistent_returns_explanation`
+    - `bitlocker_encrypted_returns_explanation`
+    - `mft_corruption_classification`
+    - `boot_sector_explanation_flag_routing`
+    - `difficulty_returns_explanation`
+  - `diagnose.rs::tests` 1 件: `diagnose_args_verbose_default_is_false`
+- 新規結合テスト: **2 件**（要件 100% 達成）
+  - `crm_text_includes_customer_explanations_when_anomalies`
+  - `crm_text_omits_explanations_when_healthy`
+- workspace 全体: **644 件 pass / 0 failed**（Chunk 24d-4-1 626 → **+18 件で完全一致**）
+- `cargo check --workspace` エラー **0**
+- `cargo clippy --workspace --all-targets -- -D warnings` warning **0**
+- `cargo doc --workspace --no-deps` warning **0**
+- `cargo fmt --all -- --check` clean
+
+**🎯 安全性（CRITICAL、業務要求）**:
+- 非破壊原則継続: ソース HDD への書き込み一切なし（read-only 限定継続）
+- 新規 1 ファイル + 修正 4 ファイル すべて safe Rust（unsafe 0 件）
+- clippy / doc warning **0 件**
+- cargo fmt clean
+- 全公開 type / method / field に日本語 rustdoc
+
+**🎯 業務的な特徴（更新容易性、業務的調整の局所性）**:
+- 全 11 種の説明文は `crates/case-manager/src/explanation.rs` の 1 ファイルに集約
+- Chouさんが業務的に文言を確認・修正したい時、文字列リテラルのみ変更で対応可能
+- コード変更不要、再ビルドのみで業務的調整が完結
+- 営業がお客様に説明する際の参考情報、CRM コピペで即活用可能
+
+**🎯 含まないもの（次の Chunk 24d-4-2 / 24d-4-3 で実施）**:
+- ❌ 営業向け診断書 DOCX（お客様用セクション）→ **Chunk 24d-4-2**
+- ❌ 実機ドライランとフィードバック反映 → **Chunk 24d-4-3**
+- ❌ お客様向け説明文の動的生成（業務担当者によるテンプレート編集 UI）→ 将来（Phase 2 以降）
+
+**🎯 関連 PRD / 内部 FR 要件達成**:
+- **FR-DIAG-08**（業務的説明文の提供、本ドキュメント独自分類）→ ✅ 🎯 新規達成
+- **FR-DIAG-09**（お客様への説明テンプレート、本ドキュメント独自分類）→ ✅ 🎯 新規達成
+- **FR-DIAG-10**（免責注釈、本ドキュメント独自分類）→ ✅ 🎯 新規達成
+- NFR-REL-01（ソースデバイス書込禁止）→ ✅ 維持
+- 注: 本 progress.md 内では FR-DIAG-09〜12 が Chunk 24d-4-1 の業務指標群に割り当て済のため、Chunk 24d-4-1.5 の FR-DIAG-08〜10 は別系統の業務説明文系 FR として運用
+
+**🎯 業務インパクト（業務適用品質マイルストーン到達）**:
+- **「営業が診断結果を見れば、お客様にそのまま説明できる」状態を実現**
+- Chouさんの観察「Dirty Bit は何なのか、なぜ立っているか」に直接応答
+- 5 セクション × 11 種の業務的説明文 + お客様向け説明テンプレート + 免責注釈で営業の説明根拠を完全提供
+- 営業がお客様に「Dirty Bit が立っている」と説明する代わりに、「書き込み中に処理が中断された状態」と説明可能
+- 続く Chunk 24d-4-2（営業向け診断書 DOCX）+ Chunk 24d-4-3（実機ドライランとフィードバック反映）で Phase 1.5 拡張完全完成
+
+### 🎯🎯🎯 Phase 1.5 拡張 第 4 段階 (中間) 完成 = 業務適用品質マイルストーン到達（Chunk 24d-4-1.5 完了時）
+
+```
+🎯🎯🎯 DDS Recovery Workbench - Phase 1.5 拡張 第 4 段階 (中間) 完成 (Chunk 24d-4-1.5) 🎯🎯🎯
+                = 業務適用品質マイルストーン到達 =
+                = 「営業が診断結果を見れば、お客様にそのまま説明できる」=
+  M0 設計確定         100% ✅
+  M1 基盤構築          30% （Phase 1 では基盤として十分機能、Phase 2 で残実装）
+  M2 NTFS リーダα     100% ✅
+  M3 希望突合エンジン  100% ✅
+  M4 復旧 + 品質判定  100% ✅
+  M5 NTFS-α リリース  100% ✅ 業務適用版到達
+  ─────────────────────────────────────────
+  Phase 1.5 (業務統合層) — 🎊 完全完成 🎊
+  Phase 1.5 業務適用品質完成 — 🎯 業界標準品質達成 🎯
+  Chunk 24a         お客様向けレポート簡素化+タイムスタンプ保持 ✅ 完成
+  Chunk 24b         並列化によるパフォーマンス改善 + 進捗表示 ✅ 完成
+  Chunk 24c         タイムスタンプ書き込みの高速化         ✅ 完成
+  ─────────────────────────────────────────
+  Phase 1.5 拡張 (壊れた FS の HDD 対応) — 🎯 第 4 段階 (中間) 完成 = 業務適用品質マイルストーン到達 🎯
+  Chunk 24d-1       物理ディスクアクセス層                 ✅ 完成 🎯 R-STUDIO 並み認識能力の基盤
+  Chunk 24d-2       パーティションテーブル解析 (MBR/GPT)   ✅ 完成 🎯 パーティション粒度判断可能に
+  Chunk 24d-3       NtfsVolume 統合 + --physical 対応     ✅ 完成 🎯 壊れた HDD から実復旧可能に
+  Chunk 24d-4-1     業務的診断項目の拡充                   ✅ 完成 🎯 営業の見積根拠として使える業務適用品質
+  Chunk 24d-4-1.5   業務的説明文の追加                     ✅ 完成 🎯 営業がお客様に説明できる業務適用品質
+  Chunk 24d-4-2     営業向け診断書 DOCX                    ⏳ 次推奨
+  Chunk 24d-4-3     実機ドライランとフィードバック反映     ⏳
+  ─────────────────────────────────────────
+  Chunks 1-24d-4-1.5 完了（サブチャンク含む 36 ドキュメント）
+  workspace total: 644 件 pass / 0 failed（Chunk 24d-4-1 626 → +18 件）
+  unsafe: 14 ブロック / 約 65 行（Chunk 24d-4-1 から完全変化なし、CRITICAL）
+         disk-io/physical.rs 12 + recovery/timestamps.rs 2
+         新規 1 ファイル (explanation.rs) + 修正 4 ファイル すべて safe Rust（unsafe 0 件）
+         他全クレート unsafe 0 件維持
+  非破壊原則: ソースディスクへの書き込み 0 件継続
+  業務 CRITICAL: 「受注不可」「対応困難」「復旧不可能」表現 実出力 0 件継続（機械検証付き）
+                 お客様向け説明文に技術用語 0 件（機械検証）
+                 Caution は「業務担当者」「慎重」両方含有で人間判断強調
+                 「受注可否はツールが判断しない、人間が判断する」原則を厳格遵守
+  業務的説明文: 5 セクション × 11 種 static 定数で集約、再ビルドのみで業務的調整完結
+  CLI: --verbose (-v) で業務的説明文の選択表示
+  CRM: 異常時のみ【お客様への説明 (参考)】セクション出力（健全時は非出力で後方互換）
+  builder 文言微調整: 「保証」→「お約束」, 「困難」→「難度が高い」（業務原則上妥当）
+  clippy 0 件 / doc 0 件 / fmt --check exit 0
+```
+
+### 🎯 Chunk 24d-4-1.5 次のステップ
+
+1. **Chunk 24d-4-2 着手 (次推奨)**: 営業向け診断書 DOCX、お客様用セクション
+   - 業務指標 6 種 + 業務的説明文 11 種を営業向け診断書 DOCX に整形（お客様向けセクション + 社内 CS 向けセクション）
+   - Chunk 20.5 で実装した `render_customer_docx` パターンを参照、診断書版を追加
+   - `BusinessExplanation::format_for_crm()` 等を再利用可能
+2. **Chunk 24d-4-3**: 実機ドライランとフィードバック反映（壊れた FS / マウント不能 HDD の実機検証）
+3. **並行検討可**: Phase 2.1 着手準備（Tauri UI 開発、約 2 ヶ月想定）
 
 ---
 
@@ -5336,6 +5612,35 @@ Deleted recovered:  5 files
   - **DiagnosticInput 後方互換性**: 新規 6 フィールド全て `Option<T>` + `#[serde(default)]`、旧 case.json も `None` で復元可能（テスト `diagnostic_input_legacy_json_without_business_fields_deserializes`）
 
 **※注**: 旧 FR-DIAG-01〜07（デバイス検出 / 情報取得 / PT 解析 / FS 識別 / 損傷分類 / 戦略提案 / 診断レポート生成）は Phase 1.5 で論理診断（NTFS の MFT 解析ベース）へ再定義された。物理診断（デバイス検出 / SMART 等）は Phase 2 で対応予定。Chunk 24d-4-1 の業務指標群はチャンク内では FR-DIAG-04〜07 と呼称されたが、本 progress.md 内では既存 FR-DIAG-04〜08 との衝突回避のため FR-DIAG-09〜12 として識別する（実装内容・業務的価値・チャンク完了判定は同一）。
+
+#### 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 業務適用品質の業務的説明文群（Chunk 24d-4-1.5 / 2026-06-04 / dds-case-manager + dds-diagnostic、本ドキュメント独自分類）
+
+**Phase 1.5 拡張 第 4 段階 (中間) 完成 = 業務適用品質マイルストーン到達**。「営業が診断結果を見れば、お客様にそのまま説明できる」状態を実現。Chouさんの観察「Dirty Bit は何なのか、なぜ立っているか、お客様に説明したい」に直接応答。チャンク内では FR-DIAG-08〜10 と呼称（PRD.md の同番号とは別系統、本 progress.md 内では下記 FR-DIAG-13〜15 として識別）。
+
+- [x] **FR-DIAG-13: 業務的説明文の提供（業務指標、新規）** ✅ **🎯 新規達成**（Chunk 24d-4-1.5 / 2026-06-04 / dds-case-manager + dds-diagnostic、業務原案 FR-DIAG-08）
+  - **`crates/case-manager/src/explanation.rs` 495 行新規（実装 340 + テスト 155）**: `BusinessExplanation` 構造体 (5 セクション: summary / what_happened / causes / windows_behavior / business_meaning / customer_explanation) + 11 種の static 定数 (DIRTY_BIT_SET / LOGFILE_INCONSISTENT / BITLOCKER_ENCRYPTED / MFT_CORRUPTION_LIGHT/MODERATE/SEVERE / BOOT_SECTOR_DAMAGED / DIFFICULTY_EASY/MEDIUM/HARD/CAUTION)
+  - **dds-case-manager**: 各業務指標 enum の `impl explanation() -> Option<&'static BusinessExplanation>` (`DirtyBitStatus` / `LogFileStatus` / `BitLockerStatus` / `RecoveryDifficulty`)、フリー関数 `mft_corruption_explanation(u32)` / `boot_sector_explanation(bool)`
+  - **`BusinessExplanation::format_for_cli(indent)` / `format_for_crm()`**: CLI / CRM 両形式へのフォーマッタ
+  - **業務的意義**: 機械的判定結果のみだった業務指標を「お客様への説明文」付きで提供、営業がお客様に説明する際の参考情報、CRM コピペで即活用可能
+  - **業務的更新容易性**: 全 11 種の説明文は 1 ファイル集約、文字列リテラルのみ変更で対応可能、再ビルドのみで業務的調整完結
+- [x] **FR-DIAG-14: お客様への説明テンプレート（業務指標、新規）** ✅ **🎯 新規達成**（Chunk 24d-4-1.5 / 2026-06-04 / dds-diagnostic、業務原案 FR-DIAG-09）
+  - **`crates/diagnostic/src/crm_text.rs` +68 行**: `render_customer_explanations` 関数追加、【お客様への説明 (参考)】セクション出力（異常時のみ、健全時は非出力で後方互換）
+  - **各診断項目で異常時のみ `customer_explanation` を表示**: HDD の状態 (Dirty Bit) / ($LogFile) / (BitLocker) / (ファイル管理情報) / (起動情報)、復旧難易度について (Easy 除外で業務的過剰説明回避)
+  - **`crates/workbench-dryrun/src/commands/diagnose.rs` +93 行**: `--verbose` (`-v`) CLI 引数 + `show_business_explanation` 関数（論理 / 物理モード両方で動作）、通常モードはヒント表示、`-v` で展開
+  - **業務 CRITICAL: お客様向け説明文の技術用語排除**: 全 11 種の `customer_explanation` で MFT / $Volume / VOLUME_INFORMATION 0 件（grep 確認 + 単体テスト `customer_explanation_avoids_technical_jargon` で機械強制）
+  - **業務的意義**: 営業がお客様に「Dirty Bit が立っている」と説明する代わりに、「書き込み中に処理が中断された状態」と説明可能。Chouさんの観察への直接応答
+- [x] **FR-DIAG-15: 免責注釈（業務指標、新規）** ✅ **🎯 新規達成**（Chunk 24d-4-1.5 / 2026-06-04 / dds-case-manager、業務原案 FR-DIAG-10）
+  - **dds-case-manager**: `CUSTOMER_DISCLAIMER` 定数（参考情報 / 個別案件 / 法的責任の 3 行）
+  - **CRM セクション末尾に 1 回出力**: 「※ この説明文は参考情報として提供しています。/ ※ 個別案件の状況により異なる場合があります。/ ※ 法的責任を負うものではありません。」
+  - **builder 文言微調整（業務原則上妥当）**: 「保証できません」→「お約束はできません」（法的・契約的ニュアンス回避）/ 「困難」→「難度が高い」（近接する禁止語「対応困難」を避け、事実報告ニュアンスへ）
+  - **業務的意義**: 機械的判定の限界を明示、業務原則「ツールは判断しない、人間が判断する」を顧客向け表記でも遵守
+- [x] **業務 CRITICAL: 業務原則継続維持（Chunk 24d-4-1.5）**（2026-06-04 / 全クレート）
+  - **「受注不可」「対応困難」「復旧不可能」表現を実出力 0 件継続**（テスト assert / コメントのメタ参照のみ、ソース全体 grep で機械検証）
+  - **`DIFFICULTY_CAUTION.business_meaning` に「業務担当者」「慎重」両方含有**（単体テスト `difficulty_caution_emphasizes_human_judgment` で機械強制）
+  - **設計原則「受注可否はツールが判断しない、人間が判断する」を厳格遵守**
+  - **unsafe 14 行で Chunk 24d-4-1 から完全変化なし**: 新規 1 ファイル + 修正 4 ファイル すべて safe Rust
+  - **DiagnosticInput 後方互換性継続**: 既存テストと case.json 形式変更なし
+  - **テスト**: 新規単体 16 件 (要件 12 件を 133% 達成) + 結合 2 件 (要件 100% 達成)、workspace 全体 644 件 pass / 0 failed（Chunk 24d-4-1 626 → +18 件で完全一致）
 
 ### ライブモード (FR-LIVE)
 - [x] **FR-LIVE-01: NTFS読み取り** ✅ **API 完成形 ✓ 完全達成 🎉🎉🎉**（Chunk 4-14 / dds-fs-ntfs、書籍突合済み 📕、Chunk 11 で API レベル実用形完成、Chunk 14 で業務統合層 API 完成形到達）
