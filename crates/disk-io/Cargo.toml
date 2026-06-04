@@ -10,6 +10,9 @@ publish = false
 dds-core.workspace = true
 thiserror.workspace = true
 
+# パーティション解析 (GPT UUID 用、Chunk 24d-2)
+uuid.workspace = true
+
 # 物理ドライブの raw アクセス (Chunk 24d-1)。Windows のみで実体を提供する。
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true

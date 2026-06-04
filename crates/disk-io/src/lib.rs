@@ -11,8 +11,12 @@
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
 
+pub mod fs_detection;
+pub mod partition;
 pub mod physical;
 
+pub use fs_detection::{detect_from_boot_sector, FsType};
+pub use partition::{Partition, PartitionError, PartitionType};
 pub use physical::{
     enumerate_physical_drives, BusType, PhysicalDrive, PhysicalDriveError, PhysicalDriveInfo,
 };

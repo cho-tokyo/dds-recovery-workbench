@@ -377,6 +377,18 @@ impl PhysicalDrive {
         buffer.truncate(bytes_read as usize);
         Ok(buffer)
     }
+
+    /// このドライブのパーティション一覧を取得する (Chunk 24d-2)。
+    ///
+    /// MBR / GPT を自動判定して解析する。詳細は
+    /// [`crate::partition::read_partitions`] を参照。
+    ///
+    /// 関連 FR: FR-PHY-04
+    pub fn list_partitions(
+        &self,
+    ) -> Result<Vec<crate::partition::Partition>, crate::partition::PartitionError> {
+        crate::partition::read_partitions(self)
+    }
 }
 
 #[cfg(windows)]
@@ -417,6 +429,15 @@ impl PhysicalDrive {
     /// 非 Windows では常に `Unsupported` を返す。
     pub fn read_at(&self, _offset: u64, _size: usize) -> Result<Vec<u8>, PhysicalDriveError> {
         Err(PhysicalDriveError::Unsupported)
+    }
+
+    /// 非 Windows では常に `Read(Unsupported)` を返す。
+    pub fn list_partitions(
+        &self,
+    ) -> Result<Vec<crate::partition::Partition>, crate::partition::PartitionError> {
+        Err(crate::partition::PartitionError::Read(
+            PhysicalDriveError::Unsupported,
+        ))
     }
 }
 

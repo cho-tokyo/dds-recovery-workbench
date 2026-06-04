@@ -7,7 +7,7 @@
 use anyhow::Result;
 use clap::Args;
 use dds_core::format::format_bytes;
-use dds_disk_io::enumerate_physical_drives;
+use dds_disk_io::{enumerate_physical_drives, PhysicalDrive};
 
 use crate::drives::list_drives;
 
@@ -114,12 +114,43 @@ fn run_physical() -> Result<()> {
             drive.bus_type.display_name(),
             removable_marker
         );
+
+        // パーティション情報を取得して表示 (Chunk 24d-2)
+        match PhysicalDrive::open(&drive.path) {
+            Ok(opened) => match opened.list_partitions() {
+                Ok(partitions) if partitions.is_empty() => {
+                    println!("    └─ パーティション情報を取得できませんでした");
+                }
+                Ok(partitions) => {
+                    for partition in &partitions {
+                        let recoverable_mark = if partition.fs_type.is_recoverable() {
+                            " ★ 復旧対象"
+                        } else {
+                            ""
+                        };
+                        println!(
+                            "    └─ Partition {}: {}, {}, {}{}",
+                            partition.number,
+                            partition.partition_type.display_name(),
+                            format_bytes(partition.size),
+                            partition.fs_type.display_name(),
+                            recoverable_mark,
+                        );
+                    }
+                }
+                Err(e) => {
+                    println!("    └─ パーティション解析エラー: {}", e);
+                }
+            },
+            Err(e) => {
+                println!("    └─ ドライブを再 open できませんでした: {}", e);
+            }
+        }
         println!();
     }
 
     println!("---------------------------------------------");
-    println!("注: パーティション情報は Chunk 24d-2 で追加予定です。");
-    println!("    現状は物理ドライブの一覧のみ表示しています。");
+    println!("注: diagnose --physical / recover --physical は Chunk 24d-3 で追加予定");
 
     Ok(())
 }
