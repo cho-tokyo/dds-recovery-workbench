@@ -8,7 +8,8 @@ use anyhow::{anyhow, Context, Result};
 use clap::Args;
 
 use dds_case_manager::{
-    boot_sector_explanation, mft_corruption_explanation, Case, CaseId, CaseStorage,
+    boot_sector_explanation, generate_business_diagnostic_docx, mft_corruption_explanation, Case,
+    CaseId, CaseStorage,
 };
 use dds_core::format::format_bytes;
 use dds_diagnostic::{DiagnosticEngine, DiagnosticReport};
@@ -348,12 +349,34 @@ fn finalize_diagnose(
     case.diagnostic_input = report.to_diagnostic_input();
     storage.save(case)?;
 
+    // Chunk 24d-4-2: 業務診断書 DOCX を生成 (社内保存のみ)。
+    // 失敗しても診断結果は他レポートで確認可能なので、警告のみ出して継続。
+    let docx_path = storage.business_diagnostic_docx_path(case_id);
+    let docx_generated = match generate_business_diagnostic_docx(case, &docx_path) {
+        Ok(_) => {
+            println!();
+            println!("業務診断書を生成しました:");
+            println!("  {}", docx_path.display());
+            true
+        }
+        Err(e) => {
+            eprintln!();
+            eprintln!("警告: 業務診断書の生成に失敗しました: {}", e);
+            eprintln!("  (診断結果は他のレポートで確認できます)");
+            false
+        }
+    };
+
+    println!();
     println!("保存先:");
     println!(
         "  案件 JSON:      {}",
         storage.case_file_path(case_id).display()
     );
     println!("  CRM 貼り付け用: {}", crm_text_path.display());
+    if docx_generated {
+        println!("  業務診断書:     {}", docx_path.display());
+    }
     println!();
     println!("診断完了。CRM 貼り付けテキストをコピーして CRM に貼り付けてください。");
 

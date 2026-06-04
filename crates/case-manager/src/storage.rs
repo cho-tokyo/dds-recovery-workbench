@@ -57,6 +57,14 @@ impl CaseStorage {
         self.base_dir.join(case_id.as_str())
     }
 
+    /// 業務診断書 DOCX の保存パス (`{case_dir}/業務診断書.docx`) を返す。
+    ///
+    /// Chunk 24d-4-2 で追加。社内保存のみで、お客様への直接納品はしない。
+    /// ファイルは [`crate::generate_business_diagnostic_docx`] で生成する。
+    pub fn business_diagnostic_docx_path(&self, case_id: &CaseId) -> PathBuf {
+        self.case_dir(case_id).join("業務診断書.docx")
+    }
+
     /// 新規案件を作成して `case.json` に保存する。
     ///
     /// # エラー
@@ -278,5 +286,16 @@ mod tests {
             CaseStorage::with_base_dir(PathBuf::from("C:\\definitely-does-not-exist-260522-zz"));
         let list = storage.list_all().unwrap();
         assert!(list.is_empty());
+    }
+
+    #[test]
+    fn business_diagnostic_docx_path_under_case_dir() {
+        // Chunk 24d-4-2: 業務診断書.docx の保存パスは {case_dir}/業務診断書.docx 配下に置く。
+        let (_t, storage) = setup();
+        let id = CaseId::parse("260603-04").unwrap();
+        let path = storage.business_diagnostic_docx_path(&id);
+        let expected = storage.case_dir(&id).join("業務診断書.docx");
+        assert_eq!(path, expected);
+        assert!(path.to_string_lossy().ends_with("業務診断書.docx"));
     }
 }

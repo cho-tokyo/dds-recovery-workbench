@@ -18,9 +18,13 @@ dds-wish-match.workspace = true
 dds-recovery.workspace = true
 dds-report.workspace = true
 dds-fs-ntfs.workspace = true
+# Chunk 24d-4-2: 営業向け診断書 DOCX 生成のため。
+docx-rs.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
 zstd = "0.13"
 # Chunk 24b: perf_demo_chunk24b_recovery_speed でワーカー数表示に使用。
 num_cpus.workspace = true
+# Chunk 24d-4-2: 業務診断書 DOCX のテストで XML を抽出して内容検証するため。
+zip = { version = "0.6", default-features = false, features = ["deflate"] }

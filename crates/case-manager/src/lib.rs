@@ -34,6 +34,7 @@
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
 
+pub mod business_diagnostic_docx;
 pub mod case;
 pub mod case_id;
 pub mod diagnostic;
@@ -43,6 +44,9 @@ pub mod orchestration;
 pub mod output;
 pub mod storage;
 
+pub use business_diagnostic_docx::{
+    generate_business_diagnostic_docx, render_business_diagnostic_docx, BusinessDiagnosticDocxError,
+};
 pub use case::{Case, RecoveryReportSummary};
 pub use case_id::CaseId;
 pub use diagnostic::{

@@ -4,11 +4,294 @@
 
 ---
 
-## 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 Phase 1.5 拡張 第 4 段階 (中間) 完成 = 業務適用品質マイルストーン到達 — Chunk 24d-4-1.5 で業務的説明文の追加完成 / 「営業が診断結果を見れば、お客様にそのまま説明できる」状態に到達 / Chouさんの観察「Dirty Bit は何なのか、なぜ立っているか、お客様に説明したい」を実現 / `BusinessExplanation` 構造体 (5 セクション: summary / what_happened / causes / windows_behavior / business_meaning / customer_explanation) + 11 種の static 業務的説明文定数 + `CUSTOMER_DISCLAIMER` 定数完成 / `--verbose` (`-v`) CLI 引数で業務的説明文の選択表示 / CRM 貼り付けテキストに【お客様への説明 (参考)】セクション (異常時のみ) / 「受注不可」「対応困難」「復旧不可能」決めつけ表現を実出力 0 件継続 (機械検証) / お客様向け説明文に MFT / $Volume / VOLUME_INFORMATION 等の技術用語 0 件 (機械検証) / Caution は「業務担当者」「慎重」両方含有で人間判断強調 / builder 文言微調整 (「保証」→「お約束」, 「困難」→「難度が高い」) 妥当判定 / unsafe 14 ブロック / 約 65 行（Chunk 24d-4-1 から完全変化なし、CRITICAL）/ 累積テスト 644 件 pass / 0 failed（Chunk 24d-4-1 626 → +18 件）/ 新規単体 16 件 (要件 12 件を 133% 達成) + 結合 2 件 (要件 100% 達成) / 業務的説明文は `crates/case-manager/src/explanation.rs` 1 ファイル集約で再ビルドのみで業務的調整完結 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯**
+## 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 Phase 1.5 拡張 第 4 段階 (後編) 完成 = 業務適用品質「文書化」マイルストーン到達 — Chunk 24d-4-2 で営業向け診断書 (DOCX) 生成完成 / 「営業が診断結果を DOCX として保存・印刷・共有できる」状態に到達 / Workbench が「業務的な文書化ツール」として機能 / `render_business_diagnostic_docx(case) -> Vec<u8>` + `generate_business_diagnostic_docx(case, path)` + `CaseStorage::business_diagnostic_docx_path` API 完成 / 業務管理用セクション 4 項目 (FS 基本情報 / Windows マウント状態 / 業務的評価 / 業務的詳細説明 5 セクションフル展開) + お客様用セクション 4 項目 (案件概要 / HDD の状態 / 復旧の見通し / 注意事項) の 2 セクション構造 / お客様用セクションは技術用語ゼロ徹底（見出しレベルで「MFT エントリ破損」→「ファイル管理情報の状態」、「Boot sector」→「HDD の起動情報の状態」） / CUSTOMER_DISCLAIMER 3 要素 (参考情報 / 個別案件 / 法的責任) を機械強制 / Easy はお客様セクションで除外（業務的過剰説明回避）、業務管理用は全 4 段階表示（営業判断材料） / diagnose CLI 実行時に自動生成 + 保存先 CLI 表示 / DOCX 生成失敗 = 警告のみで継続のフェイルセーフ / 「受注不可」「対応困難」「復旧不可能」決めつけ表現 実出力 0 件継続 (機械検証) / 配置変更 (report → case-manager) は循環依存回避の業務的妥当判断 / 独自エラー型 `BusinessDiagnosticDocxError` (thiserror、Io / Serialize) / unsafe 14 ブロック / 約 65 行（Chunk 24d-4-1.5 から完全変化なし、CRITICAL）/ 累積テスト 669 件 pass / 0 failed（Chunk 24d-4-1.5 644 → +25 件）/ 新規単体 20 件 (要件 4 件の 475% 達成) + 結合 5 件 (要件 2 件の 250% 達成) / 関連 FR: FR-DIAG-11 (DOCX 生成) / FR-DIAG-12 (2 セクション構造) 達成 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯**
 
-### 🎯🎯🎯 Phase 1.5 拡張 第 4 段階 (中間) 完成 = 業務適用品質マイルストーン到達（Chunk 24d-4-1.5 / 2026-06-04）
+### 🎯🎯🎯 Phase 1.5 拡張 第 4 段階 (後編) 完成 = 業務適用品質「文書化」マイルストーン到達（Chunk 24d-4-2 / 2026-06-04）
 
-Phase 1.5 拡張（壊れた FS の HDD 対応）の Chunk 24d-4 の **中間完成 = 業務適用品質マイルストーン到達**。Chunk 24d-4-1 で「営業の見積根拠として使える業務適用品質」に到達した上に、**業務的説明文（5 セクション × 11 種 + お客様向け説明テンプレート + 免責注釈）の追加**を実現。これにより、**「営業が診断結果を見れば、お客様にそのまま説明できる」業務適用品質**に到達。Chouさんの観察「Dirty Bit は何なのか、なぜ立っているか、お客様に説明したい」に直接応答。残り **Chunk 24d-4-2（営業向け診断書 DOCX）+ Chunk 24d-4-3（実機ドライランとフィードバック反映）** で Phase 1.5 拡張完全完成。
+Phase 1.5 拡張（壊れた FS の HDD 対応）の Chunk 24d-4 の **後編完成 = 業務適用品質「文書化」マイルストーン到達**。Chunk 24d-4-1 / 24d-4-1.5 で「営業がお客様に説明できる業務適用品質」に到達した上に、**営業向け診断書 DOCX 生成（業務管理用 + お客様用の 2 セクション構造）**を実現。これにより、**「営業が診断結果を DOCX として保存・印刷・共有できる」状態**に到達し、Workbench が「業務的な文書化ツール」として機能。R-STUDIO の代替候補として実用レベルに到達。残り **Chunk 24d-4-3（実機ドライランとフィードバック反映）** で Phase 1.5 拡張完全完成。
+
+**🎯 業務的価値（業務適用品質「文書化」マイルストーン、営業 / CS 業務直接利益）**:
+- **「営業が診断結果を DOCX として保存・印刷・共有できる」状態に到達**
+- **「Workbench が業務的な文書化ツールとして機能」する状態に到達**
+- 口頭説明の業務的な台本としても使用可能（業務管理用セクション = 営業の内部理解、お客様用セクション = 顧客対面時の説明資料）
+- 2 セクション構造（業務管理用 4 項目 + お客様用 4 項目）で表現を明確に分離
+- 業務管理用: 5 セクションフル展開（What/Cause/Windows/Business/Customer）、Easy も含めて全 4 段階表示、フォント 20pt 通常行間
+- お客様用: customer_explanation 1 文のみ、Easy 除外、CUSTOMER_DISCLAIMER 必須付与、フォント 22pt 1.5 倍行間（読みやすさ）
+- diagnose CLI 実行時に **自動生成** + 保存先 CLI 表示で営業 / CS は意識不要
+
+**🎯 業務 CRITICAL: 業務原則継続維持（Chouさんの設計原則を厳格遵守）**:
+- ソース全体 grep で **「受注不可」「対応困難」「復旧不可能」が実出力 0 件継続**（コメント / テスト負条件 / モジュールコメントのメタ参照のみ）
+- 結合テスト `business_docx_customer_section_avoids_technical_jargon` で機械強制
+- **設計原則「受注可否はツールが判断しない、人間が判断する」を厳格遵守**
+
+**🎯 業務 CRITICAL: お客様向け技術用語排除（見出しレベルでも徹底）**:
+- 全 customer_explanation 表示箇所で **MFT / $Volume / VOLUME_INFORMATION 0 件**
+- 見出しレベルでも徹底:
+  - 業務管理用「● MFT エントリ破損について」→ お客様用「● ファイル管理情報の状態について」
+  - 業務管理用「● Boot sector について」→ お客様用「● HDD の起動情報の状態について」
+- 単体テスト `customer_section_avoids_technical_jargon_in_visible_text` で機械強制
+
+**🎯 業務 CRITICAL: 免責注釈（CUSTOMER_DISCLAIMER）**:
+- CUSTOMER_DISCLAIMER の 3 要素（「参考情報」「個別案件」「法的責任」）が DOCX に含まれる
+- お客様用セクション「4. 注意事項」に**必ず**付与
+- 結合テスト `business_docx_includes_disclaimer_in_customer_section` で機械強制
+
+**🎯 業務 CRITICAL: unsafe 14 行で Chunk 24d-4-1.5 から完全変化なし**:
+- 新規 5 ファイル + 修正 4 ファイルは **すべて unsafe 0 件**（safe Rust のみ）
+- `disk-io/src/physical.rs` 12 ブロック + `recovery/src/timestamps.rs` 2 ブロック = **14 ブロック維持**
+- ソースディスクへの書き込み **0 件継続**
+
+**🎯 設計判断（builder + tester 共に妥当判定）**:
+- **配置変更（仕様書 → 実装の業務的妥当性）**: 仕様書 `crates/report/src/business_diagnostic_docx.rs` → 実装 `crates/case-manager/src/business_diagnostic_docx/`
+  - 理由: **循環依存回避**（`dds-case-manager → dds-report` は既存（Chunk 23）、仕様書通り配置すると `dds-report → dds-case-manager` 依存が必要 → 循環依存）
+  - 業務型 (BusinessExplanation / CUSTOMER_DISCLAIMER) も case-manager 配下なので構造的にも自然
+  - `docx-rs` を case-manager に追加するのが最小変更
+- **モジュール 4 分割**: mod.rs (273) + helpers.rs (172) + internal_section.rs (320) + customer_section.rs (287) で関心分離
+- **Easy はお客様セクションで除外**: CRM テキスト方針（Chunk 24d-4-1.5）と整合、業務的過剰説明回避
+- **業務管理用セクションでは Easy も含めて全 4 段階表示**: 営業の判断材料
+- **diagnosed_at フォールバック**: `case.diagnostic_input.diagnosed_at.unwrap_or(case.updated_at)`（手動入力ケースを救済）
+- **DOCX 生成失敗 = 警告のみで継続**: 診断結果は CRM テキスト / case.json で確保、フェイルセーフ
+- **`BusinessDiagnosticDocxError` 独自エラー型**: case-manager 配下のため `ReportError` 再利用不可、thiserror 独自定義
+- **お客様セクションの見出しから「MFT」削除**: 見出しレベルでも技術用語ゼロ徹底
+
+**🎯 関連 PRD / 内部 FR 要件達成**:
+- **FR-DIAG-11 (営業向け診断書 DOCX 生成、本ドキュメント独自分類)** → ✅ 🎯 新規達成
+- **FR-DIAG-12 (業務管理用 + お客様用の 2 セクション構造、本ドキュメント独自分類)** → ✅ 🎯 新規達成
+- NFR-REL-01（ソースデバイス書込禁止）→ ✅ 維持
+- 注: 本 progress.md 内では既に FR-DIAG-11/12 が Chunk 24d-4-1 の業務指標群（ファイル数推定+4段階難易度 / 復旧成功率予測）に割り当て済のため、Chunk 24d-4-2 の FR-DIAG-11/12（DOCX 生成）は別系統の DOCX 文書化系 FR として、下記 FR-DIAG-16/17 として識別し運用
+
+---
+
+## 🎯 Chunk 24d-4-2: 営業向け診断書 (DOCX) 生成 — 完成 🎯（Chunk 24d-4-2 / 2026-06-04）
+
+### 🎯 Chunk 24d-4-2 ハイライト（Phase 1.5 拡張 第 4 段階 (後編) 完成 = 業務適用品質「文書化」マイルストーン到達）
+
+**🎯 業務的背景**:
+- Chunk 24d-4-1.5 で「営業が診断結果を見れば、お客様にそのまま説明できる」業務適用品質に到達
+- しかし出力は CRM 貼り付け用テキスト（プレーンテキスト）のみで、お客様への提示 / 印刷 / 保存に適した文書形式がない
+- 業務フローの実態: 営業がお客様に診断結果を提示する際、DOCX として保存・印刷・添付ファイルとして送付可能であることが業務の継続性に直結
+- Phase 1.5 拡張の業務的価値「営業が診断結果を業務文書として保存・印刷・共有できる」状態を実現する核心チャンク
+
+**🎯 設計判断（builder + tester 共に妥当判定）**:
+- **配置変更（仕様書からの大きな逸脱、循環依存回避のため）**:
+  - 仕様書: `crates/report/src/business_diagnostic_docx.rs`
+  - 実態: `crates/case-manager/src/business_diagnostic_docx/`
+  - 理由: `dds-case-manager → dds-report` は Chunk 23 orchestration.rs で既存、仕様書通り配置すると `dds-report → dds-case-manager` 依存が必要 → 循環依存
+  - 業務型 (BusinessExplanation / CUSTOMER_DISCLAIMER) も case-manager 配下なので構造的にも自然
+  - `docx-rs` を case-manager に追加するのが最小変更
+- **モジュール分割（4 ファイル）**: mod.rs (273): 公開 API + ZIP magic / 両セクション / 健全時テスト / helpers.rs (172): h2/h3/paragraph/table_row/customer_friendly_paragraph 等 / internal_section.rs (320): 業務管理用 4 項目 / customer_section.rs (287): お客様用 4 項目
+- **Easy はお客様セクションで除外**: CRM テキスト方針と整合、業務的過剰説明回避
+- **業務管理用セクションでは Easy も含めて全 4 段階表示**: 営業の判断材料
+- **diagnosed_at フォールバック**: `case.diagnostic_input.diagnosed_at.unwrap_or(case.updated_at)`（手動入力ケースを救済）
+- **DOCX 生成失敗 = 警告のみで継続**: 診断結果は CRM テキスト / case.json で確保、フェイルセーフ
+- **`BusinessDiagnosticDocxError` 独自エラー型**: case-manager 配下のため `ReportError` 再利用不可、thiserror 独自定義（Io / Serialize variant）
+- **お客様セクションの見出しから「MFT」削除**: 見出しレベルでも技術用語ゼロ徹底
+
+**🎯 新規ファイル（5 ファイル、1,231 行）**:
+
+1. **`crates/case-manager/src/business_diagnostic_docx/mod.rs`** (273 行: 実装 95 + テスト 178)
+   - 公開 API: `render_business_diagnostic_docx(case: &Case) -> Result<Vec<u8>, BusinessDiagnosticDocxError>`（バイト列、`render_customer_docx` パターン）
+   - 公開 API: `generate_business_diagnostic_docx(case, output_path) -> Result<(), BusinessDiagnosticDocxError>`（ファイル書き出しヘルパ）
+   - `BusinessDiagnosticDocxError` エラー型（thiserror、Io / Serialize variant）
+   - エントリーポイント + 両セクション組合せ + 単体テスト 19 件（ZIP magic / 案件番号+両セクション / 異常時説明文 / 健全時簡潔 / 免責注釈 / 技術用語排除 / ファイル書出 / フォント / ヘッダ / Dirty Bit 5 セクション / MFT / 計算根拠 / 等）
+2. **`crates/case-manager/src/business_diagnostic_docx/helpers.rs`** (172 行)
+   - 共通ヘルパ: h2/h3/paragraph/table_row/customer_friendly_paragraph 等
+3. **`crates/case-manager/src/business_diagnostic_docx/internal_section.rs`** (320 行)
+   - 業務管理用セクション 4 項目: FS 基本情報 / Windows マウント状態 / 業務的評価 / 業務的詳細説明（異常項目ごとに 5 セクションフル展開）
+4. **`crates/case-manager/src/business_diagnostic_docx/customer_section.rs`** (287 行)
+   - お客様用セクション 4 項目: 案件概要 / HDD の状態 / 復旧の見通し / 注意事項
+5. **`crates/case-manager/tests/business_diagnostic_docx_integration.rs`** (179 行)
+   - 結合テスト 5 件: DOCX 生成 / 両セクション含有 / 免責注釈 / 技術用語排除 / 健全時
+
+**🎯 修正ファイル（4）**:
+
+6. **`crates/case-manager/Cargo.toml`**: `docx-rs.workspace = true` 追加 + dev-deps `zip = { version = "0.6", default-features = false, features = ["deflate"] }` 追加（テスト用 DOCX 内容検証）
+7. **`crates/case-manager/src/lib.rs`**: `pub mod business_diagnostic_docx` + re-export
+8. **`crates/case-manager/src/storage.rs`**: `CaseStorage::business_diagnostic_docx_path(&CaseId) -> PathBuf` メソッド追加 + 単体テスト 1 件（`business_diagnostic_docx_path_under_case_dir`）
+9. **`crates/workbench-dryrun/src/commands/diagnose.rs`**: `finalize_diagnose` で DOCX 自動生成 + CLI 保存先表示、失敗時は `eprintln!` で警告
+
+**🎯 新規 API（dds-case-manager 経由で workspace 全体に公開）**:
+
+- `render_business_diagnostic_docx(case: &Case) -> Result<Vec<u8>, BusinessDiagnosticDocxError>`
+- `generate_business_diagnostic_docx(case, output_path) -> Result<(), BusinessDiagnosticDocxError>`
+- `BusinessDiagnosticDocxError` エラー型（Io / Serialize variant）
+- `CaseStorage::business_diagnostic_docx_path(&CaseId) -> PathBuf`
+
+**🎯 unsafe 統計（業務 CRITICAL、Chunk 24d-4-1.5 から完全変化なし）**:
+
+| 場所 | unsafe ブロック数 | 用途 |
+|---|---|---|
+| `disk-io/src/physical.rs` | 12 ブロック維持 | Chunk 24d-1 から不変 |
+| `recovery/src/timestamps.rs` | 2 ブロック維持 | Chunk 24a/24c から不変 |
+| 新規 5 ファイル（business_diagnostic_docx/ + tests） | **0 件** 🎯 | safe Rust のみ |
+| 修正 4 ファイル | **0 件** 🎯 | safe Rust のみ |
+| 他全クレート | **0 件維持** | Chunk 24d-4-1.5 と同じ |
+| **合計** | **14 ブロック / 約 65 行**（Chunk 24d-4-1.5 から完全変化なし） | CRITICAL |
+
+**🎯 DOCX 構造（業務管理用 + お客様用の 2 セクション）**:
+
+**ヘッダ**: 「業務診断書」(36pt 太字 中央寄せ) + 案件番号 + 診断日時
+
+**業務管理用セクション（4 項目）**:
+1. ファイルシステムの基本情報（FS 種別 / 署名 / MFT 破損数 / 不正 run-list / Boot sector）
+2. Windows のマウント状態（Dirty Bit / $LogFile 整合性 / BitLocker 暗号化）
+3. 業務的な評価（推定ファイル数 / 復旧難易度 / 推定成功率 + 計算根拠）
+4. 業務的な詳細説明（異常項目ごとに 5 セクションフル展開: 何が起きているか / 考えられる原因 / Windows の挙動 / 業務的な意味 / お客様への説明例）
+
+**お客様用セクション（4 項目）**:
+1. 案件概要（定型挨拶 + 案件番号）
+2. HDD の状態について（customer_explanation のみ、技術用語ゼロ、フォント 22pt 1.5 倍行間）
+3. 復旧の見通し（Easy 除外、それ以外は customer_explanation）
+4. 注意事項（CUSTOMER_DISCLAIMER + 「ご不明な点が...」定型句）
+
+**🎯 業務管理用 vs お客様用の表現比較**:
+
+| 観点 | 業務管理用 | お客様用 |
+|---|---|---|
+| 見出し | `● MFT エントリ破損について` | `● ファイル管理情報の状態について` |
+| 見出し | `● Boot sector について` | `● HDD の起動情報の状態について` |
+| 内容 | 5 セクション (What/Cause/Windows/Business/Customer) フル展開 | customer_explanation 1 文のみ |
+| Easy 難易度 | 全段階説明（営業判断材料） | 「標準的な復旧プロセスで対応可能」簡潔のみ |
+| 免責注釈 | なし | CUSTOMER_DISCLAIMER 3 行を末尾に必ず付与 |
+| フォント | 20pt 通常行間 | 22pt 1.5 倍行間（読みやすさ） |
+
+**🎯 CLI 統合**:
+
+diagnose 実行時に自動生成:
+
+```
+業務診断書を生成しました:
+  C:\cases\260603-XX\業務診断書.docx
+
+保存先:
+  案件 JSON:      C:\cases\260603-XX\case.json
+  CRM 貼り付け用: C:\cases\260603-XX\診断結果_CRM貼り付け用.txt
+  業務診断書:     C:\cases\260603-XX\業務診断書.docx
+```
+
+失敗時は `eprintln!` で警告、診断結果は他レポートで確認可能と案内（業務的にロバスト）。
+
+**🎯 業務 CRITICAL: 受注判断の決めつけ表現排除（業務原則継続）**:
+- 「受注不可」「対応困難」「復旧不可能」実出力 0 件
+- コメント / テスト負条件 / モジュールコメントのメタ参照のみ
+- 結合テスト `business_docx_customer_section_avoids_technical_jargon` で機械強制
+
+**🎯 業務 CRITICAL: お客様向け技術用語排除（見出しレベルまで徹底）**:
+- 全 customer_explanation 表示箇所で MFT / $Volume / VOLUME_INFORMATION **0 件**
+- 見出しレベルでも徹底:
+  - 業務管理用「● MFT エントリ破損について」→ お客様用「● ファイル管理情報の状態について」
+  - 業務管理用「● Boot sector について」→ お客様用「● HDD の起動情報の状態について」
+- 単体テスト `customer_section_avoids_technical_jargon_in_visible_text` で機械強制
+
+**🎯 業務 CRITICAL: 免責注釈（CUSTOMER_DISCLAIMER）**:
+- CUSTOMER_DISCLAIMER の 3 要素（「参考情報」「個別案件」「法的責任」）が DOCX に含まれる
+- お客様用セクション「4. 注意事項」に必ず付与
+- 結合テスト `business_docx_includes_disclaimer_in_customer_section` で機械強制
+
+**🎯 テスト統計（tester 独立検証で全項目合格）**:
+
+- 新規単体テスト: **20 件**（要件 4 件の **475% 達成**）
+  - `business_diagnostic_docx` モジュール 19 件: ZIP magic / 案件番号+両セクション / 異常時説明文 / 健全時簡潔 / 免責注釈 / 技術用語排除 / ファイル書出 / フォント / ヘッダ / Dirty Bit 5 セクション / MFT / 計算根拠 / 等
+  - `storage.rs` 1 件: `business_diagnostic_docx_path_under_case_dir`
+- 新規結合テスト: **5 件**（要件 2 件の **250% 達成**）
+  - DOCX 生成 / 両セクション含有 / 免責注釈 / 技術用語排除 / 健全時
+- workspace 全体: **669 件 pass / 0 failed**（Chunk 24d-4-1.5 644 → **+25 件**）
+- `cargo check --workspace` エラー **0**
+- `cargo clippy --workspace --all-targets -- -D warnings` warning **0**
+- `cargo doc --workspace --no-deps` warning **0**
+- `cargo fmt --all -- --check` clean
+
+**🎯 安全性（CRITICAL、業務要求）**:
+- 非破壊原則継続: ソース HDD への書き込み一切なし（read-only 限定継続）
+- 新規 5 ファイル + 修正 4 ファイル すべて safe Rust（unsafe 0 件）
+- clippy / doc warning **0 件**
+- cargo fmt clean
+- 全公開 type / method / field に日本語 rustdoc
+
+**🎯 依存追加**:
+- `crates/case-manager/Cargo.toml` に `docx-rs.workspace = true` 追加
+- dev-deps に `zip = { version = "0.6", default-features = false, features = ["deflate"] }` 追加（テスト用 DOCX 内容検証）
+- workspace deps 流用、新規バージョン宣言なし
+
+**🎯 含まないもの（次の Chunk 24d-4-3 で実施）**:
+- ❌ 実機ドライランとフィードバック反映 → **Chunk 24d-4-3**
+- ❌ DOCX テンプレートのカスタマイズ UI → 将来（Phase 2 以降）
+
+**🎯 関連 PRD / 内部 FR 要件達成**:
+- **FR-DIAG-11**（営業向け診断書 DOCX 生成、本ドキュメント独自分類）→ ✅ 🎯 新規達成（本 progress.md 内では FR-DIAG-16 として識別）
+- **FR-DIAG-12**（業務管理用 + お客様用の 2 セクション構造、本ドキュメント独自分類）→ ✅ 🎯 新規達成（本 progress.md 内では FR-DIAG-17 として識別）
+- NFR-REL-01（ソースデバイス書込禁止）→ ✅ 維持
+- 注: 本 progress.md 内では既に FR-DIAG-11/12 が Chunk 24d-4-1 の業務指標群（ファイル数推定+4段階難易度 / 復旧成功率予測）に割り当て済のため、Chunk 24d-4-2 の FR-DIAG-11/12（DOCX 生成）は別系統の DOCX 文書化系 FR として、下記 FR-DIAG-16/17 として識別し運用
+
+**🎯 業務インパクト（業務適用品質「文書化」マイルストーン到達）**:
+- **「営業が診断結果を DOCX として保存・印刷・共有できる」状態を実現**
+- **「Workbench が業務的な文書化ツール」として機能する状態に到達**
+- R-STUDIO の代替候補として実用レベルに到達
+- 営業がお客様に診断結果を提示する際、DOCX 添付ファイルとして送付可能、印刷して対面説明資料として使用可能
+- 業務管理用セクションは営業の内部理解 / 口頭説明の業務的な台本としても活用可能
+- 続く Chunk 24d-4-3（実機ドライランとフィードバック反映）で Phase 1.5 拡張完全完成
+
+### 🎯🎯🎯 Phase 1.5 拡張 第 4 段階 (後編) 完成 = 業務適用品質「文書化」マイルストーン到達（Chunk 24d-4-2 完了時）
+
+```
+🎯🎯🎯 DDS Recovery Workbench - Phase 1.5 拡張 第 4 段階 (後編) 完成 (Chunk 24d-4-2) 🎯🎯🎯
+                = 業務適用品質「文書化」マイルストーン到達 =
+                = 「営業が診断結果を DOCX として保存・印刷・共有できる」=
+                = Workbench が「業務的な文書化ツール」として機能 =
+  M0 設計確定         100% ✅
+  M1 基盤構築          30% （Phase 1 では基盤として十分機能、Phase 2 で残実装）
+  M2 NTFS リーダα     100% ✅
+  M3 希望突合エンジン  100% ✅
+  M4 復旧 + 品質判定  100% ✅
+  M5 NTFS-α リリース  100% ✅ 業務適用版到達
+  ─────────────────────────────────────────
+  Phase 1.5 (業務統合層) — 🎊 完全完成 🎊
+  Phase 1.5 業務適用品質完成 — 🎯 業界標準品質達成 🎯
+  Chunk 24a         お客様向けレポート簡素化+タイムスタンプ保持 ✅ 完成
+  Chunk 24b         並列化によるパフォーマンス改善 + 進捗表示 ✅ 完成
+  Chunk 24c         タイムスタンプ書き込みの高速化         ✅ 完成
+  ─────────────────────────────────────────
+  Phase 1.5 拡張 (壊れた FS の HDD 対応) — 🎯 第 4 段階 (後編) 完成 = 業務適用品質「文書化」マイルストーン到達 🎯
+  Chunk 24d-1       物理ディスクアクセス層                 ✅ 完成 🎯 R-STUDIO 並み認識能力の基盤
+  Chunk 24d-2       パーティションテーブル解析 (MBR/GPT)   ✅ 完成 🎯 パーティション粒度判断可能に
+  Chunk 24d-3       NtfsVolume 統合 + --physical 対応     ✅ 完成 🎯 壊れた HDD から実復旧可能に
+  Chunk 24d-4-1     業務的診断項目の拡充                   ✅ 完成 🎯 営業の見積根拠として使える業務適用品質
+  Chunk 24d-4-1.5   業務的説明文の追加                     ✅ 完成 🎯 営業がお客様に説明できる業務適用品質
+  Chunk 24d-4-2     営業向け診断書 DOCX                    ✅ 完成 🎯 業務的な文書化ツールとして機能
+  Chunk 24d-4-3     実機ドライランとフィードバック反映     ⏳ 次推奨（Phase 1.5 拡張の最終完成）
+  ─────────────────────────────────────────
+  Chunks 1-24d-4-2 完了（サブチャンク含む 37 ドキュメント）
+  workspace total: 669 件 pass / 0 failed（Chunk 24d-4-1.5 644 → +25 件）
+  unsafe: 14 ブロック / 約 65 行（Chunk 24d-4-1.5 から完全変化なし、CRITICAL）
+         disk-io/physical.rs 12 + recovery/timestamps.rs 2
+         新規 5 ファイル (business_diagnostic_docx/ + tests) + 修正 4 ファイル すべて safe Rust（unsafe 0 件）
+         他全クレート unsafe 0 件維持
+  非破壊原則: ソースディスクへの書き込み 0 件継続
+  業務 CRITICAL: 「受注不可」「対応困難」「復旧不可能」表現 実出力 0 件継続（機械検証付き）
+                 お客様向け技術用語 0 件（見出しレベルまで徹底、機械検証）
+                 CUSTOMER_DISCLAIMER 3 要素必須付与（機械検証）
+                 「受注可否はツールが判断しない、人間が判断する」原則を厳格遵守
+  2 セクション構造: 業務管理用 4 項目（営業の内部理解） + お客様用 4 項目（顧客対面資料）
+  CLI: diagnose 実行時に DOCX 自動生成 + 保存先 CLI 表示
+  フェイルセーフ: DOCX 生成失敗 = 警告のみで継続、診断結果は他レポートで確保
+  配置変更: report → case-manager（循環依存回避の業務的妥当判断）
+  独自エラー型: BusinessDiagnosticDocxError (thiserror、Io / Serialize)
+  clippy 0 件 / doc 0 件 / fmt --check exit 0
+```
+
+### 🎯 Chunk 24d-4-2 次のステップ
+
+1. **Chunk 24d-4-3 着手 (次推奨)**: 実機ドライランとフィードバック反映、Phase 1.5 拡張の最終完成
+   - 壊れた FS / マウント不能 HDD の実機検証
+   - 業務担当者（営業 / CS）からのフィードバック収集
+   - 必要に応じて文言調整 / DOCX レイアウト調整
+2. **並行検討可**: Phase 2.1 着手準備（Tauri UI 開発、約 2 ヶ月想定）
+
+---
+
+### 🎯🎯🎯 Phase 1.5 拡張 第 4 段階 (中間) 完成 = 業務適用品質マイルストーン到達（Chunk 24d-4-1.5 / 2026-06-04、Chunk 24d-4-2 で更新済）
+
+Phase 1.5 拡張（壊れた FS の HDD 対応）の Chunk 24d-4 の **中間完成 = 業務適用品質マイルストーン到達**。Chunk 24d-4-1 で「営業の見積根拠として使える業務適用品質」に到達した上に、**業務的説明文（5 セクション × 11 種 + お客様向け説明テンプレート + 免責注釈）の追加**を実現。これにより、**「営業が診断結果を見れば、お客様にそのまま説明できる」業務適用品質**に到達。Chouさんの観察「Dirty Bit は何なのか、なぜ立っているか、お客様に説明したい」に直接応答。Chunk 24d-4-2 で営業向け診断書 DOCX 生成完成。残り **Chunk 24d-4-3（実機ドライランとフィードバック反映）** で Phase 1.5 拡張完全完成。
 
 **🎯 業務的価値（業務適用品質マイルストーン、営業 / CS 業務直接利益）**:
 - **「営業が診断結果を見れば、お客様にそのまま説明できる」状態に到達**
@@ -5641,6 +5924,34 @@ Deleted recovered:  5 files
   - **unsafe 14 行で Chunk 24d-4-1 から完全変化なし**: 新規 1 ファイル + 修正 4 ファイル すべて safe Rust
   - **DiagnosticInput 後方互換性継続**: 既存テストと case.json 形式変更なし
   - **テスト**: 新規単体 16 件 (要件 12 件を 133% 達成) + 結合 2 件 (要件 100% 達成)、workspace 全体 644 件 pass / 0 failed（Chunk 24d-4-1 626 → +18 件で完全一致）
+
+#### 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 業務適用品質「文書化」の DOCX 文書化群（Chunk 24d-4-2 / 2026-06-04 / dds-case-manager + dds-workbench-dryrun、本ドキュメント独自分類）
+
+**Phase 1.5 拡張 第 4 段階 (後編) 完成 = 業務適用品質「文書化」マイルストーン到達**。「営業が診断結果を DOCX として保存・印刷・共有できる」状態を実現。Workbench が「業務的な文書化ツール」として機能。R-STUDIO の代替候補として実用レベル。チャンク内では FR-DIAG-11〜12 と呼称（PRD.md の同番号とは別系統、本 progress.md 内では既存 FR-DIAG-11〜12 が Chunk 24d-4-1 に割り当て済のため、Chunk 24d-4-2 の業務文書化群は下記 FR-DIAG-16〜17 として識別）。
+
+- [x] **FR-DIAG-16: 営業向け診断書 DOCX 生成（業務文書化、新規）** ✅ **🎯 新規達成**（Chunk 24d-4-2 / 2026-06-04 / dds-case-manager + dds-workbench-dryrun、業務原案 FR-DIAG-11）
+  - **`crates/case-manager/src/business_diagnostic_docx/mod.rs` 273 行新規（実装 95 + テスト 178）**: `render_business_diagnostic_docx(case: &Case) -> Result<Vec<u8>, BusinessDiagnosticDocxError>`（バイト列、`render_customer_docx` パターン）+ `generate_business_diagnostic_docx(case, output_path)`（ファイル書き出しヘルパ）+ `BusinessDiagnosticDocxError` エラー型（thiserror、Io / Serialize variant）
+  - **`crates/case-manager/src/business_diagnostic_docx/helpers.rs` 172 行新規**: 共通ヘルパ (h2/h3/paragraph/table_row/customer_friendly_paragraph 等)
+  - **`crates/case-manager/src/business_diagnostic_docx/internal_section.rs` 320 行新規**: 業務管理用セクション 4 項目（FS 基本情報 / Windows マウント状態 / 業務的評価 / 業務的詳細説明 5 セクションフル展開）
+  - **`crates/case-manager/src/business_diagnostic_docx/customer_section.rs` 287 行新規**: お客様用セクション 4 項目（案件概要 / HDD の状態 / 復旧の見通し / 注意事項）
+  - **`crates/case-manager/src/storage.rs`**: `CaseStorage::business_diagnostic_docx_path(&CaseId) -> PathBuf` メソッド追加 + 単体テスト 1 件
+  - **`crates/workbench-dryrun/src/commands/diagnose.rs`**: `finalize_diagnose` で DOCX 自動生成 + CLI 保存先表示、失敗時は `eprintln!` で警告（フェイルセーフ）
+  - **配置変更（業務的妥当判断）**: 仕様書 `crates/report/src/business_diagnostic_docx.rs` → 実装 `crates/case-manager/src/business_diagnostic_docx/`（理由: 循環依存回避、`dds-case-manager → dds-report` は既存 / 仕様書通り配置すると逆方向依存が必要 → 循環依存）
+  - **依存追加**: `crates/case-manager/Cargo.toml` に `docx-rs.workspace = true` 追加 + dev-deps に `zip = { version = "0.6", default-features = false, features = ["deflate"] }` 追加（テスト用 DOCX 内容検証）
+  - **業務的意義**: 営業がお客様に診断結果を提示する際、DOCX 添付ファイルとして送付可能、印刷して対面説明資料として使用可能、業務管理用セクションは営業の内部理解 / 口頭説明の業務的な台本としても活用可能
+- [x] **FR-DIAG-17: 業務管理用 + お客様用の 2 セクション構造（業務文書化、新規）** ✅ **🎯 新規達成**（Chunk 24d-4-2 / 2026-06-04 / dds-case-manager、業務原案 FR-DIAG-12）
+  - **業務管理用セクション 4 項目**: ① FS 基本情報（FS 種別 / 署名 / MFT 破損数 / 不正 run-list / Boot sector）/ ② Windows マウント状態（Dirty Bit / $LogFile 整合性 / BitLocker 暗号化）/ ③ 業務的評価（推定ファイル数 / 復旧難易度 / 推定成功率 + 計算根拠）/ ④ 業務的詳細説明（異常項目ごとに 5 セクションフル展開: What/Cause/Windows/Business/Customer）、フォント 20pt 通常行間、Easy も含めて全 4 段階表示（営業判断材料）
+  - **お客様用セクション 4 項目**: ① 案件概要（定型挨拶 + 案件番号）/ ② HDD の状態（customer_explanation のみ、技術用語ゼロ）/ ③ 復旧の見通し（Easy 除外）/ ④ 注意事項（CUSTOMER_DISCLAIMER + 「ご不明な点が...」定型句）、フォント 22pt 1.5 倍行間（読みやすさ）
+  - **業務 CRITICAL: お客様向け技術用語排除（見出しレベルまで徹底）**: 全 customer_explanation 表示箇所で MFT / $Volume / VOLUME_INFORMATION **0 件**。見出しレベルでも徹底（業務管理用「● MFT エントリ破損について」→ お客様用「● ファイル管理情報の状態について」、業務管理用「● Boot sector について」→ お客様用「● HDD の起動情報の状態について」）。単体テスト `customer_section_avoids_technical_jargon_in_visible_text` + 結合テスト `business_docx_customer_section_avoids_technical_jargon` で機械強制
+  - **業務 CRITICAL: 免責注釈（CUSTOMER_DISCLAIMER）**: CUSTOMER_DISCLAIMER の 3 要素（「参考情報」「個別案件」「法的責任」）が DOCX に含まれる、お客様用セクション「4. 注意事項」に必ず付与、結合テスト `business_docx_includes_disclaimer_in_customer_section` で機械強制
+  - **業務的意義**: 業務管理用 = 営業の内部理解 / 口頭説明の業務的な台本、お客様用 = 顧客対面時の説明資料、表現を明確に分離して業務適用品質を「文書化」レベルに引き上げ
+- [x] **業務 CRITICAL: 業務原則継続維持（Chunk 24d-4-2）**（2026-06-04 / 全クレート）
+  - **「受注不可」「対応困難」「復旧不可能」表現を実出力 0 件継続**（コメント / テスト負条件 / モジュールコメントのメタ参照のみ、ソース全体 grep で機械検証）
+  - **設計原則「受注可否はツールが判断しない、人間が判断する」を厳格遵守**
+  - **unsafe 14 行で Chunk 24d-4-1.5 から完全変化なし**: 新規 5 ファイル (business_diagnostic_docx/ + tests) + 修正 4 ファイル すべて safe Rust（unsafe 0 件）
+  - **フェイルセーフ設計**: DOCX 生成失敗 = 警告のみで継続、診断結果は CRM テキスト / case.json で確保（業務的にロバスト）
+  - **diagnosed_at フォールバック**: `case.diagnostic_input.diagnosed_at.unwrap_or(case.updated_at)`（手動入力ケースを救済）
+  - **テスト**: 新規単体 20 件 (要件 4 件の 475% 達成) + 結合 5 件 (要件 2 件の 250% 達成)、workspace 全体 669 件 pass / 0 failed（Chunk 24d-4-1.5 644 → +25 件）
 
 ### ライブモード (FR-LIVE)
 - [x] **FR-LIVE-01: NTFS読み取り** ✅ **API 完成形 ✓ 完全達成 🎉🎉🎉**（Chunk 4-14 / dds-fs-ntfs、書籍突合済み 📕、Chunk 11 で API レベル実用形完成、Chunk 14 で業務統合層 API 完成形到達）
