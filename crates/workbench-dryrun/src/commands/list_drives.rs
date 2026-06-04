@@ -7,7 +7,7 @@
 use anyhow::Result;
 use clap::Args;
 use dds_core::format::format_bytes;
-use dds_disk_io::{enumerate_physical_drives, PhysicalDrive};
+use dds_disk_io::{enumerate_physical_drives, FsType, PhysicalDrive};
 
 use crate::drives::list_drives;
 
@@ -150,9 +150,54 @@ fn run_physical() -> Result<()> {
     }
 
     println!("---------------------------------------------");
-    println!("注: diagnose --physical / recover --physical は Chunk 24d-3 で追加予定");
+    println!();
+    println!("使い方:");
+    println!("  診断: workbench-dryrun diagnose --physical N --partition M");
+    println!("  復旧: workbench-dryrun recover --physical N --partition M");
+    println!();
+    println!("例:");
+    let example = find_ntfs_partition_example(&drives);
+    match example {
+        Some((drive_num, part_num)) => {
+            println!(
+                "  workbench-dryrun diagnose --physical {} --partition {}",
+                drive_num, part_num
+            );
+            println!(
+                "  workbench-dryrun recover  --physical {} --partition {}",
+                drive_num, part_num
+            );
+        }
+        None => {
+            println!("  workbench-dryrun diagnose --physical 1 --partition 1");
+            println!("  workbench-dryrun recover  --physical 1 --partition 1");
+        }
+    }
+    println!();
 
     Ok(())
+}
+
+/// 接続中の物理ドライブから「最初に見つかった NTFS パーティション」を例として返す
+/// (Chunk 24d-3 の業務ヒント用)。
+///
+/// パーティション再読み込みのため [`PhysicalDrive::open`] を再実行するが、失敗時は
+/// 単純にスキップしてデフォルト値にフォールバックする。
+fn find_ntfs_partition_example(drives: &[dds_disk_io::PhysicalDriveInfo]) -> Option<(u32, u32)> {
+    for drive_info in drives {
+        let opened = match PhysicalDrive::open(&drive_info.path) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        let partitions = match opened.list_partitions() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        if let Some(part) = partitions.iter().find(|p| p.fs_type == FsType::Ntfs) {
+            return Some((drive_info.drive_number, part.number));
+        }
+    }
+    None
 }
 
 #[cfg(test)]

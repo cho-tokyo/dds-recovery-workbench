@@ -2,37 +2,59 @@
 //!
 //! Chunk 23.6 改訂版: 復旧 PC では「いきなり recover」が標準フロー。
 //! 案件 JSON が無ければ新規作成、既存出力フォルダがあれば確認プロンプトを出す。
+//!
+//! Chunk 24d-3 拡張: `--physical N --partition M` で物理ドライブのパーティションを
+//! 直接復旧可能 (壊れた FS / マウント不能 HDD 対応)。納品先は引き続き論理ドライブ。
 
 use anyhow::{anyhow, Context, Result};
+use clap::Args;
 
-use dds_case_manager::{execute_business_recovery, CaseStorage};
+use dds_case_manager::{execute_business_recovery, CaseId, CaseStorage};
 use dds_core::format::format_bytes;
+use dds_disk_io::{enumerate_physical_drives, FsType, PhysicalDrive, PhysicalPartitionReader};
 use dds_recovery::ConsoleProgressReporter;
 use dds_wish_match::{ExclusionList, Priority, Wish, WishItem, Wishlist};
 
-use crate::drives::list_drives;
+use crate::drives::{list_drives, DriveInfo};
 use crate::prompts::{confirm, prompt_case_id, prompt_number, prompt_string};
-use crate::volume::open_ntfs_volume;
+use crate::volume::{open_ntfs_volume, open_ntfs_volume_from_partition};
+
+/// `recover` サブコマンドの引数 (Chunk 24d-3 で追加)。
+///
+/// 引数なし: 既存の論理ドライブモード (ソースも論理ドライブ)。
+/// `--physical N --partition M`: 物理ドライブのパーティションをソースとして復旧。
+/// 納品先はどちらのモードでも論理ドライブから選ぶ。
+#[derive(Args, Debug, Default)]
+pub struct RecoverArgs {
+    /// 物理ドライブ番号 (例: `1` → `\\.\PhysicalDrive1`)
+    #[arg(long)]
+    pub physical: Option<u32>,
+
+    /// パーティション番号 (1 ベース、`--physical` と共に指定)
+    #[arg(long)]
+    pub partition: Option<u32>,
+}
 
 /// `recover` サブコマンドのエントリーポイント。
 ///
-/// 手順 (Chunk 23.6 改訂版):
-/// 1. 案件番号で `Case` を load。**案件が無ければ新規作成** (復旧 PC 標準フロー)
-/// 2. 既に復旧済みなら 2 回目納品の可能性として警告
-/// 3. ソース HDD / 納品先 HDD を選択 (同一ドライブを禁止)
-/// 4. **納品先に既に案件フォルダがあれば上書き確認**
-/// 5. Wishlist を対話形式または JSON ファイルから取得 (空でも可)
-/// 6. 確認後 `execute_business_recovery` で復旧 + レポート生成
-/// 7. 結果を「全体 / お客様優先データ」二重表示 + `case.json` 保存
-pub fn run() -> Result<()> {
+/// `args.physical` / `args.partition` の組合せで論理 / 物理モードを切替え。
+pub fn run(args: &RecoverArgs) -> Result<()> {
     println!("復旧モード");
     println!("---------------------------------------------");
     println!();
 
+    match (args.physical, args.partition) {
+        (Some(drive_num), Some(part_num)) => recover_physical(drive_num, part_num),
+        (Some(_), None) | (None, Some(_)) => {
+            Err(anyhow!("--physical と --partition は両方指定してください"))
+        }
+        (None, None) => recover_logical(),
+    }
+}
+
+/// 論理ドライブモード (既存挙動を完全に維持)。
+fn recover_logical() -> Result<()> {
     // Step 1: 案件番号入力 + 案件 load または新規作成 (Chunk 23.6 改訂版)。
-    //
-    // 業務フロー上、診断 PC と復旧 PC は別物理 PC で、復旧 PC では診断 PC の
-    // case.json は届かない。「いきなり recover」が標準なので、ここで自動作成する。
     let case_id = prompt_case_id()?;
     let storage = CaseStorage::default_location();
     let case_file = storage.case_file_path(&case_id);
@@ -113,10 +135,7 @@ pub fn run() -> Result<()> {
         ));
     }
 
-    // Step 3: 既存出力フォルダの検出 (Chunk 23.6 改訂版)。
-    //
-    // 同じ案件番号で 2 回目以降の recover や、誤った案件番号入力、前回失敗の残骸を
-    // 検出するためのチェック。技術的な防御は限定的だが、業務的に「気付き」を促す。
+    // Step 3: 既存出力フォルダの検出
     let case_output_root = delivery_drive.mount_point.join(case_id.as_str());
     if case_output_root.exists() {
         println!();
@@ -134,8 +153,7 @@ pub fn run() -> Result<()> {
         }
     }
 
-    // Step 4: Wishlist 入力。Chunk 23.7 以降は「お客様優先データ」のラベリング用
-    //         （空でも全件復旧は実行される）。
+    // Step 4: Wishlist 入力
     let wishlist = prompt_wishlist()?;
     if wishlist.is_empty() {
         println!();
@@ -146,10 +164,9 @@ pub fn run() -> Result<()> {
         }
     }
 
-    // Chunk 23.7: 除外パターンは業務標準のデフォルトを使用。
     let exclusions = ExclusionList::default_system_exclusions();
 
-    // Step 4: 確認
+    // Step 5: 確認
     println!();
     println!("確認:");
     println!("  案件番号:       {}", case_id);
@@ -178,16 +195,13 @@ pub fn run() -> Result<()> {
         return Err(anyhow!("ユーザーキャンセル"));
     }
 
-    // Step 5: 復旧実行
-    // Chunk 24b: 進捗表示 (5 秒おき) + 並列化により処理速度向上。
+    // Step 6: 復旧実行
     println!();
     println!("[復旧開始]");
     println!("  進捗は 5 秒おきに stderr に表示されます。");
     let start = std::time::Instant::now();
 
-    // Chunk 24b: ConsoleProgressReporter を生成。stderr に「N/M ファイル、経過時間、現在パス」を出力。
     let progress = ConsoleProgressReporter::new();
-
     let mut volume = open_ntfs_volume(&source_drive.access_path)?;
     let result = execute_business_recovery(
         &mut case,
@@ -203,13 +217,272 @@ pub fn run() -> Result<()> {
     let elapsed = start.elapsed();
     println!("[復旧完了 - {:.2} 秒]", elapsed.as_secs_f64());
 
-    // Chunk 24b: 速度表示（業務的に「目標 100 MB/s 達成」の検証用）。
     let mb_per_sec = (result.report.total_bytes_written() as f64 / 1_048_576.0)
         / elapsed.as_secs_f64().max(0.001);
     println!("  速度:           {:.1} MB/s", mb_per_sec);
     println!();
 
-    // Step 6: 結果表示。Chunk 24a で「品質保証率」表示削除 (お客様向け簡素化方針)。
+    // Step 7: 結果表示
+    print_recovery_result(&result, &case_id, &delivery_drive, &storage);
+
+    // Step 8: case.json 永続化
+    storage.save(&case)?;
+    println!(
+        "案件情報を保存しました: {}",
+        storage.case_file_path(&case_id).display()
+    );
+
+    Ok(())
+}
+
+/// 物理ドライブモード (Chunk 24d-3 新規)。
+///
+/// ソースは物理ドライブのパーティション、納品先は引き続き論理ドライブ
+/// (USB HDD 等)。`PhysicalPartitionReader` 経由で `NtfsVolume::open` し、
+/// 既存の `execute_business_recovery` パイプラインへそのまま流し込む。
+fn recover_physical(drive_num: u32, part_num: u32) -> Result<()> {
+    println!("物理ドライブモード:");
+    println!(
+        "  ソース: \\\\.\\PhysicalDrive{} Partition {}",
+        drive_num, part_num
+    );
+    println!();
+
+    // Step 1: 案件番号入力 + 案件 load または新規作成
+    let case_id = prompt_case_id()?;
+    let storage = CaseStorage::default_location();
+    let case_file = storage.case_file_path(&case_id);
+
+    let mut case = if case_file.exists() {
+        println!();
+        println!("既存の案件を読み込みます: {}", case_id);
+        storage
+            .load(&case_id)
+            .context("既存 case.json の読み込みに失敗しました")?
+    } else {
+        println!();
+        println!(
+            "案件が見つかりません。新規作成して復旧を進めます: {}",
+            case_id
+        );
+        storage
+            .create_new(case_id.clone())
+            .context("新規案件の作成に失敗しました")?
+    };
+
+    println!();
+
+    // Step 2: ソース (物理パーティション) の確認
+    let drives = enumerate_physical_drives();
+    let drive_info = drives
+        .iter()
+        .find(|d| d.drive_number == drive_num)
+        .ok_or_else(|| {
+            anyhow!(
+                "物理ドライブ {} が見つかりません。\n\
+                 `list-drives --physical` で接続中の物理ドライブを確認してください。",
+                drive_num
+            )
+        })?
+        .clone();
+
+    println!("ソース ドライブ情報:");
+    println!("  パス:      {}", drive_info.path.display());
+    println!("  サイズ:    {}", format_bytes(drive_info.total_bytes));
+    if let Some(vendor) = &drive_info.vendor_id {
+        println!("  Vendor:    {}", vendor);
+    }
+    if let Some(product) = &drive_info.product_id {
+        println!("  Product:   {}", product);
+    }
+
+    let drive = PhysicalDrive::open(&drive_info.path)
+        .with_context(|| format!("物理ドライブ {} を open できません", drive_num))?;
+    let partitions = drive
+        .list_partitions()
+        .context("パーティション情報を取得できません")?;
+
+    let partition = partitions
+        .iter()
+        .find(|p| p.number == part_num)
+        .ok_or_else(|| {
+            let available = partitions
+                .iter()
+                .map(|p| p.number.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            anyhow!(
+                "パーティション {} が見つかりません。利用可能: {}",
+                part_num,
+                available
+            )
+        })?
+        .clone();
+
+    println!(
+        "  パーティション: {} ({}, {})",
+        partition.number,
+        partition.fs_type.display_name(),
+        format_bytes(partition.size),
+    );
+    println!();
+
+    if partition.fs_type != FsType::Ntfs {
+        return Err(anyhow!(
+            "パーティション {} は {} です。\n\
+             Phase 1.5 では NTFS のみ復旧可能です。",
+            part_num,
+            partition.fs_type.display_name()
+        ));
+    }
+
+    // Step 3: 納品先 HDD 選択 (論理ドライブ)
+    println!("納品先の論理ドライブを選択してください:");
+    let logical_drives: Vec<_> = list_drives()
+        .into_iter()
+        .filter(|d| !d.is_system_drive())
+        .collect();
+
+    if logical_drives.is_empty() {
+        return Err(anyhow!(
+            "納品先となる論理ドライブが見つかりません。\n\
+             別の USB HDD を接続してください。"
+        ));
+    }
+
+    for (i, ld) in logical_drives.iter().enumerate() {
+        println!(
+            "  [{}] {} ({}, {})",
+            i + 1,
+            ld.drive_letter,
+            ld.label,
+            format_bytes(ld.total_bytes)
+        );
+    }
+    println!();
+
+    let dst_sel = prompt_number("納品先 HDD を選択", 1, logical_drives.len())?;
+    let delivery_drive = logical_drives[dst_sel - 1].clone();
+
+    println!();
+
+    // Step 4: 既存出力検出
+    let case_output_root = delivery_drive.mount_point.join(case_id.as_str());
+    if case_output_root.exists() {
+        println!("[注意] 納品先に既にこの案件のフォルダが存在します:");
+        println!("    {}", case_output_root.display());
+        if !confirm("続行しますか?")? {
+            return Err(anyhow!("ユーザーキャンセル"));
+        }
+    }
+
+    // Step 5: Wishlist 作成
+    println!();
+    let wishlist = prompt_wishlist()?;
+    if wishlist.is_empty() {
+        println!();
+        println!("[注意] Wishlist が空ですが、全 user file を復旧します（R-STUDIO 風）。");
+        if !confirm("Wishlist 空のまま続行しますか?")? {
+            return Err(anyhow!("ユーザーキャンセル"));
+        }
+    }
+    let exclusions = ExclusionList::default_system_exclusions();
+
+    // Step 6: 確認
+    println!();
+    println!("確認:");
+    println!("  案件番号:       {}", case_id);
+    println!(
+        "  ソース (物理):  \\\\.\\PhysicalDrive{} Partition {}",
+        drive_num, part_num
+    );
+    println!("    {}", drive_info.path.display());
+    println!(
+        "    FS: {} ({})",
+        partition.fs_type.display_name(),
+        format_bytes(partition.size)
+    );
+    println!(
+        "  納品先:         {} ({})",
+        delivery_drive.drive_letter, delivery_drive.label
+    );
+    println!();
+    println!("  Wishlist:       {} 項目", wishlist.len());
+    println!("  除外:           システムファイル (デフォルト)");
+    println!();
+    println!("出力先: {}\\", case_output_root.display());
+    println!();
+
+    if !confirm("復旧を開始しますか?")? {
+        return Err(anyhow!("ユーザーキャンセル"));
+    }
+
+    // Step 7: 物理パーティションから NtfsVolume を open
+    println!();
+    println!("[NTFS ボリュームを open しています...]");
+    let drive_for_reader =
+        PhysicalDrive::open(&drive_info.path).context("物理ドライブの再 open に失敗しました")?;
+    let partition_reader =
+        PhysicalPartitionReader::new(drive_for_reader, partition.start_offset, partition.size);
+    let mut volume = open_ntfs_volume_from_partition(partition_reader).map_err(|e| {
+        anyhow!(
+            "NTFS ボリュームを open できませんでした。\n\
+             原因: {:#}\n\
+             \n\
+             推奨対応:\n\
+             \u{3000}1. パーティションが本当に NTFS か確認 (`list-drives --physical`)\n\
+             \u{3000}2. 別ツール (R-STUDIO 等) の使用を検討",
+            e
+        )
+    })?;
+    println!("NTFS ボリューム open 成功");
+    println!();
+
+    // Step 8: 復旧実行
+    println!("[復旧開始]");
+    println!("  進捗は 5 秒おきに stderr に表示されます。");
+    let start = std::time::Instant::now();
+
+    let progress = ConsoleProgressReporter::new();
+    let result = execute_business_recovery(
+        &mut case,
+        delivery_drive.mount_point.clone(),
+        &mut volume,
+        &wishlist,
+        &exclusions,
+        &storage,
+        &progress,
+    )
+    .context("復旧の実行に失敗しました")?;
+
+    let elapsed = start.elapsed();
+    println!("[復旧完了 - {:.2} 秒]", elapsed.as_secs_f64());
+
+    let mb_per_sec = (result.report.total_bytes_written() as f64 / 1_048_576.0)
+        / elapsed.as_secs_f64().max(0.001);
+    println!("  速度:           {:.1} MB/s", mb_per_sec);
+    println!();
+
+    // Step 9: 結果表示
+    print_recovery_result(&result, &case_id, &delivery_drive, &storage);
+
+    // Step 10: case.json 永続化
+    storage.save(&case)?;
+    println!(
+        "案件情報を保存しました: {}",
+        storage.case_file_path(&case_id).display()
+    );
+
+    Ok(())
+}
+
+/// 復旧結果のサマリを表示する共通処理 (Chunk 24d-3 でモード共通化)。
+fn print_recovery_result(
+    result: &dds_case_manager::BusinessRecoveryResult,
+    case_id: &CaseId,
+    delivery_drive: &DriveInfo,
+    storage: &CaseStorage,
+) {
     println!("結果 (全体):");
     println!("  該当ファイル:   {} 件", result.report.total_matched);
     println!(
@@ -232,7 +505,6 @@ pub fn run() -> Result<()> {
         println!();
     }
 
-    // Chunk 24a: 生成物を「納品 HDD」「社内保存」の 2 系統に分けて表示。
     println!("生成ファイル:");
     println!("  納品 HDD ({}):", result.case_output.root().display());
     println!("    └─ 復旧データ/");
@@ -247,16 +519,8 @@ pub fn run() -> Result<()> {
     println!("  社内保存 ({}):", storage.base_dir().display());
     println!("    └─ {}/業務管理レポート.html", case_id.as_str());
     println!("    └─ {}/復旧詳細.csv (UTF-8 BOM 付き)", case_id.as_str());
+    let _ = delivery_drive; // 表示は case_output に集約。引数は将来拡張用。
     println!();
-
-    // Step 7: case.json 永続化
-    storage.save(&case)?;
-    println!(
-        "案件情報を保存しました: {}",
-        storage.case_file_path(&case_id).display()
-    );
-
-    Ok(())
 }
 
 /// Wishlist の入力方法を選択し、`Wishlist` を返す。
@@ -275,8 +539,6 @@ fn prompt_wishlist() -> Result<Wishlist> {
 }
 
 /// 対話形式で `Wishlist` を組み立てる。空ラベルで終了。
-///
-/// 拡張子ベース (`WishItem::Extension`) のみサポート。フル機能は Phase 2.1 UI で。
 fn prompt_interactive_wishlist() -> Result<Wishlist> {
     println!();
     println!(
@@ -334,9 +596,7 @@ mod tests {
     use dds_case_manager::{CaseId, CaseStorage};
     use tempfile::TempDir;
 
-    /// Chunk 23.6 改訂版: 案件 JSON 不在時に新規作成できる挙動の単体保証。
-    /// 復旧 PC では「いきなり recover」が標準なので、`run()` の `create_new` パスが
-    /// 動くことを `CaseStorage` 側から確認する (実 prompt はモックしない)。
+    /// Chunk 23.6: 案件 JSON 不在時に新規作成できる挙動の単体保証。
     #[test]
     fn recover_creates_new_case_when_not_exists() {
         let temp = TempDir::new().unwrap();
@@ -351,7 +611,7 @@ mod tests {
         assert!(storage.case_file_path(&case_id).exists());
     }
 
-    /// 既存案件は `load` で読み込めることの確認。`run()` の `load` パス用。
+    /// 既存案件は `load` で読み込めることの確認。
     #[test]
     fn recover_loads_existing_case_when_present() {
         let temp = TempDir::new().unwrap();
@@ -365,18 +625,15 @@ mod tests {
         assert_eq!(loaded.case_id, case_id);
     }
 
-    /// 既存出力フォルダ検出ロジックの単体保証 (実 prompt はモックしない)。
-    /// `delivery_drive.mount_point.join(case_id.as_str()).exists()` で判定可能なこと。
+    /// 既存出力フォルダ検出ロジックの単体保証。
     #[test]
     fn existing_output_directory_detection_logic() {
         let temp = TempDir::new().unwrap();
         let case_id = CaseId::parse("260522-04").unwrap();
         let case_output_root = temp.path().join(case_id.as_str());
 
-        // 不在状態
         assert!(!case_output_root.exists());
 
-        // 既存ディレクトリ作成 → 検出される
         std::fs::create_dir_all(&case_output_root).unwrap();
         assert!(case_output_root.exists());
         assert!(case_output_root.is_dir());
@@ -405,5 +662,37 @@ mod tests {
         assert_eq!(parse_priority("CRITICAL"), Priority::Critical);
         assert_eq!(parse_priority("Normal"), Priority::Normal);
         assert_eq!(parse_priority("LOW"), Priority::Low);
+    }
+
+    /// Chunk 24d-3: `--physical` のみ指定するとエラー。
+    #[test]
+    fn recover_args_physical_requires_partition() {
+        let args = RecoverArgs {
+            physical: Some(1),
+            partition: None,
+        };
+        let err = run(&args).expect_err("--physical のみはエラーになるべき");
+        let msg = format!("{:#}", err);
+        assert!(msg.contains("--partition"), "msg={}", msg);
+    }
+
+    /// Chunk 24d-3: `--partition` のみ指定するとエラー。
+    #[test]
+    fn recover_args_partition_requires_physical() {
+        let args = RecoverArgs {
+            physical: None,
+            partition: Some(2),
+        };
+        let err = run(&args).expect_err("--partition のみはエラーになるべき");
+        let msg = format!("{:#}", err);
+        assert!(msg.contains("--physical"), "msg={}", msg);
+    }
+
+    /// Chunk 24d-3: 引数なしは論理モード (フィールドはすべて `None`)。
+    #[test]
+    fn recover_args_default_is_logical_mode() {
+        let args = RecoverArgs::default();
+        assert!(args.physical.is_none());
+        assert!(args.partition.is_none());
     }
 }

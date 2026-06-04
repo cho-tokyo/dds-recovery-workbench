@@ -14,12 +14,14 @@
 pub mod fs_detection;
 pub mod partition;
 pub mod physical;
+pub mod physical_partition;
 
 pub use fs_detection::{detect_from_boot_sector, FsType};
 pub use partition::{Partition, PartitionError, PartitionType};
 pub use physical::{
     enumerate_physical_drives, BusType, PhysicalDrive, PhysicalDriveError, PhysicalDriveInfo,
 };
+pub use physical_partition::PhysicalPartitionReader;
 
 use dds_core::{CoreError, CoreResult};
 use std::fs::{File, OpenOptions};

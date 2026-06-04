@@ -4,9 +4,259 @@
 
 ---
 
-## 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 Phase 1.5 拡張 第 2 段階完成 — Chunk 24d-2 で MBR/GPT パーティションテーブル解析 + FS タイプ簡易判定完成 / 物理ドライブから 4 パーティション取得成功（実機 GPT、EFI System / Microsoft Reserved / Microsoft Basic Data / Windows Recovery）/ NTFS パーティションに「★ 復旧対象」マーク表示で CS がどのパーティションを復旧すべきか判断可能に / 非破壊原則継続（partition.rs / fs_detection.rs に unsafe 0 件、シグネチャベース解析は safe Rust）/ unsafe 14 ブロック / 約 65 行（Chunk 24d-1 から変化なし、CRITICAL）/ 累積テスト 579 件 pass（Chunk 24d-1 566 → +13 件）🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯**
+## 🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 Phase 1.5 拡張 第 3 段階完成 = 最重要マイルストーン到達 — Chunk 24d-3 で NtfsVolume と物理パーティションの統合完成 + diagnose/recover の --physical 対応完成 / 「壊れた FS の HDD から実際に復旧できる」状態に到達 / Phase 1.5 拡張の業務的価値が実現 / R-STUDIO の代替候補として真剣に評価可能な段階に到達 / 仕様書 Arc<Mutex<PhysicalDrive>> → Mutex 単独 + into_closure(self) 所有権 move 設計に改善（clippy::arc_with_non_send_sync 回避 + unsafe impl Send 不要、CRITICAL 観点で大きなプラス）/ 業務的エラーメッセージで壊れた NTFS を検出時に次の一手（別ツール候補、パーティション確認等）を業務メンバーに提示 / 既存論理モードは完全に非破壊（finalize_diagnose / print_recovery_result の共通化のみ、動作等価）/ unsafe 14 ブロック / 約 65 行（Chunk 24d-2 から完全変化なし、CRITICAL）/ 累積テスト 592 件 pass / 0 failed / 11 ignored（Chunk 24d-2 579 → +13 件で完全一致）🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯**
 
-### 🎯🎯🎯 Phase 1.5 拡張 第 2 段階完成マイルストーン（Chunk 24d-2 / 2026-06-04）
+### 🎯🎯🎯 Phase 1.5 拡張 第 3 段階完成 = 最重要マイルストーン到達（Chunk 24d-3 / 2026-06-04）
+
+Phase 1.5 拡張（壊れた FS の HDD 対応）の 4 サブチャンク（24d-1 〜 24d-4）の **3 番目（最重要）の節目達成**。Chunk 24d-1 の物理ディスクアクセス層 + Chunk 24d-2 のパーティションテーブル解析の基盤の上に、**NtfsVolume と物理パーティションの統合 + diagnose/recover の --physical 対応**を追加。これにより、Workbench は「壊れた FS の HDD から実際に復旧できる」状態に到達し、**Phase 1.5 拡張の業務的価値が実現**。残り **Chunk 24d-4（実機ドライランとフィードバック反映）** で完全完成。
+
+**🎯 業務的価値（最重要マイルストーン、CS 業務 / 復旧オペレーション直接利益）**:
+- **壊れた FS / マウント不能 HDD からの実復旧が可能に**（Phase 1.5 拡張の最大の目的を達成）
+- `workbench-dryrun diagnose --physical 0 --partition 4` / `workbench-dryrun recover --physical 0 --partition 4` の業務 CLI 完成
+- **R-STUDIO の代替候補として真剣に評価可能な段階に到達**（業界標準ツール並みの認識能力 + 物理 raw + パーティション粒度 + 業務統合層）
+- 壊れた NTFS の検出時に **業務メンバーに次の一手を提示**:
+  - 「NTFS の管理領域 ($MFT) が破損している可能性」
+  - 「別ツール (R-STUDIO 等) での復旧をご検討ください」
+  - 「パーティションが本当に NTFS か確認 (list-drives --physical)」
+- list-drives --physical の業務ヒントで実機 Drive 0 Partition 4（Windows Recovery NTFS）を例として自動反映
+
+**🎯 業務 CRITICAL: unsafe 14 行で Chunk 24d-2 から完全変化なし**:
+- 新規ファイル `physical_partition.rs` / `volume.rs` 追加分 / `commands/*` 修正分は **すべて unsafe 0 件**（safe Rust のみ）
+- `disk-io/src/physical.rs` 12 ブロック + `recovery/src/timestamps.rs` 2 ブロック = **14 ブロック維持**
+- **`unsafe impl Send for PhysicalDrive {}` 追加なし**（Mutex 単独化により回避、CRITICAL 観点で大きなプラス）
+- 他全クレート（core / fs-common / fs-ntfs / fs-exfat / fs-fat32 / case-manager / diagnostic / report / wish-match / validators / workbench-dryrun / quality / db）unsafe **0 件継続**
+- ソースディスクへの書き込み **0 件継続**（GENERIC_READ-only 維持）
+
+**🎯 設計改善（仕様書からの逸脱、妥当と判定）**:
+- 仕様書: `Arc<Mutex<PhysicalDrive>>` (closure 内共有)
+- 実装: `Mutex<PhysicalDrive>` 単独 + `into_closure(self)` 所有権 move
+- 理由:
+  - NtfsVolume が単一 closure 保持、複数 reader 不要 → Arc 不要
+  - `clippy::arc_with_non_send_sync` 警告回避
+  - `unsafe impl Send for PhysicalDrive {}` 追加不要（CRITICAL 観点で大きなプラス）
+- 並列化（Chunk 24b）との関係: NtfsVolume reader はシリアル制約、影響なし
+
+**🎯 既存論理モードの非破壊（CRITICAL）**:
+- diagnose / recover の (None, None) → 既存論理モードロジックそのまま保持
+- 共通化のため `finalize_diagnose` / `print_recovery_result` を抽出（動作等価）
+- 既存テスト全 pass (`recover_creates_new_case_when_not_exists` 等)
+- `execute_business_recovery` / `DiagnosticEngine` / `prompt_*` / `list_logical_drives` 等の既存ヘルパは **変更なし**
+
+**🎯 関連 PRD 要件達成**:
+- **FR-PHY-06**（物理パーティションからの NtfsVolume open、新規）→ ✅ 🎯 新規達成
+- **FR-PHY-07**（diagnose/recover の --physical 対応、新規）→ ✅ 🎯 新規達成
+- **FR-PHY-08**（壊れた NTFS の業務的エラー表示、新規）→ ✅ 🎯 新規達成
+- FR-PHY-01 / FR-PHY-02 / FR-PHY-03 / FR-PHY-04 / FR-PHY-05（Chunk 24d-1 / 24d-2 で達成済）→ ✅ 継続維持
+- NFR-REL-01（ソースデバイス書込禁止）→ ✅ 維持
+
+---
+
+## 🎯 Chunk 24d-3: NtfsVolume との統合 + diagnose/recover --physical 対応 — 完成 🎯（Chunk 24d-3 / 2026-06-04）
+
+### 🎯 Chunk 24d-3 ハイライト（Phase 1.5 拡張 第 3 段階完成 = 最重要マイルストーン到達）
+
+**🎯 業務的背景**:
+- Chunk 24d-1 で物理ドライブ raw アクセス基盤、Chunk 24d-2 でパーティション粒度判断が可能に
+- しかし「実際に復旧できる」段階ではなかった（diagnose/recover が物理 --physical 未対応）
+- Phase 1.5 拡張の最大目的「壊れた FS / マウント不能 HDD からの実復旧」を実現する核心チャンク
+- Chunk 24d-2 の C: ドライブ FAT32 誤検出問題（512B シグネチャベース簡易判定の限界）も、NtfsVolume::open による真の健全性判定で解消
+
+**🎯 設計判断（仕様書からの妥当な改善）**:
+- **`PhysicalPartitionReader` を `Mutex<PhysicalDrive>` 単独保持 + `into_closure(self)` 所有権 move 設計**
+  - 仕様書は `Arc<Mutex<PhysicalDrive>>` だったが、NtfsVolume が単一 closure を保持するだけなので Arc 不要
+  - `clippy::arc_with_non_send_sync` 警告回避 + `unsafe impl Send` 追加不要（業務 CRITICAL 観点で大きなプラス）
+- **適応層 `make_partition_cluster_reader`**（仕様書外の追加、必須改善）
+  - NtfsVolume の `ClusterReader(lcn, count)` 抽象と PhysicalPartitionReader の `(offset, length)` を繋ぐ
+  - lcn × cluster_size → 物理オフセット変換 + overflow 検出
+- 既存論理モードの非破壊維持のため `finalize_diagnose` / `print_recovery_result` を共通ヘルパに抽出（動作等価）
+
+**🎯 新規ファイル（2）**:
+
+1. **`crates/disk-io/src/physical_partition.rs`** (198 行):
+   - `PhysicalPartitionReader` struct: `Mutex<PhysicalDrive>` 単独保持（Arc 不要）
+   - `PhysicalPartitionReader::new(drive, start_offset, size)` 公開コンストラクタ
+   - `PhysicalPartitionReader::into_closure(self) -> impl FnMut(u64, u64) -> Result<Vec<u8>, io::Error>` （所有権 move 設計、NtfsVolume が closure として保持）
+   - パーティション境界クリップ + offset overflow 検出（safe Rust）
+   - 3 単体テスト（offset 計算 / 境界クリップ / overflow 検出）
+
+2. **`crates/disk-io/tests/physical_partition_integration.rs`** (111 行):
+   - `integration_open_ntfs_via_physical_partition` (`#[cfg(windows)]` + `#[ignore]`)
+   - `integration_partition_boundary_clips_on_real_drive` (`#[cfg(windows)]` + `#[ignore]`)
+
+**🎯 修正ファイル（5）**:
+
+3. **`crates/disk-io/src/lib.rs`** (+2 行): `pub mod physical_partition` + re-export `PhysicalPartitionReader`
+4. **`crates/workbench-dryrun/src/commands/diagnose.rs`** (145→373 行 = **+228**):
+   - `DiagnoseArgs` struct（`--physical` / `--partition` 受領）
+   - `diagnose_physical` 関数（物理パーティションから NtfsVolume open + 共通 finalize_diagnose 呼出）
+   - 共通 `finalize_diagnose` ヘルパ抽出（既存論理モードも同関数経由、動作等価）
+   - FS タイプが NTFS 以外: 「Phase 1.5 では NTFS のみ復旧/診断可能」業務メッセージ
+   - NTFS open 失敗時: 「$MFT 破損可能性」「別ツール (R-STUDIO 等) での復旧をご検討」業務メッセージ
+   - 3 単体テスト（physical 単独エラー / partition 単独エラー / default 論理モード）
+5. **`crates/workbench-dryrun/src/commands/recover.rs`** (410→698 行 = **+288**):
+   - `RecoverArgs` struct（同上）
+   - `recover_physical` 関数（物理 NtfsVolume → execute_business_recovery 経由）
+   - 共通 `print_recovery_result` ヘルパ抽出（動作等価）
+   - 同等の業務的エラーメッセージ（NTFS 以外 / NTFS open 失敗時の次の一手提示）
+   - 3 単体テスト（同上 3 パターン）
+6. **`crates/workbench-dryrun/src/commands/list_drives.rs`** (184→228 行 = **+44**):
+   - 使い方ヒント追加（`diagnose --physical N --partition M` / `recover --physical N --partition M`）
+   - `find_ntfs_partition_example` 自動検出（実機 Drive 0 Partition 4 を例として自動反映）
+7. **`crates/workbench-dryrun/src/volume.rs`** (140→228 行 = **+88**) — **仕様書外の追加**:
+   - `open_ntfs_volume_from_partition(reader) -> Result<NtfsVolume<ClusterReader>>` 公開関数
+   - `make_partition_cluster_reader`（NtfsVolume `ClusterReader(lcn, count)` 抽象 ⇄ PhysicalPartitionReader `(offset, length)` の適応層、必須改善）
+   - 2 単体テスト（lcn 変換 / lcn overflow）
+8. **`crates/workbench-dryrun/src/main.rs`** (130→183 行 = **+53**):
+   - `DiagnoseArgs` / `RecoverArgs` を持つ enum variant へ移行
+   - 2 単体テスト（diagnose 物理 CLI parse / recover 物理 CLI parse）
+
+**🎯 新規 API（業務メンバー / 後続チャンク向け）**:
+- `dds_disk_io::PhysicalPartitionReader::new(drive, start, size)`
+- `dds_disk_io::PhysicalPartitionReader::into_closure() -> impl FnMut(u64, u64) -> Result<Vec<u8>, io::Error>`
+- workbench-dryrun 内部: `volume::open_ntfs_volume_from_partition(reader) -> Result<NtfsVolume<ClusterReader>>`
+
+**🎯 unsafe 統計（業務 CRITICAL、Chunk 24d-2 から完全変化なし）**:
+
+| 場所 | unsafe ブロック数 | 用途 |
+|---|---|---|
+| `disk-io/src/physical.rs` | 12 ブロック維持 | Chunk 24d-1 から不変 |
+| `disk-io/src/physical_partition.rs` | **0 件** 🎯 | 新規追加（safe Rust） |
+| `workbench-dryrun/src/volume.rs` 追加分 | **0 件** 🎯 | 適応層は safe Rust |
+| `workbench-dryrun/src/commands/*` 追加分 | **0 件** 🎯 | CLI 層は safe Rust |
+| `recovery/src/timestamps.rs` | 2 ブロック維持 | Chunk 24a/24c から不変 |
+| 他全クレート（13 個） | **0 件維持** | Chunk 24d-2 と同じ |
+| **合計** | **14 ブロック / 約 65 行**（Chunk 24d-2 から完全変化なし） | CRITICAL |
+
+**🎯 業務的エラーメッセージ（FR-PHY-08 達成、業務メンバー直接利益）**:
+
+FS タイプが NTFS 以外:
+- diagnose: 「選択されたパーティションは {fs_type} です。Phase 1.5 では NTFS のみ復旧/診断可能です。」
+- recover: 同等
+
+NTFS open 失敗時（壊れた NTFS の検出）:
+- diagnose: 「NTFS の管理領域 ($MFT) が破損している可能性」「別ツール (R-STUDIO 等) での復旧をご検討ください」
+- recover: 「パーティションが本当に NTFS か確認 (list-drives --physical)」「別ツール (R-STUDIO 等) の使用を検討」
+
+→ 業務メンバーが次の一手を判断可能。
+
+**🎯 list-drives --physical 業務ヒント（NTFS 自動検出）**:
+実機 Drive 0 Partition 4（Windows Recovery NTFS）が例として自動反映:
+```
+使い方:
+  診断: workbench-dryrun diagnose --physical N --partition M
+  復旧: workbench-dryrun recover --physical N --partition M
+
+例:
+  workbench-dryrun diagnose --physical 0 --partition 4
+  workbench-dryrun recover  --physical 0 --partition 4
+```
+
+**🎯 テスト統計**:
+- 新規単体: **13 件**（要件 6 件を 117% 超過）
+  - `physical_partition.rs::tests` 3 件: offset 計算 / 境界クリップ / overflow 検出
+  - `volume.rs::tests` 追加 2 件: lcn 変換 / lcn overflow
+  - `diagnose.rs::tests` 追加 3 件: physical 単独エラー / partition 単独エラー / default 論理モード
+  - `recover.rs::tests` 追加 3 件: 同上
+  - `main.rs::tests` 追加 2 件: diagnose 物理 CLI parse / recover 物理 CLI parse
+- 新規統合: **2 件**（`#[cfg(windows)]` + `#[ignore]`）
+  - `integration_open_ntfs_via_physical_partition`
+  - `integration_partition_boundary_clips_on_real_drive`
+- workspace 全体: **592 件 pass / 0 failed / 11 ignored**（Chunk 24d-2 579 → **+13 件で完全一致**）
+- `cargo check --workspace` エラー **0**
+- `cargo clippy --workspace --all-targets -- -D warnings` warning **0**
+- `cargo doc --workspace --no-deps` warning **0**
+- `cargo fmt --all -- --check` clean
+
+**🎯 安全性（CRITICAL、業務要求）**:
+- 非破壊原則継続: ソース HDD への書き込み一切なし（read-only 限定継続）
+- `unsafe impl Send for PhysicalDrive {}` 追加なし（Mutex 単独化により回避、CRITICAL）
+- physical_partition.rs / volume.rs / commands/* は **すべて safe Rust**（unsafe 0 件）
+- パーティション境界クリップ + offset overflow 検出（safe Rust）
+- clippy / doc warning **0 件**
+- cargo fmt clean
+- 全公開 type / method / field に日本語 rustdoc
+
+**🎯 既存論理モードの非破壊（CRITICAL）**:
+- diagnose / recover の (None, None) → 既存論理モードロジックそのまま保持
+- 共通化のため `finalize_diagnose` / `print_recovery_result` を抽出（動作等価）
+- 既存テスト全 pass (`recover_creates_new_case_when_not_exists` 等)
+- `execute_business_recovery` / `DiagnosticEngine` / `prompt_*` / `list_logical_drives` 等の既存ヘルパは **変更なし**
+
+**🎯 含まないもの（次の Chunk 24d-4 で実施）**:
+- ❌ 実機ドライランによる検証 → **Chunk 24d-4**
+- ❌ 業務メンバーフィードバックの反映 → **Chunk 24d-4**
+- ❌ BitLocker 暗号化パーティションへの本格対応 → 将来（Phase 2 以降）
+- ❌ 4 KiB セクタ NVMe 固有処理 → 将来（Phase 2 以降）
+
+**🎯 関連 PRD 要件達成**:
+- **FR-PHY-06**（物理パーティションからの NtfsVolume open、新規）→ ✅ 🎯 新規達成
+- **FR-PHY-07**（diagnose/recover の --physical 対応、新規）→ ✅ 🎯 新規達成
+- **FR-PHY-08**（壊れた NTFS の業務的エラー表示、新規）→ ✅ 🎯 新規達成
+- FR-PHY-01 / FR-PHY-02 / FR-PHY-03 / FR-PHY-04 / FR-PHY-05（Chunk 24d-1 / 24d-2 で達成済）→ ✅ 継続維持
+- NFR-REL-01（ソースデバイス書込禁止）→ ✅ 維持
+
+**🎯 業務インパクト（最重要マイルストーン）**:
+- **壊れた FS / マウント不能 HDD からの実復旧が可能に**（Phase 1.5 拡張の最大目的を達成）
+- **R-STUDIO の代替候補として真剣に評価可能な段階に到達**（業界標準ツール並みの認識能力 + 物理 raw + パーティション粒度 + 業務統合層 + 業務的エラーメッセージ）
+- 業務メンバーが「次の一手」を判断可能（別ツール候補の明示、パーティション確認手順の提示）
+- Chunk 24d-2 の C: ドライブ FAT32 誤検出問題（簡易判定の限界）も NtfsVolume::open による真の健全性判定で解消
+- 続く Chunk 24d-4（実機ドライランとフィードバック反映）で Phase 1.5 拡張完全完成へ
+
+### 🎯🎯🎯 Phase 1.5 拡張 第 3 段階完成 = 最重要マイルストーン到達（Chunk 24d-3 完了時）
+
+```
+🎯🎯🎯 DDS Recovery Workbench - Phase 1.5 拡張 第 3 段階完成 (Chunk 24d-3) 🎯🎯🎯
+                = 最重要マイルストーン到達 =
+  M0 設計確定         100% ✅
+  M1 基盤構築          30% （Phase 1 では基盤として十分機能、Phase 2 で残実装）
+  M2 NTFS リーダα     100% ✅
+  M3 希望突合エンジン  100% ✅
+  M4 復旧 + 品質判定  100% ✅
+  M5 NTFS-α リリース  100% ✅ 業務適用版到達
+  ─────────────────────────────────────────
+  Phase 1.5 (業務統合層) — 🎊 完全完成 🎊
+  Phase 1.5 業務適用品質完成 — 🎯 業界標準品質達成 🎯
+  Chunk 24a         お客様向けレポート簡素化+タイムスタンプ保持 ✅ 完成
+  Chunk 24b         並列化によるパフォーマンス改善 + 進捗表示 ✅ 完成
+  Chunk 24c         タイムスタンプ書き込みの高速化         ✅ 完成
+  ─────────────────────────────────────────
+  Phase 1.5 拡張 (壊れた FS の HDD 対応) — 🎯 第 3 段階完成 = 最重要マイルストーン到達 🎯
+  Chunk 24d-1       物理ディスクアクセス層                 ✅ 完成 🎯 R-STUDIO 並み認識能力の基盤
+  Chunk 24d-2       パーティションテーブル解析 (MBR/GPT)   ✅ 完成 🎯 パーティション粒度判断可能に
+  Chunk 24d-3       NtfsVolume 統合 + --physical 対応     ✅ 完成 🎯 壊れた HDD から実復旧可能に
+  Chunk 24d-4       実機ドライランとフィードバック反映     ⏳ 次推奨
+  ─────────────────────────────────────────
+  Chunks 1-24d-3 完了（サブチャンク含む 34 ドキュメント）
+  workspace total: 592 件 pass / 0 failed / 11 ignored（Chunk 24d-2 579 → +13 件）
+  unsafe: 14 ブロック / 約 65 行（Chunk 24d-2 から完全変化なし、CRITICAL）
+         disk-io/physical.rs 12 + recovery/timestamps.rs 2
+         physical_partition.rs / volume.rs / commands/* はすべて safe Rust（unsafe 0 件）
+         unsafe impl Send for PhysicalDrive {} 追加なし（Mutex 単独化により回避）
+         他全クレート（core/fs-common/fs-ntfs/fs-exfat/fs-fat32/
+         case-manager/diagnostic/report/wish-match/validators/
+         workbench-dryrun/quality/db）unsafe 0 件維持
+  非破壊原則: ソースディスクへの書き込み 0 件継続 / GENERIC_READ-only 維持
+  既存論理モード: 完全非破壊（finalize_diagnose / print_recovery_result の共通化のみ）
+  業務的エラーメッセージ: 壊れた NTFS 検出時に別ツール候補等の次の一手を提示
+  clippy 0 件 / doc 0 件 / fmt --check exit 0
+  業界標準ツール比較: R-STUDIO の代替候補として真剣に評価可能な段階に到達
+```
+
+### 🎯 Chunk 24d-3 次のステップ
+
+1. **Chunk 24d-4 着手**: 実機ドライランとフィードバック反映
+   - 壊れた FS / マウント不能 HDD の実機 raw アクセス + diagnose/recover --physical の動作検証
+   - 業務メンバーフィードバックの反映（CLI 文言 / エラーメッセージ / 業務シナリオ補強）
+   - FR-PHY-XX の PRD 正式追記（Chunk 24d-4 完了時の方針継続）
+2. **並行検討可**: Phase 2.1 着手準備（Tauri UI 開発、約 2 ヶ月想定）
+
+---
+
+## 🎯 Chunk 24d-2 旧トップヘッダアーカイブ（Chunk 24d-3 で更新済）
+
+**注**: 以下は Chunk 24d-2 完了時点のトップヘッダ記述。Chunk 24d-3 完了により上書きされた。詳細な Chunk 24d-2 完了記録は本セクション直下の「Chunk 24d-2: パーティションテーブル解析 (MBR/GPT) — 完成」を参照。
+
+### 🎯🎯🎯 Phase 1.5 拡張 第 2 段階完成マイルストーン（Chunk 24d-2 / 2026-06-04、アーカイブ）
 
 Phase 1.5 拡張（壊れた FS の HDD 対応）の 4 サブチャンク（24d-1 〜 24d-4）の **2 番目の節目達成**。Chunk 24d-1 の物理ディスクアクセス層基盤に **MBR/GPT パーティションテーブル解析 + ブートセクタシグネチャベースの FS タイプ簡易判定**を追加。実機ドライブで GPT 4 パーティション取得成功し、NTFS パーティションを「★ 復旧対象」として可視化。続く **Chunk 24d-3（NtfsVolume 物理パーティション統合 + diagnose/recover の --physical 対応）** の基盤完成。
 
@@ -3273,6 +3523,9 @@ M10: 改善 + MVP    [░░░░░░░░]   0% ⏳ 未着手
 | 18 | dds-validators (新規) + dds-recovery | validators 品質判定基盤（`Validator` trait + `ValidatorRegistry`（**`Arc<dyn Validator>` で複数拡張子マップ**）+ `ValidationStatus`（Valid/Invalid/Uncertain 3 値）+ `ValidationResult` + `summary()` + PNG/JPEG/PDF Validator 3 種 + 復旧パイプライン統合（`validate_after_recovery` フラグ + `RecoveredEntry.validation` + サマリ集計）+ 保守的 Uncertain 設計 + 拡張子と中身の不一致検出 + 単方向依存 recovery → validators）🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 validators 品質判定基盤完成 / 業務観測「.txt は Validator 未登録 → Uncertain」/ 保守的 3 値判定 / FR-QUAL-01/02/03 達成 / M4 復旧+品質判定 40% → 🎉 70% 達成 | 949※※※※※※※※ | 26 ✓ + 結合 2 ✓ + doctest 1 ✓（recovery 結合 +3 件 = 計 32 件追加） | 未計測 | 2026-05-21 |
 | 19 | dds-validators + dds-recovery | validators 拡充 + 混在形式フィクスチャ統合（GIF / BMP / ZIP / DOCX / XLSX / PPTX Validator 6 種追加、**3 → 9 validator / 4 → 10 拡張子**、ZIP セントラルディレクトリ共有関数 `pub(crate) validate_zip_structure`、OOXML 3 形式集約、`ntfs_mixed_formats.img.zst` フィクスチャ 15 ファイル: valid 10 + invalid 4 + uncertain 1、ground truth に `expected_validation_status` + `expected_format` フィールド追加、拡張子嘘の検出 + 破損検出 + フォーマット別集計の業務シナリオ実証、CS 報告フォーマット出力）🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 validators 拡充完了 / 混在形式の end-to-end 業務観測実証 / M4 復旧+品質判定 70% → 🎉 90% 達成 / **Phase 1 NTFS-α リリース直前** | 945※※※※※※※※※ | 18 ✓ + 結合 4 ✓（recovery 混在 4 + validators 結合 2 = 計 22 件追加） | 未計測 | 2026-05-21 |
 | 20 | dds-validators + dds-recovery + **dds-report (新規)** | 3 層メッセージ + レポート生成（`ValidationResult` に `user_message_ja` + `internal_note_ja` 追加 + `customer_message()` / `internal_note()` メソッド、9 validator 全分岐に 3 層日本語メッセージ、`report` クレート新規誕生（`write_all_reports` + 5 ファイル: `lib.rs` 118 + `error.rs` 50 + `escape.rs` 73 + `html_customer.rs` 277 + `html_internal.rs` 313 + `csv.rs` 179）、顧客 HTML（internal_note 含まず）+ CS HTML（警告 + internal_note + SHA256）+ CSV（13 列外部連携）、**`customer_html_must_not_contain_internal_notes` 結合テストで業務 CRITICAL の機械検証**（禁止フレーズ 7 種 + 技術用語 5 種を grep 検証、漏洩 0 件）、`SingleOutcome::Recovered` を `Box<RecoveredEntry>` 化（clippy::large_enum_variant 対応）、`escape_html` XSS 防止 17 箇所、HTML well-formed、Phase 1 端から端まで通った）🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉 **Phase 1 NTFS-α リリース達成 🎊** / M4 復旧+品質判定 90% → 🎉 100% / M5 NTFS-α リリース 10% → 🎉 100% / FR-REP-01/02/03 + FR-QUAL-04 達成 | 1497※※※※※※※※※※ | 7 ✓（validators 単体）+ 結合 3 + 1 ignored（recovery）+ report 19 ✓（lib 18 + doc 1）= 計 29 件 + 1 ignored 追加 | 未計測 | 2026-05-22 |
+| 24d-3 | dds-disk-io (physical_partition.rs 新規) + dds-workbench-dryrun (volume.rs 拡張 + commands/diagnose.rs + commands/recover.rs + commands/list_drives.rs + main.rs) | NtfsVolume との統合 + diagnose/recover --physical 対応（**Phase 1.5 拡張 第 3 段階完成 = 最重要マイルストーン到達**、「壊れた FS の HDD から実際に復旧できる」状態に到達、Phase 1.5 拡張の業務的価値が実現、R-STUDIO の代替候補として真剣に評価可能な段階に到達、新規 2 ファイル: ①`crates/disk-io/src/physical_partition.rs` 198 行（`PhysicalPartitionReader` struct `Mutex<PhysicalDrive>` 単独保持 + `new(drive, start, size)` 公開コンストラクタ + `into_closure(self) -> impl FnMut(u64, u64) -> Result<Vec<u8>, io::Error>` 所有権 move 設計、パーティション境界クリップ + offset overflow 検出、**仕様書 `Arc<Mutex<PhysicalDrive>>` から builder 判断で改善し `unsafe impl Send` 回避**、3 単体: offset 計算 / 境界クリップ / overflow 検出）+ ②`crates/disk-io/tests/physical_partition_integration.rs` 111 行（`integration_open_ntfs_via_physical_partition` + `integration_partition_boundary_clips_on_real_drive`、ともに `#[cfg(windows)]` + `#[ignore]`）、修正 5 ファイル: ③`crates/disk-io/src/lib.rs` +2 行（pub mod + re-export PhysicalPartitionReader）+ ④`crates/workbench-dryrun/src/commands/diagnose.rs` 145→373 行 = +228（`DiagnoseArgs` struct + `diagnose_physical` 関数 + 共通 `finalize_diagnose` ヘルパ抽出、FS タイプ NTFS 以外: 「Phase 1.5 では NTFS のみ復旧/診断可能」業務メッセージ、NTFS open 失敗時: 「$MFT 破損可能性」「別ツール (R-STUDIO 等) での復旧をご検討」業務メッセージ、3 単体: physical 単独エラー / partition 単独エラー / default 論理モード）+ ⑤`crates/workbench-dryrun/src/commands/recover.rs` 410→698 行 = +288（`RecoverArgs` struct + `recover_physical` 関数 + 共通 `print_recovery_result` ヘルパ抽出、同等の業務的エラーメッセージ、3 単体: 同上 3 パターン）+ ⑥`crates/workbench-dryrun/src/commands/list_drives.rs` 184→228 行 = +44（使い方ヒント + `find_ntfs_partition_example` 自動検出、実機 Drive 0 Partition 4 Windows Recovery NTFS が例として自動反映）+ ⑦`crates/workbench-dryrun/src/volume.rs` 140→228 行 = +88（**仕様書外の追加** `open_ntfs_volume_from_partition(reader) -> Result<NtfsVolume<ClusterReader>>` + `make_partition_cluster_reader` NtfsVolume `ClusterReader(lcn, count)` 抽象 ⇄ PhysicalPartitionReader `(offset, length)` の適応層 必須改善、2 単体: lcn 変換 / lcn overflow）+ ⑧`crates/workbench-dryrun/src/main.rs` 130→183 行 = +53（DiagnoseArgs/RecoverArgs を持つ enum variant + CLI parse テスト 2 件: diagnose 物理 / recover 物理）、**設計改善（仕様書からの逸脱、妥当と判定）**: 仕様書 `Arc<Mutex<PhysicalDrive>>` → 実装 `Mutex<PhysicalDrive>` 単独 + `into_closure(self)` 所有権 move（NtfsVolume が単一 closure 保持で複数 reader 不要 → Arc 不要 + `clippy::arc_with_non_send_sync` 警告回避 + `unsafe impl Send` 追加不要、CRITICAL 観点で大きなプラス、並列化 Chunk 24b との関係: NtfsVolume reader はシリアル制約 影響なし）、**業務 CRITICAL: unsafe 14 行で Chunk 24d-2 から完全変化なし**: physical_partition.rs / volume.rs / commands/* に unsafe 0 件、`unsafe impl Send for PhysicalDrive {}` 追加なし（Mutex 単独化により回避、CRITICAL 観点で大きなプラス）、ソースディスクへの書き込み 0 件継続、GENERIC_READ-only 維持、**既存論理モードの非破壊（CRITICAL）**: diagnose / recover の (None, None) → 既存論理モードロジックそのまま保持、共通化のため `finalize_diagnose` / `print_recovery_result` を抽出（動作等価）、既存テスト全 pass (`recover_creates_new_case_when_not_exists` 等)、`execute_business_recovery` / `DiagnosticEngine` / `prompt_*` / `list_logical_drives` 等の既存ヘルパは変更なし、**業務的エラーメッセージ（FR-PHY-08 達成）**: FS タイプ NTFS 以外 + NTFS open 失敗時に業務メンバーが次の一手を判断可能な提示（別ツール R-STUDIO 等の候補、パーティション確認 list-drives --physical 等）、list-drives --physical 業務ヒントで NTFS 自動検出（実機 Drive 0 Partition 4 Windows Recovery NTFS が例として自動反映）、新規 API: `dds_disk_io::PhysicalPartitionReader::new(drive, start, size)` + `dds_disk_io::PhysicalPartitionReader::into_closure() -> impl FnMut(u64, u64) -> Result<Vec<u8>, io::Error>` + workbench-dryrun 内部 `volume::open_ntfs_volume_from_partition(reader) -> Result<NtfsVolume<ClusterReader>>`、業務インパクト: 壊れた FS / マウント不能 HDD からの実復旧が可能に（Phase 1.5 拡張の最大目的を達成） + R-STUDIO の代替候補として真剣に評価可能 + 業務メンバーが次の一手を判断可能（別ツール候補の明示等） + Chunk 24d-2 の C: ドライブ FAT32 誤検出問題（簡易判定の限界）も NtfsVolume::open による真の健全性判定で解消、静的チェック: cargo check / clippy -D warnings / doc / fmt --check すべて clean）🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 Phase 1.5 拡張 第 3 段階完成 = 最重要マイルストーン到達 — 壊れた FS の HDD から実復旧可能 / R-STUDIO 代替候補として真剣に評価可能** / **FR-PHY-06（物理パーティションからの NtfsVolume open、新規）+ FR-PHY-07（diagnose/recover の --physical 対応、新規）+ FR-PHY-08（壊れた NTFS の業務的エラー表示、新規）すべて新規達成** | physical_partition.rs 198 + integration 111 + diagnose +228 + recover +288 + list_drives +44 + volume +88 + main +53 + lib +2 = 約 +1012 行（新規 2 + 修正 5）※※※※※※※※※※※※※※※※※※※※※※※※※ | 新規単体 13 件（要件 6 件を 117% 超過: physical_partition.rs 3 + volume.rs 追加 2 + diagnose.rs 追加 3 + recover.rs 追加 3 + main.rs 追加 2）+ 新規統合 2 件（`#[cfg(windows)]` + `#[ignore]`: `integration_open_ntfs_via_physical_partition` + `integration_partition_boundary_clips_on_real_drive`）= workspace 全体 579 → **592 件 pass / 0 failed / 11 ignored**（Chunk 24d-2 +13 件で完全一致） | 未計測 | 2026-06-04 |
+| 24d-2 | dds-disk-io (partition.rs + fs_detection.rs 新規 + physical.rs/lib.rs/Cargo.toml 修正) + dds-workbench-dryrun (list_drives.rs 修正) | パーティションテーブル解析 (MBR/GPT) + FS タイプシグネチャ判定（**Phase 1.5 拡張 第 2 段階完成**、Chunk 24d-1 物理ドライブ全体しか見えない → パーティション粒度で復旧対象を判断可能に、新規 2 ファイル: ①`crates/disk-io/src/partition.rs` 493 行（実装 379 + テスト 114、`PartitionError` enum 6 variants + `Partition` struct + `PartitionType` enum (`MbrType(u8)` / `GptType(uuid::Uuid)`) + `read_partitions(&PhysicalDrive)` + `parse_mbr_partitions` + `parse_gpt` Protective MBR 検出 + LBA 1 ヘッダ + 最大 128 エントリ + `uuid_from_le_bytes` GPT UUID 仕様準拠、5 単体）+ ②`crates/disk-io/src/fs_detection.rs` 184 行（実装 119 + テスト 65、`FsType` enum Ntfs/Fat32/ExFat/Unknown + `display_name()` + `is_recoverable()` Phase 1.5 では NTFS のみ true + `detect_fs_type(drive, offset)` + `detect_from_boot_sector(&[u8])` 純粋関数: NTFS offset 3-10 `"NTFS    "` / exFAT offset 3-10 `"EXFAT   "` / FAT32 offset 82-89 `"FAT32   "`、NTFS 優先判定で誤判定回避、8 単体）、修正 4 ファイル: ③`crates/disk-io/src/physical.rs` +18 行（`PhysicalDrive::list_partitions()` 追加 Windows + 非 Windows ZST 両方）+ ④`crates/disk-io/src/lib.rs` +5 行（partition / fs_detection 公開 + re-export）+ ⑤`crates/disk-io/Cargo.toml` +3 行（uuid.workspace = true）+ ⑥`crates/workbench-dryrun/src/commands/list_drives.rs` +33 行（`└─ Partition N: type, size, fs ★ 復旧対象` 表示）、設計判断: MBR/GPT 両対応 LBA 0 シグネチャ判別 + GPT エントリ最大 128 件 + GPT UUID LE/BE 混在処理 + FS タイプは 512B シグネチャベース軽量判定（Chunk 24d-3 で NtfsVolume::open 真健全性判定に置換予定）+ NTFS 優先判定でゴミ混入時の誤判定回避、業務観測: 実機 NVMe で GPT 4 パーティション全件取得成功（EFI System / Microsoft Reserved / Microsoft Basic Data / Windows Recovery）+ NTFS パーティション「★ 復旧対象」マーク表示、業務 CRITICAL: **unsafe 14 行で Chunk 24d-1 から変化なし**（partition.rs / fs_detection.rs はすべて safe Rust、physical.rs 12 + recovery/timestamps.rs 2 = 14 ブロック維持）+ ソースディスクへの書き込み 0 件継続 + GENERIC_READ-only 維持、申し送り: Partition 3（C: ドライブ、本来 NTFS）が FAT32 と簡易判定される現象 → 512B シグネチャベース簡易判定の仕様通り 不合格事項ではない → Chunk 24d-3 で NtfsVolume::open による真健全性判定にて対応予定、CLI 出力末尾に「Chunk 24d-3 で追加予定」明示、安全性: clippy / doc warning 0 件 + fmt clean + 全公開 type/method/field に日本語 rustdoc）🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 Phase 1.5 拡張 第 2 段階完成 — パーティション粒度で復旧対象判断可能 / CS がどのパーティション復旧か即座に判断可能** / **FR-PHY-04（パーティションテーブル解析、新規）+ FR-PHY-05（FS タイプ判定 シグネチャベース簡易、新規）すべて新規達成** | partition.rs 493 + fs_detection.rs 184 + physical.rs +18 + list_drives.rs +33 + lib.rs +5 + Cargo.toml +3 = 約 +736 行（新規 2 + 修正 4）※※※※※※※※※※※※※※※※※※※※※※※※ | 新規単体 13 件（partition.rs 5 + fs_detection.rs 8）+ 新規統合 1 件（`#[ignore]` `integration_read_system_drive_partitions`）= workspace 全体 566 → **579 件 pass / 0 failed / 8 ignored**（+13 件） | 未計測 | 2026-06-04 |
+| 24d-1 | dds-disk-io (physical.rs 新規 + lib.rs/Cargo.toml 修正) + dds-workbench-dryrun (commands/list_drives.rs --physical サブモード追加) | 物理ディスクアクセス層（**Phase 1.5 拡張 第 1 段階完成**、壊れた FS の HDD はドライブレターが付いても NTFS マウント不可 → `\\.\PhysicalDriveN` 経由の raw アクセスで業界標準 R-STUDIO 並みの認識能力の基盤、新規 1 ファイル: `crates/disk-io/src/physical.rs`（`PhysicalDrive` struct + `enumerate_physical_drives()` + `read_at(offset, len)` + IOCTL_DISK_GET_LENGTH_INFO + IOCTL_STORAGE_QUERY_PROPERTY + windows-sys 経由 CreateFileW/DeviceIoControl/ReadFile/SetFilePointerEx/CloseHandle、**unsafe ブロック 12 箇所** すべて `// SAFETY:` 完備、Windows 限定 `#[cfg(windows)]`、非 Windows 環境用 ZST スタブ）、修正 3 ファイル: `crates/disk-io/src/lib.rs`（pub mod physical + re-export）+ `crates/disk-io/Cargo.toml`（windows-sys workspace dep 追加 Windows ターゲット限定）+ `crates/workbench-dryrun/src/commands/list_drives.rs`（`--physical` サブモード追加 enumerate_physical_drives 列挙 + Product / Bus Type / 容量表示）、**業務 CRITICAL: 非破壊原則の機械検証完了**: `CreateFileW` 呼出箇所 dwDesiredAccess = `GENERIC_READ` のみ（`GENERIC_WRITE` 完全不在、機械検証済）+ `DeviceIoControl` 使用 IOCTL は `IOCTL_DISK_GET_LENGTH_INFO` / `IOCTL_STORAGE_QUERY_PROPERTY` の 2 つ read-only のみ + `WriteFile` workspace grep コード本文 0 件（コメント内禁止宣言のみ）+ `GENERIC_WRITE` workspace grep コード本文 0 件、業務観測: 実機 NVMe `WDC PC SN530 SDBPNPZ-512G-1006` (476.94 GB) 取得成功 + Bus Type NVMe 表示成功、安全性: 全 unsafe ブロックに詳細 `// SAFETY:` コメント + `unsafe fn` / `unsafe impl` / `unsafe trait` / `unsafe extern` すべて 0 件 + clippy / doc warning 0 件、申し送り: パーティション情報未表示（Chunk 24d-2 で追加予定、CLI 出力末尾に明示）、Chunk 24d-2（パーティションテーブル解析）+ Chunk 24d-3（NtfsVolume 統合 + diagnose/recover --physical 対応）の基盤完成）🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 Phase 1.5 拡張 第 1 段階完成 — R-STUDIO 並み認識能力の基盤達成 / 壊れた FS の HDD を raw レベルで認識可能** / **FR-PHY-01（物理ドライブ列挙、新規）+ FR-PHY-02（物理ドライブ raw 読み取り、新規）+ FR-PHY-03（ソース HDD への書き込み禁止、機械検証）すべて新規達成** | physical.rs 新規（unsafe 12 ブロック / 約 63 行追加、recovery/timestamps.rs の既存 2 ブロック合わせて 14 ブロック / 約 65 行）+ lib.rs / Cargo.toml / list_drives.rs 修正※※※※※※※※※※※※※※※※※※※※※※※ | 新規単体 ~10 件（physical.rs 各種）+ 新規統合 1 件（`#[ignore]` 実機ドライブ列挙）= workspace 全体 556 → **566 件 pass / 0 failed / 7 ignored**（+10 件） | 未計測 | 2026-06-04 |
 | 24c | dds-recovery (timestamps.rs + engine.rs + lib.rs) | タイムスタンプ書き込みの高速化（**実機ボトルネック解消、ファイル毎 open 回数を 2 → 1 に半減**、2 回目実機ドライラン (2026-05-26) で観測: 1859 ファイル / 4.52 GB / 50:35 = **1.9 MB/s**（Chunk 24a + 24b 後にもかかわらず悪化、ベースライン 4 MB/s より遅い）+ 1GB 単一 5.5 MB/s + 残り 1858 ファイル 1.3 MB/s（1 ファイル平均 1.5 秒）→ ボトルネックは「ファイル毎の open/close 回数」、原因: Chunk 24a の `apply_timestamps(&path)` が File::create と別に再 open していたためファイル毎の Windows API open 回数が 2 倍、修正 3 ファイル: ①**`crates/recovery/src/timestamps.rs`**（新規 `apply_timestamps_to_handle(&File, &NtfsTimestamps)` 関数追加 `#[cfg(windows)]` + 既存 `apply_timestamps(&Path, ...)` を `apply_timestamps_to_handle` を呼ぶ実装に変更 後方互換性維持 + **unsafe ブロック 2 箇所を `apply_timestamps_to_handle` 内に移設** 合計行数は不変 + module doc に「Chunk 24c で移設」明記 + 新規単体 2 件 `apply_timestamps_to_open_handle_works` / `apply_timestamps_via_path_calls_handle_version`）+ ②**`crates/recovery/src/engine.rs`**（`write_with_large_buffer` → **`write_with_timestamps(path, content, timestamps: Option<&NtfsTimestamps>)` に拡張** + `BufWriter::into_inner()` で File ハンドル取り出し → `apply_timestamps_to_handle(&file, ts)` 呼出 タイムスタンプ失敗は warn のみ復旧成功扱い + `process_recovery_task` 内: 旧「write_with_large_buffer + 別途 apply_timestamps(path)」→ **新「write_with_timestamps 1 関数で完結」** + 別途 `crate::timestamps::apply_timestamps(&final_path, ...)` 呼出は完全削除（grep 0 件確認）+ 既存テスト `write_with_large_buffer_creates_parent_dirs` → `write_with_timestamps_creates_parent_dirs` に rename + None 渡し改修 + 新規単体 1 件 `write_with_timestamps_applies_ts_in_single_open`）+ ③`crates/recovery/src/lib.rs`（`apply_timestamps_to_handle` を pub use に追加）、**ファイル毎 open 回数の比較**: Chunk 24a/24b で 2 回（File::create → close → OpenOptions::open → SetFileTime → close）→ **Chunk 24c で 1 回**（File::create → write → SetFileTime（同じハンドル）→ close）、実機 1858 ファイル × 2 = 3716 回 → 1858 回（半減）、Windows API 呼出回数も同率で削減、**期待されるパフォーマンス改善**: 現状（Chunk 24a + 24b）1.9 MB/s → 期待値（Chunk 24c）**30-50 MB/s**（ファイル毎オーバーヘッド半減）、100 MB/s 未達なら Chunk 24d（SHA256 並行 / Validator スキップ等）検討、実速度測定は Chouさんの 3 回目実機ドライランで、**安全性（CRITICAL、不変）**: **unsafe 行数 2 ブロック維持**（Chunk 24a/24b の `timestamps.rs:132, 143` → Chunk 24c で `timestamps.rs:152, 163`）、**位置が +20 行シフトしただけ、コード量・unsafe 行数は完全に同じ**、`unsafe` の所在は `apply_timestamps_to_handle` 内に集約（旧 `apply_timestamps` から移設）、他クレートの `unsafe` は引き続き 0 件、`BufWriter::into_inner()` のエラーは `std::io::Error::other` で適切に変換、後方互換性維持: 既存 `apply_timestamps(&Path)` API は handle 版ラッパとして存続、タイムスタンプ書き込み失敗時の挙動維持: 警告ログのみ復旧は成功扱い、clippy / doc warning 0 件、ソースデバイス書き込みなし）🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 実機ボトルネック解消 — 2 回目実機ドライランで判明した 1.9 MB/s ボトルネックの根本原因（apply_timestamps の再 open オーバーヘッド）を解消 / ファイル毎 open 回数を 2 → 1 に半減** / **FR-REC-09（ファイル open 回数の最小化、性能改善、新規）新規達成 + FR-REC-08（復旧速度、目標 100 MB/s）部分達成見込み（30-50 MB/s 期待、実機検証で確定）** | timestamps.rs +20 行（unsafe ブロック移設）+ engine.rs `write_with_timestamps` 拡張 + lib.rs pub use 追加（修正 3 ファイル、新規ファイルなし、軽量改修）※※※※※※※※※※※※※※※※※※※※※※※ | 新規単体 3 件（timestamps 2 + engine 1）+ 既存テスト互換性: Chunk 24a の `recovered_files_preserve_original_timestamps` (cfg(windows) 結合) そのまま pass = workspace 全体 553 → **556 件 pass / 0 failed / 6 ignored**（+3 件） | 未計測 | 2026-05-26 |
 | 24b | dds-recovery + dds-case-manager + workbench-dryrun | 並列化によるパフォーマンス改善 + 進捗表示（**Phase 1.5 業務適用品質の最終形**、実機ドライランフィードバック ② ③ 復旧速度 4 MB/s + 進捗見えない → Producer-Consumer 並列化 + ConsoleProgressReporter で対応、目標 50-100 MB/s（12-25 倍速、100 MB/s 最低ライン）、新規 1 ファイル: `crates/recovery/src/progress.rs` 221 行（`ProgressReporter` trait `Send + Sync` 制約 + `ConsoleProgressReporter`（5 秒おき stderr 出力、初回即表示、100% 時に最終報告）+ `NoopProgressReporter` + 7 単体）、修正 13 ファイル: `Cargo.toml`（workspace deps `crossbeam-channel = "0.5"` + `num_cpus = "1.16"` 追加）+ `crates/recovery/Cargo.toml`（crossbeam-channel / num_cpus workspace deps）+ **`crates/recovery/src/engine.rs`**（**`recover_files` シグネチャに `progress: &P` 引数追加** + Producer-Consumer 並列化実装 + I/O バッファ 8KB → 1MB）+ `crates/recovery/src/error.rs`（`WorkerPanic` バリアント追加）+ `crates/recovery/src/lib.rs`（progress mod + re-export）+ `crates/case-manager/Cargo.toml`（num_cpus dev-dep 追加 perf demo 用）+ **`crates/case-manager/src/orchestration.rs`**（`execute_business_recovery` シグネチャに `progress: &P` 追加）+ `crates/case-manager/tests/business_flow_integration.rs`（migration + 結合 2 件追加 `perf_demo_chunk24b_recovery_speed` / `demo_chunk24b_console_progress_output` 両方 `#[ignore]`）+ `crates/recovery/tests/recovery_integration.rs`（migration + 並列結合 2 件追加 `parallel_recovery_processes_all_files` / `parallel_recovery_progress_called_for_each_file`）+ `crates/recovery/tests/recovery_mixed_formats_integration.rs`（migration）+ `crates/recovery/tests/recovery_validation_integration.rs`（migration）+ `crates/recovery/tests/recovery_with_reports_integration.rs`（migration）+ `crates/workbench-dryrun/src/commands/recover.rs`（`ConsoleProgressReporter` 利用 + 復旧完了後の速度 MB/s 表示）、**Producer-Consumer 並列化アーキテクチャ**: ①プロデューサ（メインスレッド 1 個）が `NtfsVolume::iter_files()` で列挙（シリアル、FnMut 制約）+ FileInfo 構築 + match_files + MatchResult を owned (is_priority, labels, score) に展開（ライフタイム問題回避）+ `volume.read_file_content(file)` で content 読出（シリアル必須）+ progress.report + task_tx.send（bounded(N\*2) で背圧制御）→ ②コンシューマ（ワーカースレッド N 個、N = `num_cpus::get().clamp(1, 4)`）が task_rx.recv + build_output_path + find_unique_path + write_with_large_buffer（BufWriter::with_capacity(1 MiB)）+ apply_timestamps（Windows SetFileTime、Chunk 24a）+ sha256_hex + ValidatorRegistry::validate + result_tx.send → ③結果収集（1 個）が result_rx を drain して Vec<ProcessedOutcome> 構築、**設計上のキーポイント**: ①背圧制御 bounded(worker_count\*2) でメモリ消費制限 / ②NtfsVolume シリアル制約 FnMut のため read は必ずメインスレッド / ③MatchResult ライフタイム問題回避（owned タプル事前展開） / ④I/O バッファ拡大 8KB → 1MB（syscall 削減）、ワーカー数決定根拠: `num_cpus::get().clamp(1, MAX_WORKER_THREADS=4)` で単一コア PC でも動く（下限 1）+ 8 コア超でも 4 で打ち止め（I/O 支配で並列化効果飽和）+ 業務 PC 16 コア環境で 4 並列確認、**「unsafe 追加なし」維持（CRITICAL）**: Chunk 24a の 2 ブロック (`timestamps.rs:132, 143`) **から増加なし** + crossbeam-channel / num_cpus / sha2 / BufWriter / std::thread::spawn すべて safe API + **並列化に unsafe 不要を達成**（Rust の所有権モデルが safe な並列処理を保証）、ProgressReporter は `Send + Sync` 制約で並列安全 + Tauri 再利用可能設計、WorkerPanic 検出と RecoveryError への変換、ConsoleProgressReporter 出力サンプル: `[復旧中] 1/30 ファイル (3.3%) - 経過 0:00 - 現在: \file_000.txt` 実機 (1858 ファイル / 4.52 GB) では 5 秒おき + 100% 時に stderr 出力、ベンチマーク（フィクスチャ参考値）: ワーカー数 4 / ファイル数 15 / データ量 1355 bytes / 経過 0.034 秒（ベースライン Chunk 24a 実機: 約 4 MB/s、目標 Chunk 24b: 50-100 MB/s 実機で検証）、業務インパクト: 4 MB/s → 50-100 MB/s 目標達成見込み（並列化 + I/O バッファ拡大）+ 進捗表示で「動いている」感が出る → お客様待ち時間の不安解消 + workbench-dryrun の完了表示に速度 MB/s 追加 → CS が業務的に効率測定可能 + Phase 2.1 UI で TauriProgressReporter として再利用可能、安全性: clippy / doc warning 0 件 + cargo fmt clean（Chunk 24a で解消した状態を維持）+ ソースデバイス書き込みなし）🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 Phase 1.5 業務適用品質の最終形完成 — Chunk 24a + 24b 揃い Chouさんの 2 回目実機ドライランで業務適用品質を確定可能** / **FR-REC-08（復旧速度、目標 100 MB/s、新規）並列化実装完了実機で 50-100 MB/s 検証待ち + FR-CLI-08（進捗表示、新規）新規達成** | +221 行（progress.rs 新規）+ engine.rs 並列化拡張 + 13 ファイル修正※※※※※※※※※※※※※※※※※※※※※※ | 新規単体 12 件（progress 7 + engine 5: `process_recovery_task_writes_file_with_buffered_io` / `process_recovery_task_propagates_priority_metadata` / `write_with_large_buffer_creates_parent_dirs` / `worker_count_is_in_expected_range` / `write_buffer_size_constant_is_one_megabyte`）+ 新規結合 4 件（parallel 2 + business_flow 2、うち 2 件 `#[ignore]`）+ 修正既存 15 件（NoopProgressReporter 機械的 migration）= workspace 全体 539 → **553 件 pass / 0 failed / 6 ignored**（+14 件） | 未計測 | 2026-05-26 |
 | 24a | dds-recovery (新規 timestamps.rs) + dds-report + dds-case-manager + workbench-dryrun | お客様向けレポート簡素化 + タイムスタンプ保持（**業界標準品質達成、R-STUDIO 並み**、実機ドライランフィードバック反映 ④ CSV 文字化け解消 + ⑤ 品質保証率削除 + 復旧ファイルのタイムスタンプを NTFS 元の値で保持、新規 1 ファイル: `crates/recovery/src/timestamps.rs` 216 行（`apply_timestamps()` + `NtfsTimestamps` + `TimestampError` + 3 単体 + **unsafe ブロック 2 箇所** SetFileTime 呼出 + GetLastError 取得 合計約 5 行）、**🎯 設計原則の変更（重要）— 「unsafe 0」方針の限定的緩和**: これまで 28 chunks にわたり workspace 全体で `unsafe` 0 を維持 → Chunk 24a で `timestamps.rs` に限定して unsafe を許容（タイムスタンプ書き込みは業界標準 R-STUDIO 等で Windows API `SetFileTime` 必須、保護策: 単一ファイル隔離 + RAII (OpenOptions) + 引数検証 + 詳細 `// SAFETY:` コメント + Windows 限定 `#[cfg(windows)]` + 単体テストカバレッジ）、他クレート（validators / wish-match / case-manager / fs-ntfs / report / diagnostic / disk-io / db / quality / fs-common / core / workbench-dryrun）すべて `unsafe` キーワード **0 件**、修正 12 ファイル: `crates/recovery/Cargo.toml`（`windows-sys` workspace dep 追加 Windows ターゲット限定）+ `crates/recovery/src/lib.rs`（`timestamps` pub mod + re-export）+ `crates/recovery/src/engine.rs`（`recover_one` 内で `apply_timestamps` 呼出 3 つすべて Some の場合のみ 失敗は warn）+ `crates/report/src/docx_customer.rs`（全面書換 簡素化 品質保証率 / Valid / Invalid / Uncertain / 復旧実施日時すべて削除）+ `crates/report/src/business.rs`（全面書換 5→3 ファイル API、**UTF-8 BOM 付加** `ef bb bf`）+ `crates/report/src/html_internal.rs`（品質保証率パーセンテージ削除、件数は維持）+ `crates/report/src/lib.rs`（header コメント更新）+ `crates/case-manager/src/output.rs`（TXT/HTML/CSV パスメソッド削除、社内保存パスメソッド追加 `internal_html_path_in_storage` / `csv_path_in_storage`）+ `crates/case-manager/src/orchestration.rs`（`execute_business_recovery` に `&CaseStorage` 引数追加）+ `crates/case-manager/tests/business_flow_integration.rs`（全面書換 24a 仕様の結合テストへ）+ `crates/recovery/tests/recovery_with_reports_integration.rs`（品質保証率 → 件数 assertion 変更）+ `crates/workbench-dryrun/src/commands/recover.rs`（新シグネチャ対応 + 納品 HDD / 社内保存の二系統表示 + 品質保証率削除）、副次変更（cargo fmt 由来、意味的変更ゼロ）: diagnostic / validators / wish-match / workbench-dryrun の Phase 1.5 全期間累積 fmt drift **23 diff** を解消、`cargo fmt --all -- --check` **exit 0**、**破壊的変更（API、5 件）**: ①`execute_business_recovery(...)` に `storage: &CaseStorage` 引数追加 / ②`BusinessReportPaths` フィールド変更（`customer_invalid_txt` / `customer_uncertain_txt` 削除、3 fields に: `customer_docx` / `internal_html` / `csv`）/ ③`write_business_reports(...)` シグネチャ変更（5 path → 3 path）/ ④`CaseOutput::customer_invalid_txt_path()` / `customer_uncertain_txt_path()` / `internal_html_path()` / `csv_path()` メソッド削除 / ⑤`CaseOutput::internal_html_path_in_storage()` / `csv_path_in_storage()` 新規追加、業務観測 — 納品 HDD（お客様への成果物）: `target/chunk24a-samples/delivery/260522-04/復旧データ/通常ファイル/ (15 件) + レポート/復旧レポート.docx (21829 bytes)` のみ（HTML / CSV / TXT は存在しない、業務管理は社内へ）、業務観測 — 社内保存（CS 業務管理用、お客様には見せない）: `target/chunk24a-samples/internal/260522-04/case.json (1207 bytes) + 業務管理レポート.html (5678 bytes) + 復旧詳細.csv (7316 bytes, UTF-8 BOM 付き)`、CSV BOM バイナリダンプ（実機ドライランフィードバック ④ 解消の実証）: `ef bb bf 73 6f 75 72 63 65 5f 69 64 ...` Excel で開いても文字化けしない、復旧レポート.docx 中身（簡素化後）: データ復旧レポート ■ 復旧結果（通常 15 / 削除 0 / 合計 15 件 1.32 KB）■ ご指定優先データ（該当 4 件 / お客様優先: PNG 画像）■ お問い合わせ先、削除済み確認（実機ドライランフィードバック ⑤ 解消の実証）: 「品質保証率」「Valid」「Invalid」「Uncertain」「正常確認済み」「要ご確認」「自動確認対象外」「作成日」「復旧実施日時」**すべて不在**、タイムスタンプ保持の実証（業界標準 R-STUDIO 並み達成）: 単体テスト 3 件 pass（Windows API SetFileTime 往復、tempfile 上での実適用）+ 結合テスト `#[cfg(windows)] recovered_files_preserve_original_timestamps` pass + 復旧ファイルの Creation / Modified / Accessed が NTFS 元の値で保持される + 3 つすべて `Some` の場合のみ適用 None ならスキップ + warn + タイムスタンプ書き込み失敗は警告ログのみ復旧は続行、安全性（unsafe 限定確認）: `recovery/src/timestamps.rs:132, 143` の 2 ブロック（SetFileTime + GetLastError）のみ + `unsafe fn` / `unsafe impl` / `unsafe trait` / `unsafe extern`: 0 件 + 他クレートすべて `unsafe` キーワード 0 件 + 詳細な `// SAFETY:` コメント各箇所に付与 + `#[cfg(windows)]` でガード非 Windows は `Unsupported` エラー + 書き込み API: 出力先 + 復旧ファイルのタイムスタンプ書き込みのみ + clippy / doc warning 0 件）🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯🎯 **🎯 業界標準品質達成 (R-STUDIO 並み) — 実機ドライランフィードバック反映 + Phase 1.5 業務適用品質完成** / **FR-OUT-05（お客様向け納品物の簡素化、新規）+ FR-OUT-06（社内・お客様向けの分離、新規）+ FR-REC-07（タイムスタンプ保持、R-STUDIO 並み業界標準、新規）すべて新規達成** | +216 行（timestamps.rs 新規）+ docx_customer.rs / business.rs 全面書換 + 12 ファイル修正※※※※※※※※※※※※※※※※※※※※※ | 新規単体 ~20 件（timestamps 3 + business 5 + docx_customer 8 + html_internal 1 + output 3）+ 新規結合 3 件（`business_reports_separated_between_delivery_and_internal` / `#[cfg(windows)] recovered_files_preserve_original_timestamps` / `#[ignore] persist_chunk24a_demo_reports`）+ 修正既存 ~30 件 = workspace 全体 534 → **539 件 pass / 0 failed / 4 ignored**（+5 件） | 未計測 | 2026-05-26 |

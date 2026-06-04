@@ -48,11 +48,13 @@ enum Commands {
     /// 接続中のドライブを一覧表示する (既定: 論理 / `--physical` で物理)。
     ListDrives(commands::list_drives::ListDrivesArgs),
 
-    /// 案件を作成/更新し、対象 HDD を診断する。
-    Diagnose,
+    /// 案件を作成/更新し、対象 HDD を診断する
+    /// (`--physical N --partition M` で物理パーティション直接診断、Chunk 24d-3)。
+    Diagnose(commands::diagnose::DiagnoseArgs),
 
-    /// 既存の案件に対して復旧を実行する。
-    Recover,
+    /// 既存の案件に対して復旧を実行する
+    /// (`--physical N --partition M` で物理パーティション直接復旧、Chunk 24d-3)。
+    Recover(commands::recover::RecoverArgs),
 
     /// 案件情報を表示する。
     Show,
@@ -68,8 +70,8 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::ListDrives(args) => commands::list_drives::run(&args),
-        Commands::Diagnose => commands::diagnose::run(),
-        Commands::Recover => commands::recover::run(),
+        Commands::Diagnose(args) => commands::diagnose::run(&args),
+        Commands::Recover(args) => commands::recover::run(&args),
         Commands::Show => commands::show::run(),
     }
 }
@@ -100,13 +102,65 @@ mod tests {
     #[test]
     fn cli_parses_diagnose_command() {
         let cli = Cli::try_parse_from(["workbench-dryrun", "diagnose"]).unwrap();
-        assert!(matches!(cli.command, Commands::Diagnose));
+        match cli.command {
+            Commands::Diagnose(args) => {
+                assert!(args.physical.is_none());
+                assert!(args.partition.is_none());
+            }
+            other => panic!("unexpected command: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn cli_parses_diagnose_physical_flags() {
+        let cli = Cli::try_parse_from([
+            "workbench-dryrun",
+            "diagnose",
+            "--physical",
+            "1",
+            "--partition",
+            "2",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Diagnose(args) => {
+                assert_eq!(args.physical, Some(1));
+                assert_eq!(args.partition, Some(2));
+            }
+            other => panic!("unexpected command: {:?}", other),
+        }
     }
 
     #[test]
     fn cli_parses_recover_command() {
         let cli = Cli::try_parse_from(["workbench-dryrun", "recover"]).unwrap();
-        assert!(matches!(cli.command, Commands::Recover));
+        match cli.command {
+            Commands::Recover(args) => {
+                assert!(args.physical.is_none());
+                assert!(args.partition.is_none());
+            }
+            other => panic!("unexpected command: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn cli_parses_recover_physical_flags() {
+        let cli = Cli::try_parse_from([
+            "workbench-dryrun",
+            "recover",
+            "--physical",
+            "3",
+            "--partition",
+            "1",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Recover(args) => {
+                assert_eq!(args.physical, Some(3));
+                assert_eq!(args.partition, Some(1));
+            }
+            other => panic!("unexpected command: {:?}", other),
+        }
     }
 
     #[test]
